@@ -1,0 +1,16 @@
+{
+  "tcp": {
+    "dialTimeout": "10s",
+    "reconnectInitialBackoff": "1s",
+    "reconnectMaxBackoff": "60s"
+  },
+  "mc": {
+    "enabled": true,
+    "handshakeTimeout": "10s",
+    "deepCamouflage": true,
+    "loginUsername": "Steve",
+    "loginPluginChannel": "minecraft:register",
+    "loginPluginSecret": "change-this-shared-secret",
+    "rejectMessage": "You are not whitelisted on this server!"
+  }
+}

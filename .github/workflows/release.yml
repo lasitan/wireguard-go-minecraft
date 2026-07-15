@@ -1,0 +1,500 @@
+name: Build, Package and Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '.github/build/version.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  DEBIAN_BUILD_IMAGE: ${{ vars.DEBIAN_BUILD_IMAGE }}
+  # 可在仓库 Variables 设 GO_VERSION 覆盖；留空则默认 1.23.1
+  GO_VERSION: ${{ vars.GO_VERSION }}
+
+jobs:
+  # 在对应原生架构 runner 上构建，无需 QEMU。请修改 runs-on 为你的自托管标签。
+  build-x86:
+    runs-on: [self-hosted, Linux, X64]
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      deb_upstream: ${{ steps.version.outputs.deb_upstream }}
+    defaults:
+      run:
+        working-directory: checkout
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          clean: false
+          path: checkout
+
+      - name: Fix repository ownership
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if command -v sudo >/dev/null 2>&1; then
+            sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/checkout" || true
+          fi
+
+      - name: Read version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION_RAW="$(tr -d '\r\n\t ' < .github/build/version.txt)"
+          [ -n "$VERSION_RAW" ] || { echo "version.txt is empty" >&2; exit 1; }
+          DEB_UPSTREAM="${VERSION_RAW#v}"
+          if [[ "$VERSION_RAW" == v* ]]; then TAG="$VERSION_RAW"; else TAG="v$VERSION_RAW"; fi
+          echo "version=$VERSION_RAW" >> "$GITHUB_OUTPUT"
+          echo "deb_upstream=$DEB_UPSTREAM" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Sync Debian changelog
+        env:
+          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+        run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
+
+      # clean: false + 自托管会复用工作区，必须删掉往期 dist/release，否则 artifact 会带上多版本二进制
+      - name: Clean stale dist and root debs
+        run: |
+          set -euo pipefail
+          rm -rf dist/release
+          rm -f wireguard-mc_*.deb wireguard-mc-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
+
+      - name: Build .deb and binary (x86 family)
+        env:
+          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+          WG_MC_VERSION: ${{ steps.version.outputs.tag }}
+          REPO_DIR: ${{ github.workspace }}/checkout
+          RUNNER_FAMILY: x86
+          GO_VERSION: ${{ env.GO_VERSION }}
+        run: |
+          set -euo pipefail
+          GO_VERSION="${GO_VERSION:-1.23.1}"
+          IMG="${DEBIAN_BUILD_IMAGE:-debian:bookworm-slim}"
+          echo "Debian build image: ${IMG}"
+          echo "Go version: ${GO_VERSION}"
+          mkdir -p dist/release/deb dist/release/bin
+          rm -f wireguard-mc_*.deb wireguard-mc-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
+          json_file='.github/build/friendly-filenames.json'
+          for key in $(jq -r --arg fam "$RUNNER_FAMILY" 'to_entries[] | select(.value.runnerFamily==$fam) | .key' "$json_file" | sort); do
+            friendly="$(jq -r --arg k "$key" '.[$k].friendlyName' "$json_file")"
+            platform="$(jq -r --arg k "$key" '.[$k].dockerPlatform' "$json_file")"
+            debarch="$(jq -r --arg k "$key" '.[$k].debArchitecture' "$json_file")"
+            goarch="$(jq -r --arg k "$key" '.[$k].goArchiveArch' "$json_file")"
+            echo "Building ${key} (${platform}, ${debarch}, go=${GO_VERSION}/${goarch})"
+            docker run --rm \
+              --platform "$platform" \
+              -e DEBIAN_FRONTEND=noninteractive \
+              -e "DEB_UPSTREAM=${DEB_UPSTREAM}" \
+              -e "WG_MC_VERSION=${WG_MC_VERSION}" \
+              -e "GO_VERSION=${GO_VERSION}" \
+              -e "GO_ARCHIVE_ARCH=${goarch}" \
+              -e "HOST_UID=$(id -u)" \
+              -e "HOST_GID=$(id -g)" \
+              -v "${REPO_DIR}:/src" \
+              -w /src \
+              "${IMG}" \
+              bash -ce '
+                set -euo pipefail
+                apt-get update -qq
+                apt-get install -y -qq --no-install-recommends \
+                  ca-certificates curl xz-utils \
+                  build-essential debhelper dpkg-dev fakeroot \
+                  >/dev/null
+                curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCHIVE_ARCH}.tar.gz" \
+                  | tar -C /usr/local -xz
+                export PATH="/usr/local/go/bin:${PATH}"
+                go version
+                chmod +x debian/rules
+                BUILD_ROOT=/tmp/wireguard-mc-build
+                rm -rf "${BUILD_ROOT}"
+                mkdir -p "${BUILD_ROOT}/wireguard-mc"
+                tar -C /src --exclude=./dist --exclude=./.git -cf - . \
+                  | tar -C "${BUILD_ROOT}/wireguard-mc" -xf -
+                cd "${BUILD_ROOT}/wireguard-mc"
+                sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
+                fakeroot dpkg-buildpackage -us -uc -b
+                deb_name="wireguard-mc_${DEB_UPSTREAM}-1_$(dpkg-architecture -qDEB_HOST_ARCH).deb"
+                cp "${BUILD_ROOT}/${deb_name}" /src/
+                install -m 0755 wireguard-go "/src/dist/release/bin/.build-${deb_name%.deb}"
+                if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ]; then
+                  chown -R "${HOST_UID}:${HOST_GID}" /src/dist /src/debian 2>/dev/null || true
+                  find /src -maxdepth 1 -name "wireguard-mc*.deb" -exec chown "${HOST_UID}:${HOST_GID}" {} + 2>/dev/null || true
+                fi
+              '
+            deb_glob="wireguard-mc_${DEB_UPSTREAM}-1_${debarch}.deb"
+            ls -1 "$deb_glob"
+            mv "$deb_glob" "dist/release/deb/"
+            bin_tmp="dist/release/bin/.build-wireguard-mc_${DEB_UPSTREAM}-1_${debarch}"
+            bin_out="dist/release/bin/wireguard-mc-${friendly}-${DEB_UPSTREAM}"
+            mv "$bin_tmp" "$bin_out"
+            chmod a+x "$bin_out"
+          done
+
+      - name: Keep only files matching this version (defense in depth)
+        env:
+          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+        run: |
+          set -euo pipefail
+          find dist/release -type f -print0 2>/dev/null | while IFS= read -r -d '' f; do
+            b=$(basename "$f")
+            case "$b" in
+              *"${DEB_UPSTREAM}"*) ;;
+              *)
+                echo "Removing file not for ${DEB_UPSTREAM}: $f"
+                rm -f "$f"
+                ;;
+            esac
+          done
+
+      - name: Restore ownership
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          if command -v sudo >/dev/null 2>&1; then
+            sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/checkout" || true
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-x86
+          path: checkout/dist/release/
+          if-no-files-found: error
+
+  build-arm:
+    runs-on: [self-hosted, Linux, ARM64]
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      deb_upstream: ${{ steps.version.outputs.deb_upstream }}
+    defaults:
+      run:
+        working-directory: checkout
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          clean: false
+          path: checkout
+
+      - name: Fix repository ownership
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if command -v sudo >/dev/null 2>&1; then
+            sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/checkout" || true
+          fi
+
+      - name: Read version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION_RAW="$(tr -d '\r\n\t ' < .github/build/version.txt)"
+          [ -n "$VERSION_RAW" ] || { echo "version.txt is empty" >&2; exit 1; }
+          DEB_UPSTREAM="${VERSION_RAW#v}"
+          if [[ "$VERSION_RAW" == v* ]]; then TAG="$VERSION_RAW"; else TAG="v$VERSION_RAW"; fi
+          echo "version=$VERSION_RAW" >> "$GITHUB_OUTPUT"
+          echo "deb_upstream=$DEB_UPSTREAM" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Sync Debian changelog
+        env:
+          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+        run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
+
+      - name: Clean stale dist and root debs
+        run: |
+          set -euo pipefail
+          rm -rf dist/release
+          rm -f wireguard-mc_*.deb wireguard-mc-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
+
+      - name: Build .deb and binary (ARM family)
+        env:
+          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+          WG_MC_VERSION: ${{ steps.version.outputs.tag }}
+          REPO_DIR: ${{ github.workspace }}/checkout
+          RUNNER_FAMILY: arm
+          GO_VERSION: ${{ env.GO_VERSION }}
+        run: |
+          set -euo pipefail
+          GO_VERSION="${GO_VERSION:-1.23.1}"
+          IMG="${DEBIAN_BUILD_IMAGE:-debian:bookworm-slim}"
+          echo "Debian build image: ${IMG}"
+          echo "Go version: ${GO_VERSION}"
+          mkdir -p dist/release/deb dist/release/bin
+          rm -f wireguard-mc_*.deb wireguard-mc-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
+          json_file='.github/build/friendly-filenames.json'
+          for key in $(jq -r --arg fam "$RUNNER_FAMILY" 'to_entries[] | select(.value.runnerFamily==$fam) | .key' "$json_file" | sort); do
+            friendly="$(jq -r --arg k "$key" '.[$k].friendlyName' "$json_file")"
+            platform="$(jq -r --arg k "$key" '.[$k].dockerPlatform' "$json_file")"
+            debarch="$(jq -r --arg k "$key" '.[$k].debArchitecture' "$json_file")"
+            goarch="$(jq -r --arg k "$key" '.[$k].goArchiveArch' "$json_file")"
+            echo "Building ${key} (${platform}, ${debarch}, go=${GO_VERSION}/${goarch})"
+            docker run --rm \
+              --platform "$platform" \
+              -e DEBIAN_FRONTEND=noninteractive \
+              -e "DEB_UPSTREAM=${DEB_UPSTREAM}" \
+              -e "WG_MC_VERSION=${WG_MC_VERSION}" \
+              -e "GO_VERSION=${GO_VERSION}" \
+              -e "GO_ARCHIVE_ARCH=${goarch}" \
+              -e "HOST_UID=$(id -u)" \
+              -e "HOST_GID=$(id -g)" \
+              -v "${REPO_DIR}:/src" \
+              -w /src \
+              "${IMG}" \
+              bash -ce '
+                set -euo pipefail
+                apt-get update -qq
+                apt-get install -y -qq --no-install-recommends \
+                  ca-certificates curl xz-utils \
+                  build-essential debhelper dpkg-dev fakeroot \
+                  >/dev/null
+                curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCHIVE_ARCH}.tar.gz" \
+                  | tar -C /usr/local -xz
+                export PATH="/usr/local/go/bin:${PATH}"
+                go version
+                chmod +x debian/rules
+                BUILD_ROOT=/tmp/wireguard-mc-build
+                rm -rf "${BUILD_ROOT}"
+                mkdir -p "${BUILD_ROOT}/wireguard-mc"
+                tar -C /src --exclude=./dist --exclude=./.git -cf - . \
+                  | tar -C "${BUILD_ROOT}/wireguard-mc" -xf -
+                cd "${BUILD_ROOT}/wireguard-mc"
+                sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
+                fakeroot dpkg-buildpackage -us -uc -b
+                deb_name="wireguard-mc_${DEB_UPSTREAM}-1_$(dpkg-architecture -qDEB_HOST_ARCH).deb"
+                cp "${BUILD_ROOT}/${deb_name}" /src/
+                install -m 0755 wireguard-go "/src/dist/release/bin/.build-${deb_name%.deb}"
+                if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ]; then
+                  chown -R "${HOST_UID}:${HOST_GID}" /src/dist /src/debian 2>/dev/null || true
+                  find /src -maxdepth 1 -name "wireguard-mc*.deb" -exec chown "${HOST_UID}:${HOST_GID}" {} + 2>/dev/null || true
+                fi
+              '
+            deb_glob="wireguard-mc_${DEB_UPSTREAM}-1_${debarch}.deb"
+            ls -1 "$deb_glob"
+            mv "$deb_glob" "dist/release/deb/"
+            bin_tmp="dist/release/bin/.build-wireguard-mc_${DEB_UPSTREAM}-1_${debarch}"
+            bin_out="dist/release/bin/wireguard-mc-${friendly}-${DEB_UPSTREAM}"
+            mv "$bin_tmp" "$bin_out"
+            chmod a+x "$bin_out"
+          done
+
+      - name: Keep only files matching this version (defense in depth)
+        env:
+          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+        run: |
+          set -euo pipefail
+          find dist/release -type f -print0 2>/dev/null | while IFS= read -r -d '' f; do
+            b=$(basename "$f")
+            case "$b" in
+              *"${DEB_UPSTREAM}"*) ;;
+              *)
+                echo "Removing file not for ${DEB_UPSTREAM}: $f"
+                rm -f "$f"
+                ;;
+            esac
+          done
+
+      - name: Restore ownership
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          if command -v sudo >/dev/null 2>&1; then
+            sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/checkout" || true
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-arm
+          path: checkout/dist/release/
+          if-no-files-found: error
+
+  release:
+    needs: [build-x86, build-arm]
+    runs-on: [self-hosted, Linux, X64]
+    env:
+      TAG: ${{ needs.build-x86.outputs.tag }}
+      DEB_UPSTREAM: ${{ needs.build-x86.outputs.deb_upstream }}
+    defaults:
+      run:
+        working-directory: checkout
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          path: checkout
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-x86
+          path: ${{ github.workspace }}/_artifacts/x86
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-arm
+          path: ${{ github.workspace }}/_artifacts/arm
+
+      - name: Merge artifacts for release
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          rm -rf checkout/dist/release
+          mkdir -p checkout/dist/release/deb checkout/dist/release/bin
+          shopt -s nullglob
+          cp _artifacts/x86/deb/*.deb checkout/dist/release/deb/ 2>/dev/null || true
+          cp _artifacts/x86/bin/* checkout/dist/release/bin/ 2>/dev/null || true
+          cp _artifacts/arm/deb/*.deb checkout/dist/release/deb/
+          cp _artifacts/arm/bin/* checkout/dist/release/bin/
+          echo "Merged debs:"; ls -la checkout/dist/release/deb/
+          echo "Merged bins:"; ls -la checkout/dist/release/bin/
+          DU="${DEB_UPSTREAM:?}"
+          find checkout/dist/release -type f -print0 | while IFS= read -r -d '' f; do
+            b=$(basename "$f")
+            case "$b" in *"${DU}"*) ;; *)
+              echo "Removing merged stray: $f"; rm -f "$f" ;;
+            esac
+          done
+
+      - name: Create and push version tag
+        run: |
+          set -euo pipefail
+          TAG="${TAG:?missing tag from build-x86}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+            echo "Remote tag ${TAG} exists; skip"
+          else
+            git tag -a "${TAG}" -m "Release ${TAG}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${TAG}"
+          fi
+
+      # softprops 只会「追加」Release 资源，不会删掉往期上传；重跑 workflow 会在同一 Release 上堆多版本附件
+      - name: Delete existing wireguard-mc assets on this tag (GitHub API)
+        env:
+          TAG: ${{ needs.build-x86.outputs.tag }}
+          GITHUB_TOKEN: ${{ github.token }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python3 << 'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+          from urllib.parse import quote
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          tag = os.environ["TAG"]
+          token = os.environ["GITHUB_TOKEN"]
+          url = f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag)}"
+          req = urllib.request.Request(
+              url,
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  data = json.load(resp)
+          except urllib.error.HTTPError as e:
+              if e.code == 404:
+                  print("No release yet for tag; skip asset delete", file=sys.stderr)
+                  sys.exit(0)
+              raise
+
+          for asset in data.get("assets", []):
+              name = asset.get("name") or ""
+              aid = asset.get("id")
+              if not name.startswith("wireguard-mc") or aid is None:
+                  continue
+              del_url = f"https://api.github.com/repos/{repo}/releases/assets/{aid}"
+              dreq = urllib.request.Request(
+                  del_url,
+                  method="DELETE",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(dreq) as _:
+                  pass
+              print(f"Removed release asset: {name}", file=sys.stderr)
+          PY
+
+      - name: Create/Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TAG }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          files: |
+            checkout/dist/release/deb/*.deb
+            checkout/dist/release/bin/*
+
+      - name: Set up SSH agent (reprepro deploy)
+        if: ${{ vars.ENABLE_REPREPRO_DEPLOY == 'true' }}
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.REPREPRO_SSH_PRIVATE_KEY }}
+
+      - name: Upload .deb via SSH and import with reprepro
+        if: ${{ vars.ENABLE_REPREPRO_DEPLOY == 'true' }}
+        working-directory: ${{ github.workspace }}
+        env:
+          REPREPRO_SSH_HOST: ${{ secrets.REPREPRO_SSH_HOST }}
+          REPREPRO_SSH_USER: ${{ secrets.REPREPRO_SSH_USER }}
+          REPREPRO_SSH_PORT: ${{ secrets.REPREPRO_SSH_PORT }}
+          REPREPRO_BASE: ${{ vars.REPREPRO_BASE }}
+          REPREPRO_CODENAME: ${{ vars.REPREPRO_CODENAME }}
+        run: |
+          set -euo pipefail
+          : "${REPREPRO_SSH_HOST:?}"
+          : "${REPREPRO_SSH_USER:?}"
+          PORT="${REPREPRO_SSH_PORT:-22}"
+          BASE="${REPREPRO_BASE:-/www/myrepo}"
+          CODENAME="${REPREPRO_CODENAME:-stable}"
+          INCOMING="/tmp/wireguard-mc-deb-${GITHUB_RUN_ID}"
+          shopt -s nullglob
+          all_debs=( "${GITHUB_WORKSPACE}/checkout/dist/release/deb/"*.deb )
+          debs=()
+          for f in "${all_debs[@]}"; do
+            case "$f" in
+              *_amd64.deb|*_arm64.deb|*_armhf.deb|*_i386.deb) debs+=( "$f" ) ;;
+            esac
+          done
+          [ "${#debs[@]}" -gt 0 ] || { echo "No deb to import" >&2; exit 1; }
+          ssh_common=( -o BatchMode=yes -o StrictHostKeyChecking=accept-new )
+          ssh "${ssh_common[@]}" -p "${PORT}" "${REPREPRO_SSH_USER}@${REPREPRO_SSH_HOST}" "mkdir -p '${INCOMING}'"
+          scp "${ssh_common[@]}" -P "${PORT}" "${debs[@]}" "${REPREPRO_SSH_USER}@${REPREPRO_SSH_HOST}:${INCOMING}/"
+          ssh "${ssh_common[@]}" -p "${PORT}" "${REPREPRO_SSH_USER}@${REPREPRO_SSH_HOST}" bash -s -- "${BASE}" "${CODENAME}" "${INCOMING}" << 'REMOTE'
+          set -euo pipefail
+          BASE="$1"; CODENAME="$2"; INCOMING="$3"
+          shopt -s nullglob
+          for deb in "${INCOMING}"/*.deb; do
+            [ -f "$deb" ] || continue
+            if command -v sudo >/dev/null 2>&1 && [ ! -w "$BASE" ]; then
+              sudo reprepro -b "$BASE" includedeb "$CODENAME" "$deb"
+            else
+              reprepro -b "$BASE" includedeb "$CODENAME" "$deb"
+            fi
+            rm -f -- "$deb"
+          done
+          rm -rf "${INCOMING}"
+          REMOTE
+
+      - name: Remove local .deb after reprepro
+        if: ${{ success() && vars.ENABLE_REPREPRO_DEPLOY == 'true' }}
+        working-directory: ${{ github.workspace }}
+        run: rm -f checkout/dist/release/deb/*.deb

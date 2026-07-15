@@ -1,0 +1,5 @@
+wireguard-mc (0.1.0-1) unstable; urgency=medium
+
+  * Initial Debian packaging for TCP+MC wireguard-go.
+
+ -- wireguard-mc maintainers <noreply@users.noreply.github.com>  Thu, 16 Jul 2026 00:00:00 +0000

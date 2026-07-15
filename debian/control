@@ -1,0 +1,18 @@
+Source: wireguard-mc
+Section: net
+Priority: optional
+Maintainer: wireguard-mc maintainers <noreply@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13), ca-certificates
+Standards-Version: 4.6.2
+Homepage: https://github.com/WireGuard/wireguard-go
+Rules-Requires-Root: no
+
+Package: wireguard-mc
+Architecture: any
+Depends: ${misc:Depends}
+Description: WireGuard userspace daemon with TCP + Minecraft camouflage
+ Fork of wireguard-go that transports WireGuard over length-prefixed TCP
+ with optional Minecraft protocol camouflage. Not compatible with kernel
+ WireGuard or the stock UDP wireguard-go binary.
+ .
+ Installs the wireguard-go binary and example configs under /etc/wireguard.

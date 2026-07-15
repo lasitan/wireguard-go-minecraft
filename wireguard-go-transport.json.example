@@ -1,0 +1,47 @@
+// WireGuard-over-TCP 传输层配置示例
+// 放置路径：/etc/wireguard/wireguard-go-transport.json（与 wg0.conf 同目录）
+// 注意：组网两端必须使用相同配置（尤其 loginPluginSecret）；本程序不与标准 UDP WireGuard 互通
+// 传输层：纯 TCP + Minecraft 协议伪装（无 TLS）
+{
+  // TCP 拨号与断线自动重连（指数退避）
+  "tcp": {
+    // 单次拨号超时
+    "dialTimeout": "10s",
+    // 首次重连等待时间
+    "reconnectInitialBackoff": "1s",
+    // 重连退避上限（1s → 2s → 4s → … 不超过此值）
+    "reconnectMaxBackoff": "60s"
+  },
+
+  // Minecraft 协议伪装（连接建立前几包对外呈现为 MC 服务器交互）
+  "mc": {
+    // 是否启用 MC 伪装；false 时使用无伪装的原始 TCP
+    "enabled": true,
+
+    // MC 伪装握手阶段读写超时
+    "handshakeTimeout": "10s",
+
+    // 深度伪装：Status+Ping/Pong+Login 私有握手；false 为仅 Status 浅层伪装
+    "deepCamouflage": true,
+
+    // Login 阶段使用的用户名（两端建议一致）
+    "loginUsername": "Steve",
+
+    // Login Plugin 通道名（WG 两端私有认证信道）
+    "loginPluginChannel": "minecraft:register",
+
+    // 两端必须相同的共享密钥，用于通过 Login Plugin 认证后切入 WG 数据流
+    // 请务必修改此值，使用足够长的随机字符串
+    "loginPluginSecret": "change-this-shared-secret",
+
+    // 非 WG 客户端尝试登录时的拒绝提示
+    "rejectMessage": "You are not whitelisted on this server!"
+
+    // ── 以下字段已移除，均由程序自动生成 ──
+    // protocolVersion / versionName   → 硬编码 760 / "1.20.4"
+    // serverHost / serverPort         → 使用实际连接地址与 WG 监听端口
+    // description / maxPlayers        → 硬编码 "A Minecraft Server" / 20
+    // onlinePlayers / samplePlayers   → 每次 STATUS 查询时随机生成（0–4 名玩家，随机单词组合名称）
+    // statusJSON / favicon            → 自动构建，不可手动覆盖
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "linux-amd64": {
+    "friendlyName": "linux-amd64",
+    "dockerPlatform": "linux/amd64",
+    "debArchitecture": "amd64",
+    "runnerFamily": "x86",
+    "goArchiveArch": "amd64"
+  },
+  "linux-386": {
+    "friendlyName": "linux-386",
+    "dockerPlatform": "linux/386",
+    "debArchitecture": "i386",
+    "runnerFamily": "x86",
+    "goArchiveArch": "386"
+  },
+  "linux-arm64": {
+    "friendlyName": "linux-arm64",
+    "dockerPlatform": "linux/arm64",
+    "debArchitecture": "arm64",
+    "runnerFamily": "arm",
+    "goArchiveArch": "arm64"
+  },
+  "linux-armhf": {
+    "friendlyName": "linux-armv7",
+    "dockerPlatform": "linux/arm/v7",
+    "debArchitecture": "armhf",
+    "runnerFamily": "arm",
+    "goArchiveArch": "armv6l"
+  }
+}

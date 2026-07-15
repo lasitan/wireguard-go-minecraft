@@ -1,0 +1,20 @@
+wireguard-mc
+============
+
+This package provides a customized wireguard-go that speaks WireGuard over
+TCP with optional Minecraft protocol camouflage. Both tunnel ends must use
+this binary (not kernel WireGuard / stock UDP wireguard-go).
+
+Quick start
+-----------
+
+1. Edit /etc/wireguard/wireguard-go-transport.json
+   (loginPluginSecret must match on both ends).
+2. Copy and edit the interface config:
+     cp /etc/wireguard/wg0.conf.example /etc/wireguard/wg0.conf
+     chmod 600 /etc/wireguard/wg0.conf
+3. Start in foreground:
+     sudo LOG_LEVEL=verbose /usr/bin/wireguard-go -f wg0
+
+Binary path: /usr/bin/wireguard-go
+Config dir:  /etc/wireguard/

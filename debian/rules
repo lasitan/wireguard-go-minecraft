@@ -1,0 +1,62 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export GO111MODULE = on
+export CGO_ENABLED = 0
+export GOPROXY ?= https://proxy.golang.org,direct
+export PATH := /usr/local/go/bin:$(PATH)
+
+DEB_HOST_ARCH := $(shell dpkg-architecture -qDEB_HOST_ARCH)
+
+ifeq ($(DEB_HOST_ARCH),amd64)
+  GOARCH := amd64
+else ifeq ($(DEB_HOST_ARCH),arm64)
+  GOARCH := arm64
+else ifeq ($(DEB_HOST_ARCH),armhf)
+  GOARCH := arm
+  export GOARM := 7
+else ifeq ($(DEB_HOST_ARCH),i386)
+  GOARCH := 386
+else
+  GOARCH := $(DEB_HOST_ARCH)
+endif
+
+export GOOS := linux
+export GOARCH
+
+VERSION_UPSTREAM := $(shell dpkg-parsechangelog -S Version | sed 's/-[^-]*$$//')
+LDFLAGS := -s -w -X main.Version=v$(VERSION_UPSTREAM)
+
+%:
+	dh $@
+
+override_dh_auto_clean:
+	rm -f wireguard-go
+	dh_auto_clean
+
+override_dh_auto_build:
+	@command -v go >/dev/null || { echo "go toolchain missing in PATH (expected /usr/local/go)"; exit 1; }
+	go version
+	go build -trimpath -ldflags "$(LDFLAGS)" -o wireguard-go .
+
+override_dh_auto_test:
+	@echo "Skipping unit tests during package build"
+
+override_dh_auto_install:
+	install -d debian/wireguard-mc/usr/bin
+	install -m 0755 wireguard-go debian/wireguard-mc/usr/bin/wireguard-go
+	install -d debian/wireguard-mc/etc/wireguard
+	if [ -f wireguard-go-transport.json ]; then \
+		install -m 0644 wireguard-go-transport.json debian/wireguard-mc/etc/wireguard/wireguard-go-transport.json; \
+	else \
+		install -m 0644 wireguard-go-transport.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-transport.json; \
+	fi
+	install -m 0600 debian/wg0.conf.example debian/wireguard-mc/etc/wireguard/wg0.conf.example
+	install -d debian/wireguard-mc/usr/share/doc/wireguard-mc
+	install -m 0644 debian/README.Debian debian/wireguard-mc/usr/share/doc/wireguard-mc/README.Debian
+
+override_dh_dwz:
+	@echo "Skipping dh_dwz for Go binary"
+
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym
