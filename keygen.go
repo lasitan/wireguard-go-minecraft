@@ -19,16 +19,22 @@ import (
 func printUsage() {
 	fmt.Printf(`Usage:
   %s [-f/--foreground] INTERFACE-NAME
+  %s install [INTERFACE]
+  %s uninstall [INTERFACE] [--purge]
   %s genkey
   %s pubkey
   %s genpsk
   %s --version
 
+Service (systemd):
+  install     Install/enable wireguard-go@INTERFACE (default: wg0)
+  uninstall   Stop/disable the service; --purge also removes configs
+
 Key commands (same as wg(8)):
   genkey   Generate a private key on stdout (base64)
   pubkey   Read a private key from stdin; write public key to stdout
   genpsk   Generate a preshared key on stdout (base64)
-`, os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0])
+`, os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0])
 }
 
 // handleKeyCommand runs wg-compatible key utilities.

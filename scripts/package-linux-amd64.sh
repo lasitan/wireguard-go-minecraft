@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build and package Linux amd64 server + client bundles.
-# Usage (from repo root):
+# Build and package Linux amd64 server + client config bundles (binary + examples).
+# Prefer apt (.deb) for installs. Usage (from repo root):
 #   bash scripts/package-linux-amd64.sh
 set -euo pipefail
 
@@ -15,16 +15,17 @@ BIN_NAME="wireguard-go"
 echo "==> Cleaning $OUT_ROOT"
 rm -rf "$OUT_ROOT"
 mkdir -p \
-  "$SERVER_DIR/usr/local/bin" "$SERVER_DIR/etc/wireguard" \
-  "$CLIENT_DIR/usr/local/bin" "$CLIENT_DIR/etc/wireguard"
+  "$SERVER_DIR/usr/bin" "$SERVER_DIR/etc/wireguard" \
+  "$CLIENT_DIR/usr/bin" "$CLIENT_DIR/etc/wireguard"
 
 echo "==> Building linux/amd64"
 export GOOS=linux GOARCH=amd64 CGO_ENABLED=0
 go build -trimpath -ldflags "-s -w" -o "$OUT_ROOT/$BIN_NAME" .
 
-cp "$OUT_ROOT/$BIN_NAME" "$SERVER_DIR/usr/local/bin/$BIN_NAME"
-cp "$OUT_ROOT/$BIN_NAME" "$CLIENT_DIR/usr/local/bin/$BIN_NAME"
+cp "$OUT_ROOT/$BIN_NAME" "$SERVER_DIR/usr/bin/$BIN_NAME"
+cp "$OUT_ROOT/$BIN_NAME" "$CLIENT_DIR/usr/bin/$BIN_NAME"
 rm -f "$OUT_ROOT/$BIN_NAME"
+chmod a+x "$SERVER_DIR/usr/bin/$BIN_NAME" "$CLIENT_DIR/usr/bin/$BIN_NAME"
 
 TRANSPORT_SRC="$ROOT/wireguard-go-transport.json"
 [[ -f "$TRANSPORT_SRC" ]] || TRANSPORT_SRC="$ROOT/wireguard-go-transport.json.example"
@@ -65,100 +66,44 @@ MTU = 1420
 PublicKey = SERVER_PUBLIC_KEY_BASE64
 Endpoint = SERVER_PUBLIC_IP:25565
 AllowedIPs = 10.0.0.0/24
-PersistentKeepalive = 25
+PersistentKeepalive = 5
 EOF
-
-cat > "$SERVER_DIR/install.sh" <<'EOF'
-#!/bin/sh
-set -e
-cd "$(dirname "$0")"
-install -d /usr/local/bin /etc/wireguard
-install -m 0755 usr/local/bin/wireguard-go /usr/local/bin/wireguard-go
-install -m 0644 etc/wireguard/wireguard-go-transport.json /etc/wireguard/wireguard-go-transport.json
-if [ ! -f /etc/wireguard/wg0.conf ]; then
-  install -m 0600 etc/wireguard/wg0.conf.example /etc/wireguard/wg0.conf
-  echo "Created /etc/wireguard/wg0.conf from example 鈥?edit keys before start."
-else
-  echo "Kept existing /etc/wireguard/wg0.conf"
-fi
-echo "Installed. Edit /etc/wireguard/*.conf then: wireguard-go -f wg0"
-EOF
-cp "$SERVER_DIR/install.sh" "$CLIENT_DIR/install.sh"
-chmod +x "$SERVER_DIR/install.sh" "$CLIENT_DIR/install.sh" \
-  "$SERVER_DIR/usr/local/bin/$BIN_NAME" "$CLIENT_DIR/usr/local/bin/$BIN_NAME"
-
-cat > "$SERVER_DIR/uninstall.sh" <<'EOF'
-#!/bin/sh
-set -e
-
-# Stop running daemon if present
-if pgrep -x wireguard-go >/dev/null 2>&1; then
-  echo "Stopping wireguard-go..."
-  pkill -x wireguard-go || true
-  sleep 1
-fi
-
-# Bring down TUN if still around
-if ip link show wg0 >/dev/null 2>&1; then
-  echo "Removing interface wg0..."
-  ip link set wg0 down 2>/dev/null || true
-  ip link delete wg0 2>/dev/null || true
-fi
-
-rm -f /usr/local/bin/wireguard-go
-rm -f /etc/wireguard/wireguard-go-transport.json
-
-# Keep wg0.conf by default (keys). Pass --purge to delete it too.
-if [ "${1:-}" = "--purge" ]; then
-  rm -f /etc/wireguard/wg0.conf
-  echo "Removed /etc/wireguard/wg0.conf"
-else
-  echo "Kept /etc/wireguard/wg0.conf (use --purge to delete)"
-fi
-
-# Remove empty UAPI socket dir leftovers for this iface
-rm -f /var/run/wireguard/wg0.sock 2>/dev/null || true
-
-echo "Uninstalled wireguard-go (TCP+MC)."
-EOF
-cp "$SERVER_DIR/uninstall.sh" "$CLIENT_DIR/uninstall.sh"
-chmod +x "$SERVER_DIR/uninstall.sh" "$CLIENT_DIR/uninstall.sh"
 
 cat > "$SERVER_DIR/README.txt" <<'EOF'
-wireguard-go TCP+MC Linux amd64 鈥?SERVER
+wireguard-go TCP+MC — SERVER (prefer apt: wireguard-mc)
 
-1) sudo ./install.sh
+1) Install the .deb, or copy usr/bin/wireguard-go and etc/wireguard/* into place
 2) Edit:
      /etc/wireguard/wg0.conf
      /etc/wireguard/wireguard-go-transport.json   # same loginPluginSecret as client
-3) Open firewall TCP ListenPort (default example: 25565/tcp)
-4) Start:
-     sudo LOG_LEVEL=verbose /usr/local/bin/wireguard-go -f wg0
-   Address/MTU from wg0.conf are applied automatically.
+3) Enable systemd service:
+     sudo wireguard-go install
+4) Status:
+     systemctl status wireguard-go@wg0
+     journalctl -u wireguard-go@wg0 -f
 
-Uninstall:
-     sudo ./uninstall.sh
-     sudo ./uninstall.sh --purge
+Remove service:
+     sudo wireguard-go uninstall
+     sudo wireguard-go uninstall --purge
 
 Both ends MUST use this custom binary (not kernel WireGuard / standard UDP).
 EOF
 
 cat > "$CLIENT_DIR/README.txt" <<'EOF'
-wireguard-go TCP+MC Linux amd64 鈥?CLIENT
+wireguard-go TCP+MC — CLIENT (prefer apt: wireguard-mc)
 
-1) sudo ./install.sh
+1) Install the .deb, or copy usr/bin/wireguard-go and etc/wireguard/* into place
 2) Edit:
      /etc/wireguard/wg0.conf          # set Endpoint = server_ip:port
      /etc/wireguard/wireguard-go-transport.json   # same loginPluginSecret as server
-3) Start:
-     sudo LOG_LEVEL=verbose /usr/local/bin/wireguard-go -f wg0
-   Address/MTU from wg0.conf are applied automatically.
+3) Enable systemd service:
+     sudo wireguard-go install
+4) Status:
+     systemctl status wireguard-go@wg0
 
-
-
-Uninstall:
-     sudo ./uninstall.sh
-     sudo ./uninstall.sh --purge
+Remove service:
+     sudo wireguard-go uninstall
+     sudo wireguard-go uninstall --purge
 
 Ping server tunnel IP (e.g. 10.0.0.1) to verify.
 EOF

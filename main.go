@@ -43,6 +43,9 @@ func main() {
 	if handleKeyCommand() {
 		return
 	}
+	if handleServiceCommand() {
+		return
+	}
 
 	var foreground bool
 	var interfaceName string

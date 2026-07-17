@@ -54,6 +54,8 @@ override_dh_auto_install:
 	install -m 0600 debian/wg0.conf.example debian/wireguard-mc/etc/wireguard/wg0.conf.example
 	install -d debian/wireguard-mc/usr/share/doc/wireguard-mc
 	install -m 0644 debian/README.Debian debian/wireguard-mc/usr/share/doc/wireguard-mc/README.Debian
+	install -d debian/wireguard-mc/lib/systemd/system
+	install -m 0644 debian/wireguard-go@.service debian/wireguard-mc/lib/systemd/system/wireguard-go@.service
 
 override_dh_dwz:
 	@echo "Skipping dh_dwz for Go binary"

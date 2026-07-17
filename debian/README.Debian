@@ -12,16 +12,28 @@ Key generation (same as wg)
   wireguard-go genkey | tee private.key | wireguard-go pubkey > public.key
   wireguard-go genpsk > psk.key
 
-Quick start
------------
+Quick start (systemd)
+---------------------
 
 1. Edit /etc/wireguard/wireguard-go-transport.json
    (loginPluginSecret must match on both ends).
 2. Copy and edit the interface config:
      cp /etc/wireguard/wg0.conf.example /etc/wireguard/wg0.conf
      chmod 600 /etc/wireguard/wg0.conf
-3. Start in foreground:
+3. Enable and start the service:
+     sudo wireguard-go install          # interface wg0
+     sudo wireguard-go install wg0      # same
+4. Status / logs:
+     systemctl status wireguard-go@wg0
+     journalctl -u wireguard-go@wg0 -f
+
+Stop and remove the service unit instance:
+     sudo wireguard-go uninstall
+     sudo wireguard-go uninstall --purge   # also delete configs
+
+Foreground (debug):
      sudo LOG_LEVEL=verbose /usr/bin/wireguard-go -f wg0
 
 Binary path: /usr/bin/wireguard-go
 Config dir:  /etc/wireguard/
+Unit file:   /lib/systemd/system/wireguard-go@.service
