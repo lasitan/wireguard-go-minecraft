@@ -5,6 +5,13 @@ This package provides a customized wireguard-go that speaks WireGuard over
 TCP with optional Minecraft protocol camouflage. Both tunnel ends must use
 this binary (not kernel WireGuard / stock UDP wireguard-go).
 
+Key generation (same as wg)
+---------------------------
+
+  umask 077
+  wireguard-go genkey | tee private.key | wireguard-go pubkey > public.key
+  wireguard-go genpsk > psk.key
+
 Quick start
 -----------
 

@@ -6,3 +6,4 @@ wireguard-go
 /*.buildinfo
 /*.dsc
 /*.build
+*.exe

@@ -25,7 +25,15 @@ const (
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Printf("wireguard-go v%s\n", Version)
+		return
+	}
+	if handleKeyCommand() {
+		return
+	}
 	if len(os.Args) != 2 {
+		printUsage()
 		os.Exit(ExitSetupFailed)
 	}
 	interfaceName := os.Args[1]
