@@ -8,8 +8,6 @@ package device
 import (
 	"container/list"
 	"errors"
-	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -144,26 +142,13 @@ func (peer *Peer) SendBuffers(buffers [][]byte) error {
 		peer.txBytes.Add(totalLen)
 		return nil
 	}
-	// Stale TCP session / NAT dial-back failure: drop endpoint so we stop
-	// hammering a dead mapping and wait for the peer to reconnect inbound.
-	if errors.Is(err, conn.ErrWaitingInboundReconnect) ||
-		errors.Is(err, net.ErrClosed) ||
-		isDialTimeout(err) {
+	// Only clear *roamed/inbound* endpoints when the server must wait for the
+	// client to dial back. Never clear a configured Endpoint (client side) —
+	// that permanently stopped reconnect after the server restarted.
+	if errors.Is(err, conn.ErrWaitingInboundReconnect) {
 		peer.clearEndpoint()
 	}
 	return err
-}
-
-func isDialTimeout(err error) bool {
-	if err == nil {
-		return false
-	}
-	var ne net.Error
-	if errors.As(err, &ne) && ne.Timeout() {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "i/o timeout") || strings.Contains(msg, "connection refused")
 }
 
 func (peer *Peer) clearEndpoint() {

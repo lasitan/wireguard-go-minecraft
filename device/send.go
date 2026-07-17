@@ -133,6 +133,11 @@ func (peer *Peer) SendHandshakeInitiation(isRetry bool) error {
 	err = peer.SendBuffers([][]byte{packet})
 	if err != nil {
 		peer.device.log.Errorf("%v - Failed to send handshake initiation: %v", peer, err)
+		// Transport failure (server down / dial timeout): allow immediate retry
+		// on the next keepalive instead of waiting a full RekeyTimeout.
+		peer.handshake.mutex.Lock()
+		peer.handshake.lastSentHandshake = time.Now().Add(-(RekeyTimeout + time.Second))
+		peer.handshake.mutex.Unlock()
 		return err
 	}
 	peer.timersHandshakeInitiated()

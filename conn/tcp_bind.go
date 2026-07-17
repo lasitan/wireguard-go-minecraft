@@ -364,8 +364,7 @@ func (b *TCPBind) Send(bufs [][]byte, endpoint Endpoint) error {
 		if err == nil {
 			continue
 		}
-		// Connection died — drop it and recover via same-IP session (server
-		// after client reconnect) or a bounded re-dial (client).
+		// Connection died — drop and redial (client) or wait for inbound (server).
 		b.dropSession(session.key, session)
 		session, err = b.getOrDialSession(te.dst)
 		if err != nil {
