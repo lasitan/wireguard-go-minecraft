@@ -27,6 +27,9 @@ Quick start (systemd)
      systemctl status wireguard-go@wg0
      journalctl -u wireguard-go@wg0 -f
 
+After apt upgrade, all enabled/active wireguard-go@ instances are restarted
+automatically so the new binary is picked up.
+
 Stop and remove the service unit instance:
      sudo wireguard-go uninstall
      sudo wireguard-go uninstall --purge   # also delete configs

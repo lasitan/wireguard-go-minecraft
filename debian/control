@@ -9,10 +9,11 @@ Rules-Requires-Root: no
 
 Package: wireguard-mc
 Architecture: any
-Depends: ${misc:Depends}
+Depends: ${misc:Depends}, systemd | systemd-sysv
 Description: WireGuard userspace daemon with TCP + Minecraft camouflage
  Fork of wireguard-go that transports WireGuard over length-prefixed TCP
  with optional Minecraft protocol camouflage. Not compatible with kernel
  WireGuard or the stock UDP wireguard-go binary.
  .
  Installs the wireguard-go binary and example configs under /etc/wireguard.
+ On upgrade, enabled wireguard-go@*.service instances are restarted automatically.

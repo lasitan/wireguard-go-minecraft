@@ -1,0 +1,59 @@
+#!/bin/sh
+set -e
+
+restart_wireguard_go_instances() {
+	command -v systemctl >/dev/null 2>&1 || return 0
+	systemctl daemon-reload >/dev/null 2>&1 || true
+
+	# Collect interface names from running/enabled units and from conf files.
+	ifaces=""
+	for unit in $(systemctl list-units --type=service --all --no-legend 'wireguard-go@*' 2>/dev/null | awk '{print $1}'); do
+		case "$unit" in
+		wireguard-go@*.service)
+			iface=${unit#wireguard-go@}
+			iface=${iface%.service}
+			ifaces="$ifaces $iface"
+			;;
+		esac
+	done
+	for conf in /etc/wireguard/*.conf; do
+		[ -e "$conf" ] || continue
+		case "$conf" in
+		*.example) continue ;;
+		esac
+		iface=$(basename "$conf" .conf)
+		ifaces="$ifaces $iface"
+	done
+
+	# Deduplicate and restart each instance that is enabled or was active.
+	seen=" "
+	for iface in $ifaces; do
+		case "$seen" in
+		*" $iface "*) continue ;;
+		esac
+		seen="$seen$iface "
+
+		unit="wireguard-go@${iface}.service"
+		if systemctl is-active --quiet "$unit" 2>/dev/null ||
+			systemctl is-enabled --quiet "$unit" 2>/dev/null; then
+			if command -v deb-systemd-invoke >/dev/null 2>&1; then
+				deb-systemd-invoke try-restart "$unit" >/dev/null 2>&1 || true
+			else
+				systemctl try-restart "$unit" >/dev/null 2>&1 || true
+			fi
+			echo "wireguard-mc: restarted $unit"
+		fi
+	done
+}
+
+case "$1" in
+configure)
+	# Fresh install and apt upgrade/reconfigure: reload unit + restart tunnels.
+	restart_wireguard_go_instances
+	;;
+abort-upgrade | abort-remove | abort-deconfigure) ;;
+esac
+
+#DEBHELPER#
+
+exit 0
