@@ -222,6 +222,7 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 	}
 
 	if buf.Len() > 0 {
+		fmt.Fprintf(os.Stderr, "wireguard-go: applying UAPI (bind TCP ListenPort)…\n")
 		if err := dev.IpcSetOperation(bufio.NewReader(&buf)); err != nil {
 			return nil, fmt.Errorf("apply conf %s: %w", confPath, err)
 		}
@@ -241,6 +242,7 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 		}
 	}
 
+	fmt.Fprintf(os.Stderr, "wireguard-go: configuring interface %s (mtu/address)…\n", iface)
 	if err := applyIfaceNetConfig(iface, netCfg, logger); err != nil {
 		return nil, err
 	}
@@ -250,18 +252,32 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 }
 
 func applyIfaceNetConfig(iface string, cfg ifaceNetConfig, logger *device.Logger) error {
+	const ipTimeout = 5 * time.Second
+	runIP := func(args ...string) error {
+		ctx, cancel := context.WithTimeout(context.Background(), ipTimeout)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "ip", args...).CombinedOutput()
+		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return fmt.Errorf("ip %v timed out after %s", args, ipTimeout)
+			}
+			return fmt.Errorf("ip %v: %w (%s)", args, err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+
 	if cfg.mtu > 0 {
-		if out, err := exec.Command("ip", "link", "set", "dev", iface, "mtu", strconv.Itoa(cfg.mtu)).CombinedOutput(); err != nil {
-			return fmt.Errorf("set mtu %d on %s: %w (%s)", cfg.mtu, iface, err, strings.TrimSpace(string(out)))
+		if err := runIP("link", "set", "dev", iface, "mtu", strconv.Itoa(cfg.mtu)); err != nil {
+			return fmt.Errorf("set mtu %d on %s: %w", cfg.mtu, iface, err)
 		}
 		logger.Verbosef("Set %s mtu %d", iface, cfg.mtu)
 	}
-	if out, err := exec.Command("ip", "link", "set", "dev", iface, "up").CombinedOutput(); err != nil {
-		return fmt.Errorf("set %s up: %w (%s)", iface, err, strings.TrimSpace(string(out)))
+	if err := runIP("link", "set", "dev", iface, "up"); err != nil {
+		return fmt.Errorf("set %s up: %w", iface, err)
 	}
 	for _, addr := range cfg.addresses {
-		if out, err := exec.Command("ip", "addr", "replace", addr, "dev", iface).CombinedOutput(); err != nil {
-			return fmt.Errorf("addr %s on %s: %w (%s)", addr, iface, err, strings.TrimSpace(string(out)))
+		if err := runIP("addr", "replace", addr, "dev", iface); err != nil {
+			return fmt.Errorf("addr %s on %s: %w", addr, iface, err)
 		}
 		logger.Verbosef("Assigned %s to %s", addr, iface)
 		fmt.Fprintf(os.Stderr, "wireguard-go: assigned %s to %s\n", addr, iface)

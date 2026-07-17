@@ -220,6 +220,7 @@ func main() {
 	fwdCount := 0
 	if _, statErr := os.Stat(confFile); statErr == nil {
 		confPath = confFile
+		fmt.Fprintf(os.Stderr, "wireguard-go: loading %s\n", confFile)
 		result, err := applyWGConf(dev, logger, interfaceName)
 		if err != nil {
 			logger.Errorf("Failed to apply wg conf: %v", err)
@@ -227,6 +228,10 @@ func main() {
 			os.Exit(ExitSetupFailed)
 		}
 		if result != nil {
+			if len(result.netCfg.addresses) == 0 {
+				fmt.Fprintf(os.Stderr, "wireguard-go: WARNING: no Address= in %s — interface will have no IP\n", confFile)
+			}
+			fmt.Fprintln(os.Stderr, "wireguard-go: starting port forwards (if any)")
 			if err := fwd.StartFromPeers(result.peers); err != nil {
 				logger.Errorf("Failed to start port forwards: %v", err)
 				fmt.Fprintf(os.Stderr, "wireguard-go: port forward error: %v\n", err)
@@ -234,6 +239,8 @@ func main() {
 			}
 			fwdCount = fwd.Count()
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "wireguard-go: no config at %s (UAPI-only mode)\n", confFile)
 	}
 
 	logger.Verbosef("Device started")
@@ -276,6 +283,10 @@ func main() {
 			}
 		}
 		printStartupInfo(dev, logger, interfaceName, confPath, tcpPort, mcEnabled, fwdCount)
+		fmt.Fprintln(os.Stderr, "wireguard-go: ready (foreground). Waiting for peers — Ctrl+C to stop.")
+		if os.Getenv("LOG_LEVEL") == "" {
+			fmt.Fprintln(os.Stderr, "wireguard-go: tip: LOG_LEVEL=verbose for handshake/TCP logs")
+		}
 	}
 
 	// wait for program to terminate
