@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -31,14 +32,22 @@ const (
 	transportConfigFileName = "wireguard-go-transport.json"
 	defaultMCProtocol       = 760
 	defaultMCHandshakeTime  = 5 * time.Second
-	defaultDialTimeout      = 10 * time.Second
+	defaultDialTimeout      = 3 * time.Second
 	defaultReconnectInitial = time.Second
 	defaultReconnectMax     = 30 * time.Second
-	// Bounded retries on the Send path so a server never blocks forever
-	// dialing a NAT'd client that is expected to reconnect inbound.
-	maxSendDialAttempts = 6
+	// Keep Send-path dial attempts tiny. Servers must not burn time dialing
+	// stale NAT mappings; clients only need a couple of tries before WG retries.
+	maxSendDialAttempts = 2
 	tcpKeepAlivePeriod  = 30 * time.Second
+	// If no framed payload is received for this long, tear down the TCP
+	// session so the client redials (pair with PersistentKeepalive ≈ 5s).
+	defaultRXIdleTimeout = 5 * time.Second
 )
+
+// ErrWaitingInboundReconnect is returned when a previously inbound peer's TCP
+// session is gone. The server must not dial back through NAT; the client is
+// expected to reconnect. Callers should clear the peer endpoint.
+var ErrWaitingInboundReconnect = errors.New("tcp session gone; waiting for peer reconnect")
 
 type tcpPacket struct {
 	payload  []byte
@@ -46,18 +55,22 @@ type tcpPacket struct {
 }
 
 type tcpSession struct {
-	bind    *TCPBind
-	key     string
-	dst     netip.AddrPort
-	conn    net.Conn
-	writeMu sync.Mutex
-	alive   bool
+	bind     *TCPBind
+	key      string
+	dst      netip.AddrPort
+	conn     net.Conn
+	writeMu  sync.Mutex
+	alive    bool
+	inbound  bool // accepted from peer (server side) vs dialed out (client)
+	lastRX   atomic.Int64 // unix nano of last framed payload read
 }
 
 type reconnectConfig struct {
-	initial     time.Duration
-	max         time.Duration
-	dialTimeout time.Duration
+	initial        time.Duration
+	max            time.Duration
+	dialTimeout    time.Duration
+	rxIdleTimeout  time.Duration
+	allowOutbound  bool // if false, never dial (listen-only server)
 }
 
 // TCPBind implements Bind over TCP transport with simple length-prefixed
@@ -70,8 +83,11 @@ type TCPBind struct {
 	listener6 net.Listener
 	sessions  map[string]*tcpSession
 	dialMu    map[string]*sync.Mutex
-	mcConfig  mcCamouflageConfig
-	reconnect reconnectConfig
+	// IPs that have connected inbound at least once. Send must not dial these
+	// back (NAT); wait for the peer to reconnect instead.
+	inboundIPs map[netip.Addr]struct{}
+	mcConfig   mcCamouflageConfig
+	reconnect  reconnectConfig
 
 	recvCh chan tcpPacket
 	done   chan struct{}
@@ -110,6 +126,10 @@ type tcpConfigFile struct {
 	DialTimeout             string `json:"dialTimeout"`
 	ReconnectInitialBackoff string `json:"reconnectInitialBackoff"`
 	ReconnectMaxBackoff     string `json:"reconnectMaxBackoff"`
+	// No framed RX for this long → close session (client will redial). Default 5s.
+	RXIdleTimeout string `json:"rxIdleTimeout"`
+	// If false, never dial out (typical for the listen/server role). Default true.
+	AllowOutboundDial *bool `json:"allowOutboundDial"`
 }
 
 type mcConfigFile struct {
@@ -220,6 +240,7 @@ again:
 	b.listener6 = listener6
 	b.sessions = make(map[string]*tcpSession)
 	b.dialMu = make(map[string]*sync.Mutex)
+	b.inboundIPs = make(map[netip.Addr]struct{})
 	b.pending = make(map[net.Conn]struct{})
 	b.recvCh = make(chan tcpPacket, 256)
 	b.done = make(chan struct{})
@@ -267,6 +288,7 @@ func (b *TCPBind) Close() error {
 	b.listener4 = nil
 	b.listener6 = nil
 	b.sessions = nil
+	b.inboundIPs = nil
 	b.mu.Unlock()
 
 	// Cancel in-flight DialContext / MC handshake first so peer.Stop is not blocked.
@@ -388,19 +410,35 @@ func (b *TCPBind) getOrDialSession(dst netip.AddrPort) (*tcpSession, error) {
 		return session, nil
 	}
 
-	// Dial with bounded retries. Servers that only accept inbound should
-	// usually find the reconnected session via lookupSession (same IP)
-	// before this path runs; if not, fail fast so WG timers can retry later.
+	// Do not dial back through NAT to a peer that previously connected inbound.
+	// That path produced: dial tcp x.x.x.x:port: i/o timeout and stalled recovery.
+	if b.mustWaitInbound(dst) {
+		return nil, ErrWaitingInboundReconnect
+	}
+
 	conn, err := b.dialWithRetries(dst, maxSendDialAttempts)
 	if err != nil {
 		return nil, err
 	}
-	session := b.installSession(dst, conn, true)
+	session := b.installSession(dst, conn, false)
 	if session == nil {
 		_ = conn.Close()
 		return nil, net.ErrClosed
 	}
 	return session, nil
+}
+
+func (b *TCPBind) mustWaitInbound(dst netip.AddrPort) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.reconnect.allowOutbound {
+		return true
+	}
+	if b.inboundIPs == nil {
+		return false
+	}
+	_, ok := b.inboundIPs[dst.Addr()]
+	return ok
 }
 
 func (b *TCPBind) lookupSession(dst netip.AddrPort) *tcpSession {
@@ -412,65 +450,70 @@ func (b *TCPBind) lookupSession(dst netip.AddrPort) *tcpSession {
 	if session, ok := b.sessions[dst.String()]; ok && session != nil && session.alive {
 		return session
 	}
-	// After client reconnects, remote port changes but IP stays the same.
-	// Reuse the newest live session for that IP so the server can keep talking
-	// without dialing back through NAT.
+	// NAT reconnect: fall back to same-IP only when unambiguous (single session).
 	ip := dst.Addr()
-	var best *tcpSession
+	var match *tcpSession
+	n := 0
 	for _, session := range b.sessions {
 		if session == nil || !session.alive {
 			continue
 		}
 		if session.dst.Addr() == ip {
-			best = session
+			n++
+			match = session
 		}
 	}
-	return best
+	if n == 1 {
+		return match
+	}
+	return nil
 }
 
-func (b *TCPBind) installSession(dst netip.AddrPort, conn net.Conn, replaceSameIP bool) *tcpSession {
+func (b *TCPBind) installSession(dst netip.AddrPort, conn net.Conn, inbound bool) *tcpSession {
 	key := dst.String()
 	session := &tcpSession{
-		bind:  b,
-		key:   key,
-		dst:   dst,
-		conn:  conn,
-		alive: true,
+		bind:    b,
+		key:     key,
+		dst:     dst,
+		conn:    conn,
+		alive:   true,
+		inbound: inbound,
 	}
+	session.lastRX.Store(time.Now().UnixNano())
 
 	b.mu.Lock()
 	if !b.isOpen || b.sessions == nil {
 		b.mu.Unlock()
 		return nil
 	}
-	var stale []*tcpSession
-	if replaceSameIP {
-		ip := dst.Addr()
-		for k, old := range b.sessions {
-			if old == nil {
-				continue
-			}
-			if old.dst.Addr() == ip {
-				stale = append(stale, old)
-				delete(b.sessions, k)
-			}
-		}
-	} else if old, ok := b.sessions[key]; ok {
-		stale = append(stale, old)
+	var stale *tcpSession
+	if old, ok := b.sessions[key]; ok {
+		stale = old
 		delete(b.sessions, key)
 	}
 	b.sessions[key] = session
-	b.wg.Add(1)
+	if inbound {
+		if b.inboundIPs == nil {
+			b.inboundIPs = make(map[netip.Addr]struct{})
+		}
+		b.inboundIPs[dst.Addr()] = struct{}{}
+	}
+	idle := b.reconnect.rxIdleTimeout
+	if idle <= 0 {
+		idle = defaultRXIdleTimeout
+	}
+	b.wg.Add(2) // readLoop + idleWatch
 	b.mu.Unlock()
 
-	for _, old := range stale {
-		old.alive = false
-		if old.conn != nil {
-			_ = old.conn.SetDeadline(time.Now())
-			_ = old.conn.Close()
+	if stale != nil {
+		stale.alive = false
+		if stale.conn != nil {
+			_ = stale.conn.SetDeadline(time.Now())
+			_ = stale.conn.Close()
 		}
 	}
 	go b.readLoop(session)
+	go b.idleWatch(session, idle)
 	return session
 }
 
@@ -646,8 +689,7 @@ func (b *TCPBind) acceptLoop(listener net.Listener) {
 			continue
 		}
 		enableTCPKeepAlive(conn)
-		// Replaces any prior session from the same remote IP (client reconnect
-		// with a new ephemeral port).
+		// inbound=true: mark this IP so we never dial back through NAT after drop.
 		if b.installSession(remote, conn, true) == nil {
 			_ = conn.Close()
 			continue
@@ -671,6 +713,7 @@ func (b *TCPBind) readLoop(session *tcpSession) {
 				return
 			}
 		}
+		session.lastRX.Store(time.Now().UnixNano())
 
 		dst, ok := addrPortFromNetAddr(session.conn.RemoteAddr())
 		if !ok {
@@ -694,6 +737,43 @@ func (b *TCPBind) readLoop(session *tcpSession) {
 		case <-done:
 			return
 		case recvCh <- packet:
+		}
+	}
+}
+
+// idleWatch closes the TCP session if no framed payload arrives within idle.
+// Pair with PersistentKeepalive ≈ rxIdleTimeout on both peers so a dead link
+// is detected quickly and the client redials.
+func (b *TCPBind) idleWatch(session *tcpSession, idle time.Duration) {
+	defer b.wg.Done()
+	if idle <= 0 {
+		idle = defaultRXIdleTimeout
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		if !session.alive {
+			return
+		}
+		done := b.getDone()
+		if done == nil {
+			return
+		}
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			last := session.lastRX.Load()
+			if last == 0 {
+				continue
+			}
+			if time.Since(time.Unix(0, last)) > idle {
+				if session.conn != nil {
+					_ = session.conn.SetDeadline(time.Now())
+					_ = session.conn.Close()
+				}
+				return
+			}
 		}
 	}
 }
@@ -904,10 +984,16 @@ func readMCString(r *bytes.Reader) (string, error) {
 }
 
 func loadReconnectConfig(fileCfg tcpConfigFile) reconnectConfig {
+	allowOutbound := true
+	if fileCfg.AllowOutboundDial != nil {
+		allowOutbound = *fileCfg.AllowOutboundDial
+	}
 	cfg := reconnectConfig{
-		initial:     parseDurationWithDefault(fileCfg.ReconnectInitialBackoff, defaultReconnectInitial),
-		max:         parseDurationWithDefault(fileCfg.ReconnectMaxBackoff, defaultReconnectMax),
-		dialTimeout: parseDurationWithDefault(fileCfg.DialTimeout, defaultDialTimeout),
+		initial:       parseDurationWithDefault(fileCfg.ReconnectInitialBackoff, defaultReconnectInitial),
+		max:           parseDurationWithDefault(fileCfg.ReconnectMaxBackoff, defaultReconnectMax),
+		dialTimeout:   parseDurationWithDefault(fileCfg.DialTimeout, defaultDialTimeout),
+		rxIdleTimeout: parseDurationWithDefault(fileCfg.RXIdleTimeout, defaultRXIdleTimeout),
+		allowOutbound: allowOutbound,
 	}
 	if cfg.initial <= 0 {
 		cfg.initial = defaultReconnectInitial
@@ -917,6 +1003,9 @@ func loadReconnectConfig(fileCfg tcpConfigFile) reconnectConfig {
 	}
 	if cfg.dialTimeout <= 0 {
 		cfg.dialTimeout = defaultDialTimeout
+	}
+	if cfg.rxIdleTimeout <= 0 {
+		cfg.rxIdleTimeout = defaultRXIdleTimeout
 	}
 	return cfg
 }

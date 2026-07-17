@@ -5,12 +5,16 @@
 {
   // TCP 拨号与断线自动重连（指数退避）
   "tcp": {
-    // 单次拨号超时
-    "dialTimeout": "10s",
+    // 单次拨号超时（客户端连服务端）
+    "dialTimeout": "3s",
     // 首次重连等待时间
     "reconnectInitialBackoff": "1s",
     // 重连退避上限（1s → 2s → 4s → … 不超过此值）
-    "reconnectMaxBackoff": "60s"
+    "reconnectMaxBackoff": "60s",
+    // 超过此时长未收到对端帧 → 拆 TCP，客户端会重拨（建议配合 PersistentKeepalive = 5）
+    "rxIdleTimeout": "5s",
+    // 服务端可设 false，禁止任何出站拨号（只等客户端连入）
+    // "allowOutboundDial": false
   },
 
   // Minecraft 协议伪装（连接建立前几包对外呈现为 MC 服务器交互）
