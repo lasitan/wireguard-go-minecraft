@@ -63,10 +63,10 @@ Example configs (installed under /etc/wireguard/):
 
 Key options:
 
-  [Interface] ToNAT = 10.0.0.2
-      C-side: dial B (default port 25565; or host:port). [Peer] stays a
-      normal WireGuard peer (B's PublicKey, AllowedIPs, …). Announces ToNAT
-      on the wire so B auto-marks the peer as NatClient.
+  [Interface] ToNAT = true
+      C-side mode flag. [Peer] is a normal WireGuard peer to B
+      (PublicKey, Endpoint, AllowedIPs, …). Announces ToNAT on the wire
+      so B auto-marks the peer as NatClient.
 
   B-side: no NatClient= / NatUpstream= needed.
       Upstream is the peer that has Endpoint. When a ToNAT client connects,

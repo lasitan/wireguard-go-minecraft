@@ -91,8 +91,8 @@ func main() {
 			os.Exit(ExitSetupFailed)
 		}
 		if result != nil {
-			if result.nat.toNAT != "" {
-				fmt.Fprintf(os.Stderr, "wireguard-go: ToNAT client → %s\n", result.nat.toNAT)
+			if result.nat.toNATClient {
+				fmt.Fprintln(os.Stderr, "wireguard-go: ToNAT client mode (dial [Peer] Endpoint)")
 				tcpBind.SetDialToNAT(true)
 			}
 			if result.nat.serverMode {

@@ -79,7 +79,7 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 			dev.Close()
 			return true, 1
 		}
-		if result != nil && result.nat.toNAT != "" {
+		if result != nil && result.nat.toNATClient {
 			tcpBind.SetDialToNAT(true)
 		}
 		if result != nil && result.nat.serverMode {

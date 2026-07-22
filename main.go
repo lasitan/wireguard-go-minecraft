@@ -235,8 +235,8 @@ func main() {
 			if len(result.netCfg.addresses) == 0 {
 				fmt.Fprintf(os.Stderr, "wireguard-go: WARNING: no Address= in %s — interface will have no IP\n", confFile)
 			}
-			if result.nat.toNAT != "" {
-				fmt.Fprintf(os.Stderr, "wireguard-go: ToNAT client → %s\n", result.nat.toNAT)
+			if result.nat.toNATClient {
+				fmt.Fprintln(os.Stderr, "wireguard-go: ToNAT client mode (dial [Peer] Endpoint)")
 				tcpBind.SetDialToNAT(true)
 			}
 			if result.nat.serverMode {

@@ -1,15 +1,16 @@
 # Dual-server / TO NAT example — internal node C
 #
-# Interface ToNAT points at B (host or host:port; default port 25565).
-# [Peer] is a normal WireGuard peer for B (PublicKey / AllowedIPs / …).
+# ToNAT=true marks this node as a ToNAT client (signals B).
+# Connect to B with a normal [Peer] Endpoint.
 
 [Interface]
 PrivateKey = REPLACE_WITH_C_PRIVATE_KEY_BASE64
 Address = 10.0.0.3/24
 MTU = 1420
-ToNAT = 10.0.0.2
+ToNAT = true
 
 [Peer]
 PublicKey = REPLACE_WITH_B_PUBLIC_KEY_BASE64
+Endpoint = 10.0.0.2:25565
 AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 5

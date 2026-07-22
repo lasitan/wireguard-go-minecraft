@@ -3,9 +3,6 @@ PrivateKey = REPLACE_WITH_PRIVATE_KEY_BASE64
 Address = 10.0.0.1/24
 ListenPort = 25565
 MTU = 1420
-# Dual-server / TO NAT (see wg-nat-{a,b,c}.conf.example and README.Debian):
-#   ToNAT = 10.0.0.2                    # C: Interface only; [Peer] = normal B peer
-#   B: ListenPort + Peer A(Endpoint) + Peer C(AllowedIPs) — ToNAT auto NatClient
 [Peer]
 PublicKey = REPLACE_WITH_PEER_PUBLIC_KEY_BASE64
 AllowedIPs = 10.0.0.2/32
