@@ -6,6 +6,7 @@
 package conn
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -42,6 +43,9 @@ const (
 	// If no framed payload is received for this long, tear down the TCP
 	// session so the client redials (pair with PersistentKeepalive ≈ 5s).
 	defaultRXIdleTimeout = 5 * time.Second
+
+	// Post-camouflage ToNAT client announcement (all MC modes / MC-off).
+	toNATMagic = "WGNT\x01"
 )
 
 // ErrWaitingInboundReconnect is returned when a previously inbound peer's TCP
@@ -62,6 +66,7 @@ type tcpSession struct {
 	writeMu  sync.Mutex
 	alive    bool
 	inbound  bool // accepted from peer (server side) vs dialed out (client)
+	toNAT    bool // inbound session signaled ToNAT client mode
 	lastRX   atomic.Int64 // unix nano of last framed payload read
 }
 
@@ -100,11 +105,25 @@ type TCPBind struct {
 
 	wg     sync.WaitGroup
 	isOpen bool
+
+	// dialToNAT: C-side Interface ToNAT — announce ToNAT on outbound dials.
+	dialToNAT atomic.Bool
 }
 
 type TCPEndpoint struct {
-	dst netip.AddrPort
-	src netip.AddrPort
+	dst   netip.AddrPort
+	src   netip.AddrPort
+	toNAT bool
+}
+
+// IsToNAT reports whether this endpoint's TCP session was a ToNAT client.
+func (e *TCPEndpoint) IsToNAT() bool {
+	return e != nil && e.toNAT
+}
+
+// SetDialToNAT marks this bind as a ToNAT client (Interface ToNAT=).
+func (b *TCPBind) SetDialToNAT(v bool) {
+	b.dialToNAT.Store(v)
 }
 
 type mcCamouflageConfig struct {
@@ -469,6 +488,10 @@ func (b *TCPBind) lookupSession(dst netip.AddrPort) *tcpSession {
 }
 
 func (b *TCPBind) installSession(dst netip.AddrPort, conn net.Conn, inbound bool) *tcpSession {
+	return b.installSessionToNAT(dst, conn, inbound, false)
+}
+
+func (b *TCPBind) installSessionToNAT(dst netip.AddrPort, conn net.Conn, inbound, toNAT bool) *tcpSession {
 	key := dst.String()
 	session := &tcpSession{
 		bind:    b,
@@ -477,6 +500,7 @@ func (b *TCPBind) installSession(dst netip.AddrPort, conn net.Conn, inbound bool
 		conn:    conn,
 		alive:   true,
 		inbound: inbound,
+		toNAT:   toNAT,
 	}
 	session.lastRX.Store(time.Now().UnixNano())
 
@@ -543,6 +567,12 @@ func (b *TCPBind) dialOnce(dst netip.AddrPort) (net.Conn, error) {
 	if err := b.performMCCamouflageClient(conn, dst); err != nil {
 		_ = conn.Close()
 		return nil, err
+	}
+	if b.dialToNAT.Load() {
+		if _, err := conn.Write([]byte(toNATMagic)); err != nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("tonat announce: %w", err)
+		}
 	}
 	if b.isClosed() {
 		_ = conn.Close()
@@ -678,22 +708,51 @@ func (b *TCPBind) acceptLoop(listener net.Listener) {
 			}
 			continue
 		}
-		if err := b.performMCCamouflageServer(conn); err != nil {
+		toNATFromMC, err := b.performMCCamouflageServer(conn)
+		if err != nil {
 			_ = conn.Close()
 			continue
 		}
+		conn, toNATMagic, err := peekToNATMagic(conn)
+		if err != nil {
+			_ = conn.Close()
+			continue
+		}
+		toNAT := toNATFromMC || toNATMagic
 		remote, ok := addrPortFromNetAddr(conn.RemoteAddr())
 		if !ok {
 			_ = conn.Close()
 			continue
 		}
 		enableTCPKeepAlive(conn)
-		// inbound=true: mark this IP so we never dial back through NAT after drop.
-		if b.installSession(remote, conn, true) == nil {
+		if b.installSessionToNAT(remote, conn, true, toNAT) == nil {
 			_ = conn.Close()
 			continue
 		}
 	}
+}
+
+// peekToNATMagic reads an optional ToNAT announcement after MC camouflage.
+func peekToNATMagic(conn net.Conn) (net.Conn, bool, error) {
+	br := bufio.NewReader(conn)
+	_ = conn.SetReadDeadline(time.Now().Add(400 * time.Millisecond))
+	hdr, err := br.Peek(len(toNATMagic))
+	_ = conn.SetReadDeadline(time.Time{})
+	if err == nil && string(hdr) == toNATMagic {
+		_, _ = br.Discard(len(toNATMagic))
+		return &bufConn{Reader: br, Conn: conn}, true, nil
+	}
+	// No magic (or timeout/short read): keep buffered bytes for WG frames.
+	return &bufConn{Reader: br, Conn: conn}, false, nil
+}
+
+type bufConn struct {
+	*bufio.Reader
+	net.Conn
+}
+
+func (c *bufConn) Read(p []byte) (int, error) {
+	return c.Reader.Read(p)
 }
 
 func (b *TCPBind) readLoop(session *tcpSession) {
@@ -722,8 +781,9 @@ func (b *TCPBind) readLoop(session *tcpSession) {
 		packet := tcpPacket{
 			payload: payload,
 			endpoint: &TCPEndpoint{
-				dst: dst,
-				src: src,
+				dst:   dst,
+				src:   src,
+				toNAT: session.toNAT,
 			},
 		}
 

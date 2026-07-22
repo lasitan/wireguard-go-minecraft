@@ -4,13 +4,11 @@ Address = 10.0.0.1/24
 ListenPort = 25565
 MTU = 1420
 # Dual-server / TO NAT (see wg-nat-{a,b,c}.conf.example and README.Debian):
-#   ToNAT = 192.168.1.10:25565          # C: dial NAT gateway B
-#   NatUpstream = <A_PUBLIC_KEY_BASE64> # B: upstream public peer key
-
+#   ToNAT = 10.0.0.2                    # C: Interface only; [Peer] = normal B peer
+#   B: ListenPort + Peer A(Endpoint) + Peer C(AllowedIPs) — ToNAT auto NatClient
 [Peer]
 PublicKey = REPLACE_WITH_PEER_PUBLIC_KEY_BASE64
 AllowedIPs = 10.0.0.2/32
-# NatClient = true                      # B: mark downstream NAT client
 # Built-in TCP proxy: public listen -> peer VPN IP
 #   25565              -> peer:25565
 #   8080:80            -> peer:80

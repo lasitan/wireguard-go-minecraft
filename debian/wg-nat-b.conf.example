@@ -1,19 +1,15 @@
 # Dual-server / TO NAT example — egress node B
 #
-# B dials A (Endpoint) and listens for C (ListenPort).
-# NatClient peers get IP forward + MASQUERADE (appear as B on the Internet).
-# Nested dials from NatClients to A's public Endpoint:port are hard-blocked.
-#
-# Do NOT put 0.0.0.0/0 on the upstream (A) peer — that would send C's
-# default-route traffic into A instead of SNAT egress on B.
+# No NatClient= / NatUpstream= required:
+#   - Upstream = the peer that has Endpoint (A)
+#   - ToNAT clients are auto-registered when they connect with ToNAT signaling
+# Add one [Peer] per C (PublicKey + AllowedIPs) for multi-client.
 
 [Interface]
 PrivateKey = REPLACE_WITH_B_PRIVATE_KEY_BASE64
 Address = 10.0.0.2/24
 ListenPort = 25565
 MTU = 1420
-# Upstream public peer key (must match the [Peer] for A below)
-NatUpstream = REPLACE_WITH_A_PUBLIC_KEY_BASE64
 
 [Peer]
 # A (public)
@@ -23,7 +19,11 @@ AllowedIPs = 10.0.0.1/32
 PersistentKeepalive = 5
 
 [Peer]
-# C (internal-only, joins via ToNAT)
-PublicKey = REPLACE_WITH_C_PUBLIC_KEY_BASE64
+# C1
+PublicKey = REPLACE_WITH_C1_PUBLIC_KEY_BASE64
 AllowedIPs = 10.0.0.3/32
-NatClient = true
+
+[Peer]
+# C2 (optional second ToNAT client)
+# PublicKey = REPLACE_WITH_C2_PUBLIC_KEY_BASE64
+# AllowedIPs = 10.0.0.4/32

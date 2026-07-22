@@ -60,7 +60,7 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 		m.iface = name
 	}
 
-	tcpBind := conn.NewTCPBind()
+	tcpBind := conn.NewTCPBind().(*conn.TCPBind)
 	dev := device.NewDevice(tdev, tcpBind, logger)
 	if err := dev.Up(); err != nil {
 		logger.Errorf("Up: %v", err)
@@ -79,6 +79,9 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 			dev.Close()
 			return true, 1
 		}
+		if result != nil && result.nat.toNAT != "" {
+			tcpBind.SetDialToNAT(true)
+		}
 		if result != nil && result.nat.serverMode {
 			natgw = newNatGateway(logger, m.iface, result.nat)
 			if err := natgw.Start(dev); err != nil {
@@ -87,6 +90,9 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 				dev.Close()
 				return true, 1
 			}
+			dev.SetNatClientHandler(func(pk device.NoisePublicKey) {
+				natgw.RegisterClient(pk)
+			})
 		}
 	}
 

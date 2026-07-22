@@ -26,6 +26,7 @@ type natGateway struct {
 	logger *device.Logger
 	iface  string
 	cfg    natGatewayResult
+	runtime *natRuntime
 
 	mu       sync.Mutex
 	closed   bool
@@ -45,6 +46,7 @@ func newNatGateway(logger *device.Logger, iface string, cfg natGatewayResult) *n
 		logger:   logger,
 		iface:    iface,
 		cfg:      cfg,
+		runtime:  newNatRuntime(cfg.clientKeyHex),
 		nftTable: "wggo_nat_" + sanitizeNftName(iface),
 	}
 }
@@ -69,8 +71,15 @@ func (g *natGateway) Start(dev *device.Device) error {
 	if !g.cfg.serverMode {
 		return nil
 	}
-	if len(g.cfg.clientHosts) == 0 || !g.cfg.upstreamAddr.IsValid() {
-		return fmt.Errorf("nat gateway: incomplete config")
+	if !g.cfg.upstreamAddr.IsValid() {
+		return fmt.Errorf("nat gateway: missing upstream endpoint")
+	}
+
+	// Seed hosts from explicit NatClient=true
+	for _, h := range g.cfg.clientHosts {
+		g.runtime.mu.Lock()
+		g.runtime.hosts[h] = struct{}{}
+		g.runtime.mu.Unlock()
 	}
 
 	if err := g.enableForwarding(); err != nil {
@@ -82,11 +91,11 @@ func (g *natGateway) Start(dev *device.Device) error {
 		return err
 	}
 
-	installNatInboundFilter(dev, g.cfg, g.logger)
+	installNatInboundFilter(dev, g.runtime, g.cfg.upstreamAddr, g.logger)
 
-	fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway active on %s (%s): %d NatClient(s), block nested %s\n",
-		g.iface, g.backend, len(g.cfg.clientKeyHex), g.cfg.upstreamAddr.String())
-	g.logger.Verbosef("NAT gateway: forward+SNAT+nested-block via %s", g.backend)
+	fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway ready on %s (%s); ToNAT clients auto-register; block nested %s\n",
+		g.iface, g.backend, g.cfg.upstreamAddr.String())
+	g.logger.Verbosef("NAT gateway: forward+SNAT+nested-block via %s (dynamic ToNAT)", g.backend)
 	return nil
 }
 
@@ -191,43 +200,29 @@ func runCmd(name string, args ...string) error {
 }
 
 func (g *natGateway) installNft() error {
-	// Fresh table per iface instance.
 	_ = runCmd("nft", "delete", "table", "inet", g.nftTable)
+
+	upIP := g.cfg.upstreamAddr.Addr().String()
+	upPort := strconv.Itoa(int(g.cfg.upstreamAddr.Port()))
+	up := g.cfg.upstreamAddr.Addr()
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "table inet %s {\n", g.nftTable)
 	b.WriteString("  chain forward {\n")
 	b.WriteString("    type filter hook forward priority 0; policy accept;\n")
-	upIP := g.cfg.upstreamAddr.Addr().String()
-	upPort := strconv.Itoa(int(g.cfg.upstreamAddr.Port()))
-	for _, host := range g.cfg.clientHosts {
-		ip, err := netip.ParseAddr(host)
-		if err != nil {
-			continue
-		}
-		up := g.cfg.upstreamAddr.Addr()
-		if ip.Is4() && up.Is4() {
-			fmt.Fprintf(&b, "    ip saddr %s ip daddr %s tcp dport %s reject\n", ip, upIP, upPort)
-			fmt.Fprintf(&b, "    ip saddr %s ip daddr %s udp dport %s reject\n", ip, upIP, upPort)
-		} else if ip.Is6() && up.Is6() {
-			fmt.Fprintf(&b, "    ip6 saddr %s ip6 daddr %s tcp dport %s reject\n", ip, upIP, upPort)
-			fmt.Fprintf(&b, "    ip6 saddr %s ip6 daddr %s udp dport %s reject\n", ip, upIP, upPort)
-		}
+	// Block nested dial to public WG port from anything forwarded off the WG iface.
+	if up.Is4() {
+		fmt.Fprintf(&b, "    iifname \"%s\" ip daddr %s tcp dport %s reject\n", g.iface, upIP, upPort)
+		fmt.Fprintf(&b, "    iifname \"%s\" ip daddr %s udp dport %s reject\n", g.iface, upIP, upPort)
+	} else {
+		fmt.Fprintf(&b, "    iifname \"%s\" ip6 daddr %s tcp dport %s reject\n", g.iface, upIP, upPort)
+		fmt.Fprintf(&b, "    iifname \"%s\" ip6 daddr %s udp dport %s reject\n", g.iface, upIP, upPort)
 	}
 	b.WriteString("  }\n")
 	b.WriteString("  chain postrouting {\n")
 	b.WriteString("    type nat hook postrouting priority 100; policy accept;\n")
 	for _, host := range g.cfg.clientHosts {
-		ip, err := netip.ParseAddr(host)
-		if err != nil {
-			continue
-		}
-		// SNAT only when leaving a non-WG interface (VPN↔VPN stays on wg iface).
-		if ip.Is4() {
-			fmt.Fprintf(&b, "    oifname != \"%s\" ip saddr %s masquerade\n", g.iface, ip)
-		} else {
-			fmt.Fprintf(&b, "    oifname != \"%s\" ip6 saddr %s masquerade\n", g.iface, ip)
-		}
+		writeNftMasquerade(&b, g.iface, host)
 	}
 	b.WriteString("  }\n")
 	b.WriteString("}\n")
@@ -243,39 +238,78 @@ func (g *natGateway) installNft() error {
 	return nil
 }
 
+func writeNftMasquerade(b *strings.Builder, iface, host string) {
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return
+	}
+	if ip.Is4() {
+		fmt.Fprintf(b, "    oifname != \"%s\" ip saddr %s masquerade\n", iface, ip)
+	} else {
+		fmt.Fprintf(b, "    oifname != \"%s\" ip6 saddr %s masquerade\n", iface, ip)
+	}
+}
+
+func (g *natGateway) addClientMasquerade(host string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.closed {
+		return
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return
+	}
+	switch g.backend {
+	case "nft":
+		var args []string
+		if ip.Is4() {
+			args = []string{"add", "rule", "inet", g.nftTable, "postrouting",
+				"oifname", "!=", g.iface, "ip", "saddr", ip.String(), "masquerade"}
+		} else {
+			args = []string{"add", "rule", "inet", g.nftTable, "postrouting",
+				"oifname", "!=", g.iface, "ip6", "saddr", ip.String(), "masquerade"}
+		}
+		_ = runCmd("nft", args...)
+	default:
+		bin := "iptables"
+		if ip.Is6() {
+			bin = "ip6tables"
+		}
+		rule := []string{"POSTROUTING", "-s", ip.String(), "!", "-o", g.iface, "-j", "MASQUERADE"}
+		if err := runCmd(bin, append([]string{"-t", "nat", "-A"}, rule...)...); err == nil {
+			g.iptNatRules = append(g.iptNatRules, rule)
+		}
+	}
+}
+
 func (g *natGateway) installIptables() error {
 	upIP := g.cfg.upstreamAddr.Addr().String()
 	upPort := strconv.Itoa(int(g.cfg.upstreamAddr.Port()))
 	upIs4 := g.cfg.upstreamAddr.Addr().Is4()
-
+	bin := "iptables"
+	if !upIs4 {
+		bin = "ip6tables"
+	}
+	for _, proto := range []string{"tcp", "udp"} {
+		rule := []string{"FORWARD", "-i", g.iface, "-d", upIP, "-p", proto, "--dport", upPort, "-j", "REJECT"}
+		if err := runCmd(bin, append([]string{"-I"}, rule...)...); err != nil {
+			g.removeFirewall()
+			return err
+		}
+		g.iptFilterRules = append(g.iptFilterRules, rule)
+	}
 	for _, host := range g.cfg.clientHosts {
 		ip, err := netip.ParseAddr(host)
 		if err != nil {
 			continue
 		}
-		bin := "iptables"
+		hbin := "iptables"
 		if ip.Is6() {
-			bin = "ip6tables"
+			hbin = "ip6tables"
 		}
-		// Nested block (FORWARD)
-		for _, proto := range []string{"tcp", "udp"} {
-			if (ip.Is4() && upIs4) || (ip.Is6() && !upIs4) {
-				rule := []string{"FORWARD", "-s", ip.String(), "-d", upIP, "-p", proto, "--dport", upPort, "-j", "REJECT"}
-				if err := runCmd(bin, append([]string{"-I"}, rule...)...); err != nil {
-					g.removeFirewall()
-					return err
-				}
-				if bin == "iptables" {
-					g.iptFilterRules = append(g.iptFilterRules, rule)
-				} else {
-					// track for ip6tables teardown via same slice — teardown tries both
-					g.iptFilterRules = append(g.iptFilterRules, rule)
-				}
-			}
-		}
-		// MASQUERADE when leaving non-WG interface
 		rule := []string{"POSTROUTING", "-s", ip.String(), "!", "-o", g.iface, "-j", "MASQUERADE"}
-		if err := runCmd(bin, append([]string{"-t", "nat", "-A"}, rule...)...); err != nil {
+		if err := runCmd(hbin, append([]string{"-t", "nat", "-A"}, rule...)...); err != nil {
 			g.removeFirewall()
 			return err
 		}

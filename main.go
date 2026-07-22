@@ -206,7 +206,7 @@ func main() {
 		return
 	}
 
-	tcpBind := conn.NewTCPBind()
+	tcpBind := conn.NewTCPBind().(*conn.TCPBind)
 	dev := device.NewDevice(tdev, tcpBind, logger)
 	logger.Verbosef("Transport mode: TCP + MC-Camouflage")
 
@@ -237,6 +237,7 @@ func main() {
 			}
 			if result.nat.toNAT != "" {
 				fmt.Fprintf(os.Stderr, "wireguard-go: ToNAT client → %s\n", result.nat.toNAT)
+				tcpBind.SetDialToNAT(true)
 			}
 			if result.nat.serverMode {
 				natgw = newNatGateway(logger, interfaceName, result.nat)
@@ -245,6 +246,9 @@ func main() {
 					fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway error: %v\n", err)
 					os.Exit(ExitSetupFailed)
 				}
+				dev.SetNatClientHandler(func(pk device.NoisePublicKey) {
+					natgw.RegisterClient(pk)
+				})
 			}
 			fmt.Fprintln(os.Stderr, "wireguard-go: starting port forwards (if any)")
 			if err := fwd.StartFromPeers(result.peers); err != nil {

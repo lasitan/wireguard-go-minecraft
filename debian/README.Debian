@@ -63,20 +63,17 @@ Example configs (installed under /etc/wireguard/):
 
 Key options:
 
-  [Interface] ToNAT = host:port
-      C-side: create/use this TUN and dial B as the only transport target.
-      Equivalent to setting that peer's Endpoint (conflict if both differ).
+  [Interface] ToNAT = 10.0.0.2
+      C-side: dial B (default port 25565; or host:port). [Peer] stays a
+      normal WireGuard peer (B's PublicKey, AllowedIPs, …). Announces ToNAT
+      on the wire so B auto-marks the peer as NatClient.
 
-  [Interface] NatUpstream = <A public key base64>
-      B-side: identifies the upstream public peer (must have Endpoint).
+  B-side: no NatClient= / NatUpstream= needed.
+      Upstream is the peer that has Endpoint. When a ToNAT client connects,
+      B auto-registers it (SNAT + nested-block). Add one [Peer] per client
+      (PublicKey + AllowedIPs /32) for multi-client.
 
-  [Peer] NatClient = true
-      B-side: this peer is a downstream NAT client. Enables:
-        - net.ipv4.ip_forward
-        - MASQUERADE for client VPN IPs leaving non-WG interfaces
-          (C appears as B on the Internet)
-        - hard block of nested dials to NatUpstream Endpoint IP:port
-          (nft preferred, iptables fallback; plus userspace drop before TUN write)
+  Optional overrides: NatUpstream=, NatClient=true|false
 
 AllowedIPs rules of thumb:
 

@@ -24,19 +24,18 @@ import (
 // natGateway manages IP forwarding (IPEnableRouter / NetIPInterface.Forwarding),
 // best-effort WinNAT + firewall nested block, and userspace nested drop on B.
 type natGateway struct {
-	logger *device.Logger
-	iface  string
-	cfg    natGatewayResult
+	logger  *device.Logger
+	iface   string
+	cfg     natGatewayResult
+	runtime *natRuntime
 
-	mu     sync.Mutex
-	closed bool
-
+	mu                 sync.Mutex
+	closed             bool
 	prevIPEnableRouter uint32
 	changedRouter      bool
-	// previous Forwarding per InterfaceIndex (as "Enabled"/"Disabled")
-	prevForwarding map[uint32]string
-	natName        string
-	fwRuleNames    []string
+	prevForwarding     map[uint32]string
+	natName            string
+	fwRuleNames        []string
 }
 
 func newNatGateway(logger *device.Logger, iface string, cfg natGatewayResult) *natGateway {
@@ -44,6 +43,7 @@ func newNatGateway(logger *device.Logger, iface string, cfg natGatewayResult) *n
 		logger:         logger,
 		iface:          iface,
 		cfg:            cfg,
+		runtime:        newNatRuntime(cfg.clientKeyHex),
 		prevForwarding: make(map[uint32]string),
 		natName:        "wggo-nat-" + sanitizeWinName(iface),
 	}
@@ -72,8 +72,14 @@ func (g *natGateway) Start(dev *device.Device) error {
 	if !g.cfg.serverMode {
 		return nil
 	}
-	if len(g.cfg.clientHosts) == 0 || !g.cfg.upstreamAddr.IsValid() {
-		return fmt.Errorf("nat gateway: incomplete config")
+	if !g.cfg.upstreamAddr.IsValid() {
+		return fmt.Errorf("nat gateway: missing upstream endpoint")
+	}
+
+	for _, h := range g.cfg.clientHosts {
+		g.runtime.mu.Lock()
+		g.runtime.hosts[h] = struct{}{}
+		g.runtime.mu.Unlock()
 	}
 
 	if err := g.enableForwarding(); err != nil {
@@ -84,12 +90,17 @@ func (g *natGateway) Start(dev *device.Device) error {
 		g.logger.Verbosef("NAT gateway: WinNAT/firewall setup warning: %v (userspace nested-block still active)", err)
 	}
 
-	installNatInboundFilter(dev, g.cfg, g.logger)
+	installNatInboundFilter(dev, g.runtime, g.cfg.upstreamAddr, g.logger)
 
-	fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway active on %s (windows): %d NatClient(s), IP forwarding on, block nested %s\n",
-		g.iface, len(g.cfg.clientKeyHex), g.cfg.upstreamAddr.String())
-	g.logger.Verbosef("NAT gateway: IPEnableRouter + NetIPInterface Forwarding + nested-block")
+	fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway ready on %s (windows); ToNAT clients auto-register; block nested %s\n",
+		g.iface, g.cfg.upstreamAddr.String())
+	g.logger.Verbosef("NAT gateway: IP forwarding + dynamic ToNAT NatClient")
 	return nil
+}
+
+func (g *natGateway) addClientMasquerade(host string) {
+	// WinNAT is prefix-based; per-host add is a no-op beyond logging.
+	g.logger.Verbosef("NAT gateway: ToNAT client host %s (WinNAT covers VPN prefix)", host)
 }
 
 func (g *natGateway) Close(dev *device.Device) {

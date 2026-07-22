@@ -514,6 +514,10 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 				continue
 			}
 
+			if tonat, ok := elem.endpoint.(interface{ IsToNAT() bool }); ok && tonat.IsToNAT() {
+				device.notifyNatClient(peer.PublicKey())
+			}
+
 			bufs = append(bufs, elem.buffer[:MessageTransportOffsetContent+len(elem.packet)])
 		}
 

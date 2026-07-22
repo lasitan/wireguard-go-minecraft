@@ -91,10 +91,14 @@ type Device struct {
 	log      *Logger
 
 	// inboundFilter optionally drops decrypted packets before TUN write.
-	// Used by dual-server NAT gateway to block nested dials to upstream.
 	inboundFilter struct {
 		sync.RWMutex
 		fn InboundPacketFilter
+	}
+
+	natClientHandler struct {
+		sync.Mutex
+		fn NatClientHandler
 	}
 }
 
@@ -102,11 +106,30 @@ type Device struct {
 // written to the TUN device. peerKey is the remote peer's public key.
 type InboundPacketFilter func(peerKey NoisePublicKey, packet []byte) bool
 
+// NatClientHandler is invoked when a peer is first seen over a ToNAT TCP session.
+type NatClientHandler func(peerKey NoisePublicKey)
+
 // SetInboundPacketFilter installs or clears (nil) the inbound packet filter.
 func (device *Device) SetInboundPacketFilter(fn InboundPacketFilter) {
 	device.inboundFilter.Lock()
 	device.inboundFilter.fn = fn
 	device.inboundFilter.Unlock()
+}
+
+// SetNatClientHandler installs or clears the ToNAT → NatClient callback.
+func (device *Device) SetNatClientHandler(fn NatClientHandler) {
+	device.natClientHandler.Lock()
+	device.natClientHandler.fn = fn
+	device.natClientHandler.Unlock()
+}
+
+func (device *Device) notifyNatClient(peerKey NoisePublicKey) {
+	device.natClientHandler.Lock()
+	fn := device.natClientHandler.fn
+	device.natClientHandler.Unlock()
+	if fn != nil {
+		fn(peerKey)
+	}
 }
 
 // deviceState represents the state of a Device.

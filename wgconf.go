@@ -47,28 +47,33 @@ type ifaceNetConfig struct {
 
 // peerHookConfig holds per-peer extras that are not part of WireGuard UAPI.
 type peerHookConfig struct {
-	label        string // truncated public key for logs
-	publicKeyB64 string // original base64 public key
-	publicKeyHex string
-	endpoint     string // Endpoint= from conf (empty if unset)
-	allowedIP    string // first usable host from AllowedIPs (for ForwardTCP/UDP shorthand)
-	allowedHosts []string
-	natClient    bool
-	forwards     []portForwardSpec
-	onUp         []string
-	onDown       []string
+	label         string // truncated public key for logs
+	publicKeyB64  string // original base64 public key
+	publicKeyHex  string
+	endpoint      string // Endpoint= from conf (empty if unset)
+	allowedIP     string // first usable host from AllowedIPs (for ForwardTCP/UDP shorthand)
+	allowedHosts  []string
+	hasAllowedIPs bool
+	hasKeepalive  bool
+	natClient     bool // effective NatClient (after auto-detect)
+	natClientSet  bool // NatClient= was present in conf
+	forwards      []portForwardSpec
+	onUp          []string
+	onDown        []string
 }
 
 // natGatewayResult is populated when dual-server / TO NAT is configured.
 type natGatewayResult struct {
 	toNAT          string // C-side ToNAT dial target (host:port)
-	serverMode     bool   // B-side: NatClient peers present — run forward/SNAT/block
-	natUpstreamB64 string // B-side NatUpstream peer public key (base64)
+	serverMode     bool   // B-side: ListenPort + upstream — ready for ToNAT clients
+	natUpstreamB64 string
 	listenPort     uint16
-	clientHosts    []string       // NatClient VPN IPs (/32 hosts)
-	clientKeyHex   []string       // NatClient public keys (hex)
-	upstreamAddr   netip.AddrPort // resolved NatUpstream Endpoint
-	vpnPrefixes    []netip.Prefix // Interface Address prefixes (exclude from SNAT dest)
+	clientHosts    []string // explicit NatClient=true hosts (optional seed)
+	clientKeyHex   []string // explicit NatClient=true keys
+	upstreamAddr   netip.AddrPort
+	vpnPrefixes    []netip.Prefix
+	// peersByKeyHex maps peer public key hex → AllowedIPs hosts (for runtime ToNAT)
+	peersByKeyHex map[string][]string
 }
 
 type confApplyResult struct {
@@ -170,15 +175,8 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 				if val == "" {
 					return nil, fmt.Errorf("ToNAT must not be empty")
 				}
-				if _, err := netip.ParseAddrPort(val); err != nil {
-					// allow hostnames: host:port
-					host, portStr, err2 := net.SplitHostPort(val)
-					if err2 != nil || host == "" || portStr == "" {
-						return nil, fmt.Errorf("invalid ToNAT %q (want host:port)", val)
-					}
-					if _, err3 := strconv.ParseUint(portStr, 10, 16); err3 != nil {
-						return nil, fmt.Errorf("invalid ToNAT port in %q", val)
-					}
+				if _, err := parseToNATEndpoint(val); err != nil {
+					return nil, err
 				}
 				toNAT = val
 			case "natupstream":
@@ -225,6 +223,7 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 						continue
 					}
 					fmt.Fprintf(w, "allowed_ip=%s\n", cidr)
+					cur.hasAllowedIPs = true
 					if host, err := firstHostFromCIDR(cidr); err == nil {
 						if cur.allowedIP == "" {
 							cur.allowedIP = host
@@ -234,13 +233,18 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 				}
 			case "persistentkeepalive":
 				fmt.Fprintf(w, "persistent_keepalive_interval=%s\n", val)
+				cur.hasKeepalive = true
 			case "natclient":
 				v := strings.ToLower(val)
 				switch v {
 				case "true", "yes", "1", "on":
 					cur.natClient = true
-				case "false", "no", "0", "off", "":
+					cur.natClientSet = true
+				case "false", "no", "0", "off":
 					cur.natClient = false
+					cur.natClientSet = true
+				case "":
+					// ignore
 				default:
 					return nil, fmt.Errorf("invalid NatClient %q", val)
 				}
@@ -296,7 +300,7 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 		p.forwards = resolved
 	}
 
-	nat, err := buildNatGatewayResult(toNAT, natUpstreamB64, listenPort, netCfg, peers, &buf)
+	nat, peers, err := buildNatGatewayResult(toNAT, natUpstreamB64, listenPort, netCfg, peers, &buf)
 	if err != nil {
 		return nil, err
 	}
@@ -331,16 +335,14 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 	return &confApplyResult{netCfg: netCfg, peers: peers, nat: nat}, nil
 }
 
-func buildNatGatewayResult(toNAT, natUpstreamB64 string, listenPort uint16, netCfg ifaceNetConfig, peers []peerHookConfig, uapi *bytes.Buffer) (natGatewayResult, error) {
+func buildNatGatewayResult(toNAT, natUpstreamB64 string, listenPort uint16, netCfg ifaceNetConfig, peers []peerHookConfig, uapi *bytes.Buffer) (natGatewayResult, []peerHookConfig, error) {
 	var nat natGatewayResult
-	nat.toNAT = toNAT
 	nat.natUpstreamB64 = natUpstreamB64
 	nat.listenPort = listenPort
 
 	for _, a := range netCfg.addresses {
 		prefix, err := netip.ParsePrefix(a)
 		if err != nil {
-			// Address may be bare IP
 			if ip, err2 := netip.ParseAddr(a); err2 == nil {
 				if ip.Is4() {
 					prefix = netip.PrefixFrom(ip, 32)
@@ -354,52 +356,38 @@ func buildNatGatewayResult(toNAT, natUpstreamB64 string, listenPort uint16, netC
 		nat.vpnPrefixes = append(nat.vpnPrefixes, prefix)
 	}
 
+	// C-side: ToNAT is Interface-only; [Peer] stays a normal WireGuard peer.
 	if toNAT != "" {
+		endpoint, err := parseToNATEndpoint(toNAT)
+		if err != nil {
+			return nat, peers, err
+		}
+		nat.toNAT = endpoint
 		if len(peers) != 1 {
-			return nat, fmt.Errorf("ToNAT requires exactly one [Peer], got %d", len(peers))
+			return nat, peers, fmt.Errorf("ToNAT requires exactly one [Peer] (the NAT gateway), got %d", len(peers))
 		}
 		p := &peers[0]
-		if p.endpoint != "" && p.endpoint != toNAT {
-			return nat, fmt.Errorf("ToNAT %q conflicts with peer Endpoint %q", toNAT, p.endpoint)
+		if p.publicKeyHex == "" {
+			return nat, peers, fmt.Errorf("ToNAT requires [Peer] PublicKey of the NAT gateway")
+		}
+		if p.endpoint != "" && p.endpoint != endpoint {
+			return nat, peers, fmt.Errorf("ToNAT %q conflicts with peer Endpoint %q", endpoint, p.endpoint)
 		}
 		if p.endpoint == "" {
-			if p.publicKeyHex == "" {
-				return nat, fmt.Errorf("ToNAT set but peer has no PublicKey")
-			}
-			fmt.Fprintf(uapi, "public_key=%s\nendpoint=%s\n", p.publicKeyHex, toNAT)
-			p.endpoint = toNAT
+			fmt.Fprintf(uapi, "public_key=%s\nendpoint=%s\n", p.publicKeyHex, endpoint)
+			p.endpoint = endpoint
 		}
+		fmt.Fprintf(os.Stderr, "wireguard-go: ToNAT client → %s (peer %s)\n", endpoint, p.label)
 	}
 
-	hasNatClient := false
-	for i := range peers {
-		p := &peers[i]
-		if !p.natClient {
-			continue
-		}
-		hasNatClient = true
-		if p.publicKeyHex == "" {
-			return nat, fmt.Errorf("peer %s: NatClient requires PublicKey", p.label)
-		}
-		if len(p.allowedHosts) == 0 {
-			return nat, fmt.Errorf("peer %s: NatClient requires single-host AllowedIPs (/32 or /128)", p.label)
-		}
-		nat.clientHosts = append(nat.clientHosts, p.allowedHosts...)
-		nat.clientKeyHex = append(nat.clientKeyHex, p.publicKeyHex)
-	}
-
-	if hasNatClient {
-		if listenPort == 0 {
-			return nat, fmt.Errorf("NatClient peers require Interface ListenPort (dual-server mode)")
-		}
-		if natUpstreamB64 == "" {
-			return nat, fmt.Errorf("NatClient peers require Interface NatUpstream (upstream public peer key)")
-		}
+	// Resolve upstream: explicit NatUpstream, else the unique peer that has Endpoint
+	// while this node also listens (dual-server B).
+	var up *peerHookConfig
+	if natUpstreamB64 != "" {
 		upHex, err := base64ToHex(natUpstreamB64)
 		if err != nil {
-			return nat, fmt.Errorf("NatUpstream: %w", err)
+			return nat, peers, fmt.Errorf("NatUpstream: %w", err)
 		}
-		var up *peerHookConfig
 		for i := range peers {
 			if peers[i].publicKeyHex == upHex || peers[i].publicKeyB64 == natUpstreamB64 {
 				up = &peers[i]
@@ -407,25 +395,108 @@ func buildNatGatewayResult(toNAT, natUpstreamB64 string, listenPort uint16, netC
 			}
 		}
 		if up == nil {
-			return nat, fmt.Errorf("NatUpstream %s does not match any [Peer] PublicKey", truncateKey(natUpstreamB64))
+			return nat, peers, fmt.Errorf("NatUpstream %s does not match any [Peer] PublicKey", truncateKey(natUpstreamB64))
 		}
+	} else if listenPort != 0 {
+		var endpointPeers []*peerHookConfig
+		for i := range peers {
+			if peers[i].endpoint != "" {
+				endpointPeers = append(endpointPeers, &peers[i])
+			}
+		}
+		if len(endpointPeers) == 1 {
+			up = endpointPeers[0]
+			nat.natUpstreamB64 = up.publicKeyB64
+		}
+	}
+	if up != nil {
 		if up.endpoint == "" {
-			return nat, fmt.Errorf("NatUpstream peer %s must have Endpoint (public server address)", up.label)
-		}
-		if up.natClient {
-			return nat, fmt.Errorf("NatUpstream peer %s cannot also be NatClient", up.label)
+			return nat, peers, fmt.Errorf("upstream peer %s must have Endpoint", up.label)
 		}
 		addrPort, err := resolveEndpointAddrPort(up.endpoint)
 		if err != nil {
-			return nat, fmt.Errorf("NatUpstream Endpoint %q: %w", up.endpoint, err)
+			return nat, peers, fmt.Errorf("upstream Endpoint %q: %w", up.endpoint, err)
 		}
 		nat.upstreamAddr = addrPort
-		nat.serverMode = true
-	} else if natUpstreamB64 != "" {
-		return nat, fmt.Errorf("NatUpstream set but no peer has NatClient = true")
 	}
 
-	return nat, nil
+	// Conf-level NatClient=true still honored; otherwise clients are learned at
+	// runtime when an inbound ToNAT session completes WG handshake.
+	for i := range peers {
+		p := &peers[i]
+		if up != nil && (p.publicKeyHex == up.publicKeyHex || p.publicKeyB64 == up.publicKeyB64) {
+			if p.natClientSet && p.natClient {
+				return nat, peers, fmt.Errorf("upstream peer %s cannot be NatClient", p.label)
+			}
+			continue
+		}
+		if p.natClientSet && p.natClient {
+			if p.publicKeyHex == "" {
+				return nat, peers, fmt.Errorf("peer %s: NatClient requires PublicKey", p.label)
+			}
+			if len(p.allowedHosts) == 0 {
+				return nat, peers, fmt.Errorf("peer %s: NatClient requires single-host AllowedIPs (/32 or /128)", p.label)
+			}
+			nat.clientHosts = append(nat.clientHosts, p.allowedHosts...)
+			nat.clientKeyHex = append(nat.clientKeyHex, p.publicKeyHex)
+		}
+	}
+
+	// B is a NAT gateway if it listens and has an upstream peer to the public node.
+	// NatClients are learned when inbound ToNAT sessions complete WG handshake
+	// (and any peer with explicit NatClient=true).
+	if listenPort != 0 && nat.upstreamAddr.IsValid() {
+		nat.serverMode = true
+		nat.peersByKeyHex = make(map[string][]string)
+		for i := range peers {
+			p := &peers[i]
+			if up != nil && p.publicKeyHex == up.publicKeyHex {
+				continue
+			}
+			if p.publicKeyHex != "" && len(p.allowedHosts) > 0 {
+				nat.peersByKeyHex[p.publicKeyHex] = append([]string{}, p.allowedHosts...)
+			}
+		}
+	}
+
+	return nat, peers, nil
+}
+
+// parseToNATEndpoint accepts Interface ToNAT values:
+//
+//	10.0.0.2           → 10.0.0.2:25565
+//	10.0.0.2:25565
+//	hostname:25565
+func parseToNATEndpoint(val string) (string, error) {
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return "", fmt.Errorf("ToNAT must not be empty")
+	}
+	// Ignore deprecated pubkey@ prefix if present.
+	if i := strings.IndexByte(val, '@'); i >= 0 {
+		val = strings.TrimSpace(val[i+1:])
+	}
+	if ap, err := netip.ParseAddrPort(val); err == nil {
+		return ap.String(), nil
+	}
+	if ip, err := netip.ParseAddr(val); err == nil {
+		return netip.AddrPortFrom(ip, 25565).String(), nil
+	}
+	host, portStr, err := net.SplitHostPort(val)
+	if err != nil {
+		// bare hostname → default port
+		if strings.Contains(val, ":") {
+			return "", fmt.Errorf("invalid ToNAT %q (want host or host:port)", val)
+		}
+		return net.JoinHostPort(val, "25565"), nil
+	}
+	if host == "" || portStr == "" {
+		return "", fmt.Errorf("invalid ToNAT %q", val)
+	}
+	if _, err := strconv.ParseUint(portStr, 10, 16); err != nil {
+		return "", fmt.Errorf("invalid ToNAT port in %q", val)
+	}
+	return net.JoinHostPort(host, portStr), nil
 }
 
 func truncateKey(b64 string) string {

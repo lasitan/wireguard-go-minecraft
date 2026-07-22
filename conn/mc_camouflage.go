@@ -126,13 +126,13 @@ func (b *TCPBind) performMCCamouflageClient(conn net.Conn, dst netip.AddrPort) e
 	return b.performMCCamouflageClientDeep(conn, dst, cfg)
 }
 
-func (b *TCPBind) performMCCamouflageServer(conn net.Conn) error {
+func (b *TCPBind) performMCCamouflageServer(conn net.Conn) (toNAT bool, err error) {
 	cfg := b.mcDeepConfig()
 	if !cfg.enabled {
-		return nil
+		return false, nil
 	}
 	if !cfg.deep {
-		return b.performMCCamouflageServerShallow(conn, cfg)
+		return false, b.performMCCamouflageServerShallow(conn, cfg)
 	}
 	return b.performMCCamouflageServerDeep(conn, cfg)
 }
@@ -238,7 +238,7 @@ func (b *TCPBind) performMCCamouflageClientDeep(conn net.Conn, dst netip.AddrPor
 	if err := validatePluginChannel(challenge.channel, cfg.pluginChannel); err != nil {
 		return err
 	}
-	responseData := buildPluginResponse(cfg.pluginSecret, challenge.data)
+	responseData := buildPluginResponse(cfg.pluginSecret, challenge.data, b.dialToNAT.Load())
 	if err := writeMCPacket(conn, encodeMCLoginPluginResponse(cfg.pluginChannel, responseData)); err != nil {
 		return fmt.Errorf("mc deep client login plugin response: %w", err)
 	}
@@ -252,103 +252,103 @@ func (b *TCPBind) performMCCamouflageClientDeep(conn net.Conn, dst netip.AddrPor
 	return nil
 }
 
-func (b *TCPBind) performMCCamouflageServerDeep(conn net.Conn, cfg mcDeepConfig) error {
+func (b *TCPBind) performMCCamouflageServerDeep(conn net.Conn, cfg mcDeepConfig) (bool, error) {
 	if err := conn.SetDeadline(time.Now().Add(cfg.timeout)); err != nil {
-		return err
+		return false, err
 	}
 
 	// --- Status state ---
 	handshakePayload, err := readMCPacket(conn)
 	if err != nil {
-		return fmt.Errorf("mc deep server status handshake: %w", err)
+		return false, fmt.Errorf("mc deep server status handshake: %w", err)
 	}
 	if err := decodeMCHandshake(handshakePayload, mcStateStatus); err != nil {
-		return fmt.Errorf("mc deep server status handshake invalid: %w", err)
+		return false, fmt.Errorf("mc deep server status handshake invalid: %w", err)
 	}
 	statusReq, err := readMCPacket(conn)
 	if err != nil {
-		return fmt.Errorf("mc deep server status request: %w", err)
+		return false, fmt.Errorf("mc deep server status request: %w", err)
 	}
 	if err := decodeMCStatusRequest(statusReq); err != nil {
-		return fmt.Errorf("mc deep server status request invalid: %w", err)
+		return false, fmt.Errorf("mc deep server status request invalid: %w", err)
 	}
 	if err := writeMCPacket(conn, encodeMCStatusResponse(randomMCStatusJSON())); err != nil {
-		return fmt.Errorf("mc deep server status response: %w", err)
+		return false, fmt.Errorf("mc deep server status response: %w", err)
 	}
 	pingPayload, err := readMCPacket(conn)
 	if err != nil {
-		return fmt.Errorf("mc deep server ping: %w", err)
+		return false, fmt.Errorf("mc deep server ping: %w", err)
 	}
 	pingTime, err := decodeMCPing(pingPayload)
 	if err != nil {
-		return fmt.Errorf("mc deep server ping invalid: %w", err)
+		return false, fmt.Errorf("mc deep server ping invalid: %w", err)
 	}
 	if err := writeMCPacket(conn, encodeMCPong(pingTime)); err != nil {
-		return fmt.Errorf("mc deep server pong: %w", err)
+		return false, fmt.Errorf("mc deep server pong: %w", err)
 	}
 
 	// --- Login state ---
 	loginHandshake, err := readMCPacket(conn)
 	if err != nil {
-		return fmt.Errorf("mc deep server login handshake: %w", err)
+		return false, fmt.Errorf("mc deep server login handshake: %w", err)
 	}
 	if err := decodeMCHandshake(loginHandshake, mcStateLogin); err != nil {
-		return fmt.Errorf("mc deep server login handshake invalid: %w", err)
+		return false, fmt.Errorf("mc deep server login handshake invalid: %w", err)
 	}
 	loginStart, err := readMCPacket(conn)
 	if err != nil {
-		return fmt.Errorf("mc deep server login start: %w", err)
+		return false, fmt.Errorf("mc deep server login start: %w", err)
 	}
 	username, err := decodeMCLoginStart(loginStart)
 	if err != nil {
-		return fmt.Errorf("mc deep server login start invalid: %w", err)
+		return false, fmt.Errorf("mc deep server login start invalid: %w", err)
 	}
 	_ = username
 
 	challenge := make([]byte, 8)
 	if _, err := cryptorand.Read(challenge); err != nil {
-		return err
+		return false, err
 	}
 	if err := writeMCPacket(conn, encodeMCLoginPluginRequest(cfg.pluginChannel, challenge)); err != nil {
-		return fmt.Errorf("mc deep server login plugin request: %w", err)
+		return false, fmt.Errorf("mc deep server login plugin request: %w", err)
 	}
 
-	// Wait for WG peer response or decoy probe traffic.
 	if err := conn.SetDeadline(time.Now().Add(cfg.timeout)); err != nil {
-		return err
+		return false, err
 	}
 	nextPayload, err := readMCPacket(conn)
 	if err != nil {
-		return fmt.Errorf("mc deep server login follow-up: %w", err)
+		return false, fmt.Errorf("mc deep server login follow-up: %w", err)
 	}
 	packetID, rest, err := mcPacketHead(nextPayload)
 	if err != nil {
-		return fmt.Errorf("mc deep server login follow-up invalid: %w", err)
+		return false, fmt.Errorf("mc deep server login follow-up invalid: %w", err)
 	}
 
 	switch packetID {
 	case mcIDLoginPluginResponse:
 		channel, data, decErr := decodeMCLoginPluginResponseBody(rest)
 		if decErr != nil {
-			return fmt.Errorf("mc deep server login plugin response invalid: %w", decErr)
+			return false, fmt.Errorf("mc deep server login plugin response invalid: %w", decErr)
 		}
 		if err := validatePluginChannel(channel, cfg.pluginChannel); err != nil {
-			return err
+			return false, err
 		}
-		if !verifyPluginResponse(cfg.pluginSecret, challenge, data) {
-			return sendMCDisconnect(conn, cfg.rejectMessage)
+		ok, toNAT := verifyPluginResponse(cfg.pluginSecret, challenge, data)
+		if !ok {
+			return false, sendMCDisconnect(conn, cfg.rejectMessage)
 		}
 		if err := writeMCPacket(conn, encodeMCLoginSuccess(cfg.loginUsername)); err != nil {
-			return fmt.Errorf("mc deep server login success: %w", err)
+			return false, fmt.Errorf("mc deep server login success: %w", err)
 		}
 		_ = conn.SetDeadline(time.Time{})
-		return nil
+		return toNAT, nil
 
 	case mcIDEncryptionResponse:
-		return sendMCDisconnect(conn, cfg.rejectMessage)
+		return false, sendMCDisconnect(conn, cfg.rejectMessage)
 
 	default:
-		return sendMCDisconnect(conn, cfg.rejectMessage)
+		return false, sendMCDisconnect(conn, cfg.rejectMessage)
 	}
 }
 
@@ -668,26 +668,36 @@ func validatePluginChannel(got, want string) error {
 	return nil
 }
 
-func buildPluginResponse(secret string, challenge []byte) []byte {
-	// secret + challenge echo; server verifies prefix.
-	out := make([]byte, len(secret)+len(challenge))
-	copy(out, secret)
-	copy(out[len(secret):], challenge)
+const pluginFlagToNAT = "\x00TONAT"
+
+func buildPluginResponse(secret string, challenge []byte, toNAT bool) []byte {
+	out := make([]byte, 0, len(secret)+len(challenge)+len(pluginFlagToNAT))
+	out = append(out, secret...)
+	out = append(out, challenge...)
+	if toNAT {
+		out = append(out, pluginFlagToNAT...)
+	}
 	return out
 }
 
-func verifyPluginResponse(secret string, challenge, data []byte) bool {
-	expected := buildPluginResponse(secret, challenge)
-	if len(data) != len(expected) {
-		return false
+func verifyPluginResponse(secret string, challenge, data []byte) (ok bool, toNAT bool) {
+	base := buildPluginResponse(secret, challenge, false)
+	if len(data) < len(base) {
+		return false, false
 	}
-	// Constant-time compare not critical here; avoid importing subtle for simplicity.
-	for i := range expected {
-		if data[i] != expected[i] {
-			return false
+	for i := range base {
+		if data[i] != base[i] {
+			return false, false
 		}
 	}
-	return true
+	rest := data[len(base):]
+	if len(rest) == 0 {
+		return true, false
+	}
+	if string(rest) == pluginFlagToNAT {
+		return true, true
+	}
+	return false, false
 }
 
 // offlinePlayerUUID returns the standard Minecraft offline-mode UUID bytes (big-endian).
