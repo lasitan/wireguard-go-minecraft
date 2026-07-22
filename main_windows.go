@@ -9,13 +9,15 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
 
 	"golang.org/x/sys/windows"
 
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/ipc"
-
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -29,7 +31,13 @@ func main() {
 		fmt.Printf("wireguard-go v%s\n", Version)
 		return
 	}
+	if runAsWindowsServiceIfRequested() {
+		return
+	}
 	if handleKeyCommand() {
+		return
+	}
+	if handleServiceCommand() {
 		return
 	}
 	if len(os.Args) != 2 {
@@ -38,17 +46,23 @@ func main() {
 	}
 	interfaceName := os.Args[1]
 
-	fmt.Fprintln(os.Stderr, "Warning: this is a test program for Windows, mainly used for debugging this Go package. For a real WireGuard for Windows client, the repo you want is <https://git.zx2c4.com/wireguard-windows/>, which includes this code as a module.")
+	logLevel := device.LogLevelError
+	switch os.Getenv("LOG_LEVEL") {
+	case "verbose", "debug":
+		logLevel = device.LogLevelVerbose
+	case "silent":
+		logLevel = device.LogLevelSilent
+	}
 
 	logger := device.NewLogger(
-		device.LogLevelVerbose,
+		logLevel,
 		fmt.Sprintf("(%s) ", interfaceName),
 	)
 	logger.Verbosef("Starting wireguard-go version %s", Version)
 
-	tun, err := tun.CreateTUN(interfaceName, 0)
+	tdev, err := tun.CreateTUN(interfaceName, 0)
 	if err == nil {
-		realInterfaceName, err2 := tun.Name()
+		realInterfaceName, err2 := tdev.Name()
 		if err2 == nil {
 			interfaceName = realInterfaceName
 		}
@@ -57,13 +71,42 @@ func main() {
 		os.Exit(ExitSetupFailed)
 	}
 
-	device := device.NewDevice(tun, conn.NewTCPBind(), logger)
-	logger.Verbosef("Transport mode: TCP+TLS (MC camouflage configured by file when enabled)")
-	err = device.Up()
-	if err != nil {
+	tcpBind := conn.NewTCPBind()
+	dev := device.NewDevice(tdev, tcpBind, logger)
+	logger.Verbosef("Transport mode: TCP + MC-Camouflage")
+	if err := dev.Up(); err != nil {
 		logger.Errorf("Failed to bring up device: %v", err)
 		os.Exit(ExitSetupFailed)
 	}
+
+	var natgw *natGateway
+	confDir := wgConfDir()
+	confFile := filepath.Join(confDir, interfaceName+".conf")
+	if _, statErr := os.Stat(confFile); statErr == nil {
+		fmt.Fprintf(os.Stderr, "wireguard-go: loading %s\n", confFile)
+		result, err := applyWGConf(dev, logger, interfaceName)
+		if err != nil {
+			logger.Errorf("Failed to apply wg conf: %v", err)
+			fmt.Fprintf(os.Stderr, "wireguard-go: failed to apply %s: %v\n", confFile, err)
+			os.Exit(ExitSetupFailed)
+		}
+		if result != nil {
+			if result.nat.toNAT != "" {
+				fmt.Fprintf(os.Stderr, "wireguard-go: ToNAT client → %s\n", result.nat.toNAT)
+			}
+			if result.nat.serverMode {
+				natgw = newNatGateway(logger, interfaceName, result.nat)
+				if err := natgw.Start(dev); err != nil {
+					logger.Errorf("Failed to start NAT gateway: %v", err)
+					fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway error: %v\n", err)
+					os.Exit(ExitSetupFailed)
+				}
+			}
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "wireguard-go: no config at %s (UAPI-only mode; set WG_CONF_DIR to override)\n", confFile)
+	}
+
 	logger.Verbosef("Device started")
 
 	uapi, err := ipc.UAPIListen(interfaceName)
@@ -77,17 +120,30 @@ func main() {
 
 	go func() {
 		for {
-			conn, err := uapi.Accept()
+			c, err := uapi.Accept()
 			if err != nil {
 				errs <- err
 				return
 			}
-			go device.IpcHandle(conn)
+			go dev.IpcHandle(c)
 		}
 	}()
 	logger.Verbosef("UAPI listener started")
 
-	// wait for program to terminate
+	if os.Getenv("LOG_LEVEL") == "verbose" || os.Getenv("LOG_LEVEL") == "debug" {
+		var tcpPort uint16
+		if ipcStr, err := dev.IpcGet(); err == nil {
+			for _, l := range strings.Split(ipcStr, "\n") {
+				if strings.HasPrefix(l, "listen_port=") {
+					v := strings.TrimPrefix(l, "listen_port=")
+					if p, err := strconv.ParseUint(v, 10, 16); err == nil {
+						tcpPort = uint16(p)
+					}
+				}
+			}
+		}
+		printStartupInfo(dev, logger, interfaceName, confFile, tcpPort, true, 0)
+	}
 
 	signal.Notify(term, os.Interrupt)
 	signal.Notify(term, os.Kill)
@@ -96,13 +152,15 @@ func main() {
 	select {
 	case <-term:
 	case <-errs:
-	case <-device.Wait():
+	case <-dev.Wait():
 	}
 
-	// clean up
-
-	uapi.Close()
-	device.Close()
+	_ = tcpBind.Close()
+	if natgw != nil {
+		natgw.Close(dev)
+	}
+	_ = uapi.Close()
+	dev.Close()
 
 	logger.Verbosef("Shutting down")
 }

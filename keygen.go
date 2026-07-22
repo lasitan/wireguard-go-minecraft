@@ -26,8 +26,9 @@ func printUsage() {
   %s genpsk
   %s --version
 
-Service (systemd):
-  install     Install/enable wireguard-go@INTERFACE (default: wg0)
+Service:
+  install     Install/enable system service for INTERFACE (default: wg0)
+              Auto-elevates (sudo/pkexec on Linux; UAC on Windows) when needed
   uninstall   Stop/disable the service; --purge also removes configs
 
 Key commands (same as wg(8)):

@@ -69,7 +69,7 @@ func handleServiceCommand() bool {
 }
 
 func serviceInstall(iface string) error {
-	if err := requireRoot(); err != nil {
+	if err := ensureElevated(); err != nil {
 		return err
 	}
 	if err := validateIfaceName(iface); err != nil {
@@ -115,7 +115,7 @@ func serviceInstall(iface string) error {
 }
 
 func serviceUninstall(iface string, purge bool) error {
-	if err := requireRoot(); err != nil {
+	if err := ensureElevated(); err != nil {
 		return err
 	}
 	if err := validateIfaceName(iface); err != nil {
@@ -212,13 +212,6 @@ func ensureWGConfigs(iface string) error {
 			_ = os.WriteFile(transport, data, 0644)
 			fmt.Fprintf(os.Stderr, "wireguard-go: created %s from example\n", transport)
 		}
-	}
-	return nil
-}
-
-func requireRoot() error {
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("must run as root (try: sudo %s %s)", os.Args[0], strings.Join(os.Args[1:], " "))
 	}
 	return nil
 }

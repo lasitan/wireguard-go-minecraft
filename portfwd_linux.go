@@ -12,7 +12,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -20,37 +19,10 @@ import (
 )
 
 const (
-	protoTCP = "tcp"
-	protoUDP = "udp"
-
 	udpSessionIdle   = 60 * time.Second
 	udpMaxPacket     = 65535
 	forwardCloseWait = 1 * time.Second
 )
-
-type portForwardSpec struct {
-	Proto      string // "tcp" or "udp"
-	ListenHost string
-	ListenPort int
-	DestHost   string
-	DestPort   int
-}
-
-func (s portForwardSpec) ListenAddr() string {
-	host := s.ListenHost
-	if host == "" {
-		host = "0.0.0.0"
-	}
-	return net.JoinHostPort(host, strconv.Itoa(s.ListenPort))
-}
-
-func (s portForwardSpec) DestAddr() string {
-	return net.JoinHostPort(s.DestHost, strconv.Itoa(s.DestPort))
-}
-
-func (s portForwardSpec) String() string {
-	return s.Proto + " " + s.ListenAddr() + " -> " + s.DestAddr()
-}
 
 type portForwardManager struct {
 	logger  *device.Logger

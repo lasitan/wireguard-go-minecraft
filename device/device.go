@@ -89,6 +89,24 @@ type Device struct {
 	ipcMutex sync.RWMutex
 	closed   chan struct{}
 	log      *Logger
+
+	// inboundFilter optionally drops decrypted packets before TUN write.
+	// Used by dual-server NAT gateway to block nested dials to upstream.
+	inboundFilter struct {
+		sync.RWMutex
+		fn InboundPacketFilter
+	}
+}
+
+// InboundPacketFilter returns false to drop a decrypted IP packet before it is
+// written to the TUN device. peerKey is the remote peer's public key.
+type InboundPacketFilter func(peerKey NoisePublicKey, packet []byte) bool
+
+// SetInboundPacketFilter installs or clears (nil) the inbound packet filter.
+func (device *Device) SetInboundPacketFilter(fn InboundPacketFilter) {
+	device.inboundFilter.Lock()
+	device.inboundFilter.fn = fn
+	device.inboundFilter.Unlock()
 }
 
 // deviceState represents the state of a Device.

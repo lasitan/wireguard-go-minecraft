@@ -158,6 +158,13 @@ func (peer *Peer) clearEndpoint() {
 	peer.endpoint.Unlock()
 }
 
+// PublicKey returns the remote peer's static public key.
+func (peer *Peer) PublicKey() NoisePublicKey {
+	peer.handshake.mutex.RLock()
+	defer peer.handshake.mutex.RUnlock()
+	return peer.handshake.remoteStatic
+}
+
 func (peer *Peer) String() string {
 	// The awful goo that follows is identical to:
 	//

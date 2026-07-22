@@ -52,6 +52,9 @@ override_dh_auto_install:
 		install -m 0644 wireguard-go-transport.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-transport.json; \
 	fi
 	install -m 0600 debian/wg0.conf.example debian/wireguard-mc/etc/wireguard/wg0.conf.example
+	install -m 0600 debian/wg-nat-a.conf.example debian/wireguard-mc/etc/wireguard/wg-nat-a.conf.example
+	install -m 0600 debian/wg-nat-b.conf.example debian/wireguard-mc/etc/wireguard/wg-nat-b.conf.example
+	install -m 0600 debian/wg-nat-c.conf.example debian/wireguard-mc/etc/wireguard/wg-nat-c.conf.example
 	install -d debian/wireguard-mc/usr/share/doc/wireguard-mc
 	install -m 0644 debian/README.Debian debian/wireguard-mc/usr/share/doc/wireguard-mc/README.Debian
 	install -d debian/wireguard-mc/lib/systemd/system

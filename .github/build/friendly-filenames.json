@@ -26,5 +26,14 @@
     "debArchitecture": "armhf",
     "runnerFamily": "arm",
     "goArchiveArch": "armv6l"
+  },
+  "windows-amd64": {
+    "friendlyName": "windows10-amd64",
+    "goos": "windows",
+    "goarch": "amd64",
+    "minOS": "10",
+    "runnerFamily": "windows",
+    "goArchiveArch": "amd64",
+    "binaryExt": ".exe"
   }
 }

@@ -216,6 +216,7 @@ func main() {
 	}
 
 	fwd := newPortForwardManager(logger)
+	var natgw *natGateway
 
 	// Auto-load /etc/wireguard/<iface>.conf if it exists.
 	confPath := ""
@@ -233,6 +234,17 @@ func main() {
 		if result != nil {
 			if len(result.netCfg.addresses) == 0 {
 				fmt.Fprintf(os.Stderr, "wireguard-go: WARNING: no Address= in %s — interface will have no IP\n", confFile)
+			}
+			if result.nat.toNAT != "" {
+				fmt.Fprintf(os.Stderr, "wireguard-go: ToNAT client → %s\n", result.nat.toNAT)
+			}
+			if result.nat.serverMode {
+				natgw = newNatGateway(logger, interfaceName, result.nat)
+				if err := natgw.Start(dev); err != nil {
+					logger.Errorf("Failed to start NAT gateway: %v", err)
+					fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway error: %v\n", err)
+					os.Exit(ExitSetupFailed)
+				}
 			}
 			fmt.Fprintln(os.Stderr, "wireguard-go: starting port forwards (if any)")
 			if err := fwd.StartFromPeers(result.peers); err != nil {
@@ -305,6 +317,9 @@ func main() {
 
 	// Interrupt TCP dials / sessions first so peer.Stop cannot block on Send.
 	_ = tcpBind.Close()
+	if natgw != nil {
+		natgw.Close(dev)
+	}
 	fwd.Close()
 	_ = uapi.Close()
 	dev.Close()

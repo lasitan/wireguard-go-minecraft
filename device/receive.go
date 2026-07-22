@@ -507,6 +507,13 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 				continue
 			}
 
+			device.inboundFilter.RLock()
+			filter := device.inboundFilter.fn
+			device.inboundFilter.RUnlock()
+			if filter != nil && !filter(peer.PublicKey(), elem.packet) {
+				continue
+			}
+
 			bufs = append(bufs, elem.buffer[:MessageTransportOffsetContent+len(elem.packet)])
 		}
 

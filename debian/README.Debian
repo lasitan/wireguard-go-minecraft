@@ -34,9 +34,75 @@ Stop and remove the service unit instance:
      sudo wireguard-go uninstall
      sudo wireguard-go uninstall --purge   # also delete configs
 
+install / uninstall auto-elevate when not root: try `sudo -n` (silent if
+credentials are cached), then `pkexec` (desktop prompt), then interactive
+`sudo`. On Windows, `install`/`uninstall` trigger a UAC elevation (runas)
+and register a LocalSystem service named wireguard-go-<iface>.
+
 Foreground (debug):
      sudo LOG_LEVEL=verbose /usr/bin/wireguard-go -f wg0
 
 Binary path: /usr/bin/wireguard-go
 Config dir:  /etc/wireguard/
 Unit file:   /lib/systemd/system/wireguard-go@.service
+
+Dual-server / TO NAT
+--------------------
+
+Three-node overlay on one VPN subnet (example 10.0.0.0/24):
+
+  C (internal-only) --ToNAT--> B (can egress) --Endpoint--> A (public)
+
+  A = 10.0.0.1   B = 10.0.0.2   C = 10.0.0.3
+
+Example configs (installed under /etc/wireguard/):
+
+  wg-nat-a.conf.example   public node
+  wg-nat-b.conf.example   NAT gateway / dual-server
+  wg-nat-c.conf.example   TO NAT client
+
+Key options:
+
+  [Interface] ToNAT = host:port
+      C-side: create/use this TUN and dial B as the only transport target.
+      Equivalent to setting that peer's Endpoint (conflict if both differ).
+
+  [Interface] NatUpstream = <A public key base64>
+      B-side: identifies the upstream public peer (must have Endpoint).
+
+  [Peer] NatClient = true
+      B-side: this peer is a downstream NAT client. Enables:
+        - net.ipv4.ip_forward
+        - MASQUERADE for client VPN IPs leaving non-WG interfaces
+          (C appears as B on the Internet)
+        - hard block of nested dials to NatUpstream Endpoint IP:port
+          (nft preferred, iptables fallback; plus userspace drop before TUN write)
+
+AllowedIPs rules of thumb:
+
+  - On A: Peer B AllowedIPs must include B and C (e.g. 10.0.0.2/32, 10.0.0.3/32).
+  - On B: Peer A AllowedIPs = only A's VPN IP (e.g. 10.0.0.1/32).
+    Do not put 0.0.0.0/0 on A, or C's default route would enter A
+    instead of SNAT egress on B.
+  - On C: Peer B AllowedIPs = 0.0.0.0/0 (and optionally ::/0).
+
+C must not configure Endpoint to A's public address; B rejects nested
+reconnects to that public ListenPort.
+
+Windows (Windows 10+ amd64)
+---------------------------
+
+Release binaries are named wireguard-mc-windows10-amd64-<version>.exe.
+
+Config directory (override with WG_CONF_DIR):
+
+  %ProgramData%\wireguard\<iface>.conf
+
+When NatClient / NatUpstream is enabled on Windows, the NAT gateway enables
+IP forwarding (Linux ip_forward equivalent) via:
+
+  1. HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\IPEnableRouter=1
+  2. Set-NetIPInterface -Forwarding Enabled on interfaces
+
+Run elevated (Administrator). Nested reconnects are still dropped in userspace;
+WinNAT / firewall rules are best-effort extras.

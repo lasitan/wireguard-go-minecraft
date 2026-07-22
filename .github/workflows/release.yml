@@ -137,6 +137,36 @@ jobs:
             chmod a+x "$bin_out"
           done
 
+      - name: Cross-compile Windows binaries (Windows 10+ amd64)
+        env:
+          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+          WG_MC_VERSION: ${{ steps.version.outputs.tag }}
+          GO_VERSION: ${{ env.GO_VERSION }}
+        run: |
+          set -euo pipefail
+          GO_VERSION="${GO_VERSION:-1.23.1}"
+          json_file='.github/build/friendly-filenames.json'
+          mkdir -p dist/release/bin
+          if ! command -v go >/dev/null 2>&1; then
+            curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | sudo tar -C /usr/local -xz
+            export PATH="/usr/local/go/bin:${PATH}"
+          fi
+          go version
+          for key in $(jq -r 'to_entries[] | select(.value.goos=="windows") | .key' "$json_file" | sort); do
+            friendly="$(jq -r --arg k "$key" '.[$k].friendlyName' "$json_file")"
+            goos="$(jq -r --arg k "$key" '.[$k].goos' "$json_file")"
+            goarch="$(jq -r --arg k "$key" '.[$k].goarch' "$json_file")"
+            ext="$(jq -r --arg k "$key" '.[$k].binaryExt // ""' "$json_file")"
+            minos="$(jq -r --arg k "$key" '.[$k].minOS // empty' "$json_file")"
+            out="dist/release/bin/wireguard-mc-${friendly}-${DEB_UPSTREAM}${ext}"
+            echo "Building ${key} (GOOS=${goos} GOARCH=${goarch}, minOS=${minos:-any}) → ${out}"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
+              -ldflags "-s -w -X main.Version=${WG_MC_VERSION}" \
+              -o "$out" .
+            chmod a+x "$out" || true
+          done
+          ls -la dist/release/bin/
+
       - name: Keep only files matching this version (defense in depth)
         env:
           DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}

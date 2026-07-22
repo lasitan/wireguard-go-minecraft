@@ -1,0 +1,18 @@
+# Dual-server / TO NAT example — internal node C
+#
+# C cannot reach A directly. ToNAT dials B; all traffic on this interface
+# is carried to B, which either forwards inside the VPN or SNAT-egresses.
+# C must NOT also set Endpoint to A's public address.
+
+[Interface]
+PrivateKey = REPLACE_WITH_C_PRIVATE_KEY_BASE64
+Address = 10.0.0.3/24
+MTU = 1420
+# B's reachable address (LAN / internal IP), same port as B ListenPort
+ToNAT = REPLACE_WITH_B_INTERNAL_IP:25565
+
+[Peer]
+# B (NAT gateway)
+PublicKey = REPLACE_WITH_B_PUBLIC_KEY_BASE64
+AllowedIPs = 0.0.0.0/0, ::/0
+PersistentKeepalive = 5
