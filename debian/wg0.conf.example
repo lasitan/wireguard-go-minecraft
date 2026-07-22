@@ -1,10 +1,10 @@
 [Interface]
-PrivateKey = REPLACE_WITH_PRIVATE_KEY_BASE64
+PrivateKey = REPLACE_WITH_PRIVATE_KEY
 Address = 10.0.0.1/24
 ListenPort = 25565
 MTU = 1420
 [Peer]
-PublicKey = REPLACE_WITH_PEER_PUBLIC_KEY_BASE64
+PublicKey = REPLACE_WITH_PEER_PUBLIC_KEY
 AllowedIPs = 10.0.0.2/32
 # Built-in TCP proxy: public listen -> peer VPN IP
 #   25565              -> peer:25565

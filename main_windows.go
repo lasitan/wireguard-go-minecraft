@@ -40,11 +40,30 @@ func main() {
 	if handleServiceCommand() {
 		return
 	}
-	if len(os.Args) != 2 {
+
+	// On Windows there is no daemon fork; -f/--foreground only selects the
+	// interface arg form and prints the startup summary (same UX as Linux).
+	var foreground bool
+	var interfaceName string
+	switch {
+	case len(os.Args) == 3 && (os.Args[1] == "-f" || os.Args[1] == "--foreground"):
+		foreground = true
+		interfaceName = os.Args[2]
+	case len(os.Args) == 2:
+		interfaceName = os.Args[1]
+		if interfaceName == "-f" || interfaceName == "--foreground" {
+			printUsage()
+			os.Exit(ExitSetupFailed)
+		}
+	default:
 		printUsage()
 		os.Exit(ExitSetupFailed)
 	}
-	interfaceName := os.Args[1]
+	if strings.ContainsAny(interfaceName, `/\`) || strings.HasSuffix(strings.ToLower(interfaceName), ".conf") {
+		fmt.Fprintf(os.Stderr, "wireguard-go: pass interface name (e.g. wg0), not a config path\n")
+		fmt.Fprintf(os.Stderr, "wireguard-go: config is loaded from %s\\<iface>.conf\n", wgConfDir())
+		os.Exit(ExitSetupFailed)
+	}
 
 	logLevel := device.LogLevelError
 	switch os.Getenv("LOG_LEVEL") {
@@ -134,7 +153,7 @@ func main() {
 	}()
 	logger.Verbosef("UAPI listener started")
 
-	if os.Getenv("LOG_LEVEL") == "verbose" || os.Getenv("LOG_LEVEL") == "debug" {
+	if foreground || os.Getenv("LOG_LEVEL") == "verbose" || os.Getenv("LOG_LEVEL") == "debug" {
 		var tcpPort uint16
 		if ipcStr, err := dev.IpcGet(); err == nil {
 			for _, l := range strings.Split(ipcStr, "\n") {
@@ -147,6 +166,7 @@ func main() {
 			}
 		}
 		printStartupInfo(dev, logger, interfaceName, confFile, tcpPort, true, 0)
+		fmt.Fprintln(os.Stderr, "wireguard-go: ready (foreground). Waiting for peers — Ctrl+C to stop.")
 	}
 
 	signal.Notify(term, os.Interrupt)

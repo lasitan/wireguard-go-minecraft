@@ -6,24 +6,24 @@
 # Add one [Peer] per C (PublicKey + AllowedIPs) for multi-client.
 
 [Interface]
-PrivateKey = REPLACE_WITH_B_PRIVATE_KEY_BASE64
+PrivateKey = REPLACE_WITH_B_PRIVATE_KEY
 Address = 10.0.0.2/24
 ListenPort = 25565
 MTU = 1420
 
 [Peer]
 # A (public)
-PublicKey = REPLACE_WITH_A_PUBLIC_KEY_BASE64
+PublicKey = REPLACE_WITH_A_PUBLIC_KEY
 Endpoint = REPLACE_WITH_A_PUBLIC_IP:25565
 AllowedIPs = 10.0.0.1/32
 PersistentKeepalive = 5
 
 [Peer]
 # C1
-PublicKey = REPLACE_WITH_C1_PUBLIC_KEY_BASE64
+PublicKey = REPLACE_WITH_C1_PUBLIC_KEY
 AllowedIPs = 10.0.0.3/32
 
 [Peer]
 # C2 (optional second ToNAT client)
-# PublicKey = REPLACE_WITH_C2_PUBLIC_KEY_BASE64
+# PublicKey = REPLACE_WITH_C2_PUBLIC_KEY
 # AllowedIPs = 10.0.0.4/32

@@ -4,13 +4,13 @@
 # Connect to B with a normal [Peer] Endpoint.
 
 [Interface]
-PrivateKey = REPLACE_WITH_C_PRIVATE_KEY_BASE64
+PrivateKey = REPLACE_WITH_C_PRIVATE_KEY
 Address = 10.0.0.3/24
 MTU = 1420
 ToNAT = true
 
 [Peer]
-PublicKey = REPLACE_WITH_B_PUBLIC_KEY_BASE64
+PublicKey = REPLACE_WITH_B_PUBLIC_KEY
 Endpoint = 10.0.0.2:25565
 AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 5
