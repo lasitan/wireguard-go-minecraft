@@ -224,6 +224,9 @@ MTU = 1420
 		}
 		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — edit keys before relying on the tunnel\n", confPath)
 	}
+	if err := ensureTransportConfigWindows(); err != nil {
+		return err
+	}
 	return nil
 }
 

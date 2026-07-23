@@ -1,5 +1,8 @@
 // WireGuard-over-TCP 传输层配置示例
-// 放置路径：/etc/wireguard/wireguard-go-transport.json（与 wg0.conf 同目录）
+// 放置路径：
+//   Linux:   /etc/wireguard/wireguard-go-transport.json
+//   Windows: %ProgramData%\wireguard\wireguard-go-transport.json
+// （与 wg0.conf 同目录；可用环境变量 WG_CONF_DIR 覆盖）
 // 注意：组网两端必须使用相同配置（尤其 loginPluginSecret）；本程序不与标准 UDP WireGuard 互通
 // 传输层：纯 TCP + Minecraft 协议伪装（无 TLS）
 {

@@ -592,6 +592,10 @@ func decodeMCLoginSuccess(payload []byte, wantUsername string) error {
 		return err
 	}
 	if packetID != mcIDLoginSuccess {
+		if packetID == mcIDDisconnect {
+			msg := decodeMCDisconnectMessage(rest)
+			return fmt.Errorf("server rejected MC login (%s); check wireguard-go-transport.json loginPluginSecret/loginPluginChannel match on both peers", msg)
+		}
 		return fmt.Errorf("unexpected packet id %d", packetID)
 	}
 	r := bytes.NewReader(rest)
@@ -617,6 +621,21 @@ func decodeMCLoginSuccess(payload []byte, wantUsername string) error {
 		return errors.New("unexpected trailing data in login success")
 	}
 	return nil
+}
+
+func decodeMCDisconnectMessage(rest []byte) string {
+	r := bytes.NewReader(rest)
+	s, err := readMCString(r)
+	if err != nil || s == "" {
+		return "disconnect"
+	}
+	var chat map[string]any
+	if json.Unmarshal([]byte(s), &chat) == nil {
+		if text, ok := chat["text"].(string); ok && text != "" {
+			return text
+		}
+	}
+	return s
 }
 
 func sendMCDisconnect(conn net.Conn, message string) error {

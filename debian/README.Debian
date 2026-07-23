@@ -95,9 +95,14 @@ The exe embeds the official signed wintun.dll and releases it beside itself
 on first tunnel start (no manual copy needed). The process needs write
 access to the directory containing the .exe.
 
+On first start it also releases wireguard-go-transport.json into the config
+directory when missing (same example as the Debian package). Edit
+loginPluginSecret so both peers match.
+
 Config directory (override with WG_CONF_DIR):
 
   %ProgramData%\wireguard\<iface>.conf
+  %ProgramData%\wireguard\wireguard-go-transport.json
 
 When NatClient / NatUpstream is enabled on Windows, the NAT gateway enables
 IP forwarding (Linux ip_forward equivalent) via:

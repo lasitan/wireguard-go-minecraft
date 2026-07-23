@@ -1139,15 +1139,17 @@ func stripJSONComments(data []byte) []byte {
 }
 
 func defaultTransportConfigPath() string {
-	// Prefer /etc/wireguard on Unix; fall back to executable directory on Windows.
-	if runtime.GOOS != "windows" {
-		return filepath.Join("/etc/wireguard", transportConfigFileName)
+	// Same directory as wg conf: WG_CONF_DIR, else /etc/wireguard or %ProgramData%\wireguard.
+	if d := os.Getenv("WG_CONF_DIR"); d != "" {
+		return filepath.Join(d, transportConfigFileName)
 	}
-	executablePath, err := os.Executable()
-	if err != nil || executablePath == "" {
-		return transportConfigFileName
+	if runtime.GOOS == "windows" {
+		if pd := os.Getenv("ProgramData"); pd != "" {
+			return filepath.Join(pd, "wireguard", transportConfigFileName)
+		}
+		return filepath.Join(`C:\ProgramData\wireguard`, transportConfigFileName)
 	}
-	return filepath.Join(filepath.Dir(executablePath), transportConfigFileName)
+	return filepath.Join("/etc/wireguard", transportConfigFileName)
 }
 
 func parseDurationWithDefault(v string, defaultVal time.Duration) time.Duration {
