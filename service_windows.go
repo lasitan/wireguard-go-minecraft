@@ -101,9 +101,13 @@ func serviceInstall(iface string) error {
 
 	name := windowsServiceName(iface)
 	if s, err := m.OpenService(name); err == nil {
-		s.Close()
-		fmt.Fprintf(os.Stderr, "wireguard-go: service %s already exists — starting\n", name)
-		return startWindowsService(m, name)
+		defer s.Close()
+		if err := updateWindowsServiceBinary(s, exe, iface); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "wireguard-go: service %s already exists — refreshed binary path\n", name)
+		fmt.Fprintf(os.Stderr, "wireguard-go: binary → %s\n", exe)
+		return startWindowsServiceHandle(s, name)
 	}
 
 	cfg := mgr.Config{
@@ -127,12 +131,45 @@ func serviceInstall(iface string) error {
 	return nil
 }
 
+func windowsServiceBinaryPath(exe, iface string) string {
+	// SCM needs a quoted path when spaces exist; CreateService does this for us,
+	// UpdateConfig needs the same form.
+	if strings.ContainsAny(exe, " \t") {
+		return fmt.Sprintf(`"%s" -service %s`, exe, iface)
+	}
+	return fmt.Sprintf(`%s -service %s`, exe, iface)
+}
+
+func updateWindowsServiceBinary(s *mgr.Service, exe, iface string) error {
+	cfg, err := s.Config()
+	if err != nil {
+		return fmt.Errorf("query service config: %w", err)
+	}
+	want := windowsServiceBinaryPath(exe, iface)
+	cfg.BinaryPathName = want
+	cfg.StartType = mgr.StartAutomatic
+	if cfg.DisplayName == "" {
+		cfg.DisplayName = fmt.Sprintf("wireguard-go (%s)", iface)
+	}
+	if cfg.Description == "" {
+		cfg.Description = "WireGuard over TCP with Minecraft camouflage"
+	}
+	if err := s.UpdateConfig(cfg); err != nil {
+		return fmt.Errorf("update service binary path: %w", err)
+	}
+	return nil
+}
+
 func startWindowsService(m *mgr.Mgr, name string) error {
 	s, err := m.OpenService(name)
 	if err != nil {
 		return err
 	}
 	defer s.Close()
+	return startWindowsServiceHandle(s, name)
+}
+
+func startWindowsServiceHandle(s *mgr.Service, name string) error {
 	status, err := s.Query()
 	if err != nil {
 		return err
