@@ -210,13 +210,13 @@ func ensureWGConfigsWindows(iface string) error {
 		// Create a minimal placeholder so the service has something to load.
 		placeholder := fmt.Sprintf(`# Created by wireguard-go install — edit before use
 [Interface]
-PrivateKey = REPLACE_WITH_PRIVATE_KEY_BASE64
+PrivateKey = REPLACE_WITH_PRIVATE_KEY
 Address = 10.0.0.1/24
 ListenPort = 25565
 MTU = 1420
 
 # [Peer]
-# PublicKey = REPLACE_WITH_PEER_PUBLIC_KEY_BASE64
+# PublicKey = REPLACE_WITH_PEER_PUBLIC_KEY
 # AllowedIPs = 10.0.0.2/32
 `)
 		if err := os.WriteFile(confPath, []byte(placeholder), 0600); err != nil {

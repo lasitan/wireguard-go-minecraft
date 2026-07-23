@@ -91,6 +91,10 @@ Windows (Windows 10+ amd64)
 
 Release binaries are named wireguard-mc-windows10-amd64-<version>.exe.
 
+The exe embeds the official signed wintun.dll and releases it beside itself
+on first tunnel start (no manual copy needed). The process needs write
+access to the directory containing the .exe.
+
 Config directory (override with WG_CONF_DIR):
 
   %ProgramData%\wireguard\<iface>.conf

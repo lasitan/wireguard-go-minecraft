@@ -51,6 +51,11 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 		logger = device.NewLogger(device.LogLevelVerbose, fmt.Sprintf("(%s) ", m.iface))
 	}
 
+	if err := ensureWintunDLL(); err != nil {
+		logger.Errorf("wintun.dll: %v", err)
+		return true, 1
+	}
+
 	tdev, err := tun.CreateTUN(m.iface, 0)
 	if err != nil {
 		logger.Errorf("TUN: %v", err)
