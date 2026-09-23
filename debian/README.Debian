@@ -54,6 +54,9 @@ workflow_dispatch input "build_docker" is checked, or when repository Variable
 ENABLE_DOCKER_RELEASE=true. Optional Variable DOCKER_IMAGE overrides the image
 name (default ghcr.io/<owner>/<repo>).
 
+Builds publish binaries/.deb directly to the GitHub Release (and Docker tags to
+GHCR). Actions Artifacts are not used, so artifact storage quota does not apply.
+
 Local build:
 
   bash scripts/package-docker.sh

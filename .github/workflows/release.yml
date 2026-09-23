@@ -18,6 +18,9 @@ on:
         type: boolean
         default: true
 
+# No Actions Artifact upload/download — builds publish straight to GitHub Release / GHCR
+# (avoids Actions artifact storage quota).
+
 permissions:
   contents: write
   packages: write
@@ -33,8 +36,8 @@ env:
   DOCKER_IMAGE: ${{ vars.DOCKER_IMAGE }}
 
 jobs:
-  # 在对应原生架构 runner 上构建，无需 QEMU。请修改 runs-on 为你的自托管标签。
-  build-x86:
+  # Create tag + draft release first so build jobs can upload assets in parallel.
+  prepare:
     runs-on: [self-hosted, Linux, X64]
     outputs:
       tag: ${{ steps.version.outputs.tag }}
@@ -43,19 +46,10 @@ jobs:
       run:
         working-directory: checkout
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
-          clean: false
           path: checkout
-
-      - name: Fix repository ownership
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          if command -v sudo >/dev/null 2>&1; then
-            sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/checkout" || true
-          fi
 
       - name: Read version
         id: version
@@ -69,12 +63,73 @@ jobs:
           echo "deb_upstream=$DEB_UPSTREAM" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Sync Debian changelog
+      - name: Create and push version tag
         env:
-          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+            echo "Remote tag ${TAG} exists; skip"
+          else
+            git tag -a "${TAG}" -m "Release ${TAG}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${TAG}"
+          fi
+
+      - name: Ensure draft release (wipe prior wireguard-mc assets)
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release create "${TAG}" --draft --title "${TAG}" --generate-notes
+            echo "Created draft release ${TAG}"
+          else
+            echo "Release ${TAG} exists; set draft and clear wireguard-mc assets"
+            gh release edit "${TAG}" --draft=true >/dev/null
+          fi
+          # Delete only our assets so a re-run does not stack old binaries.
+          mapfile -t assets < <(gh release view "${TAG}" --json assets -q '.assets[].name' 2>/dev/null || true)
+          for name in "${assets[@]:-}"; do
+            [ -n "$name" ] || continue
+            case "$name" in
+              wireguard-mc*)
+                echo "Removing release asset: ${name}"
+                gh release delete-asset "${TAG}" "$name" --yes
+                ;;
+            esac
+          done
+
+  # 在对应原生架构 runner 上构建，无需 QEMU。请修改 runs-on 为你的自托管标签。
+  build-x86:
+    needs: [prepare]
+    runs-on: [self-hosted, Linux, X64]
+    defaults:
+      run:
+        working-directory: checkout
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      DEB_UPSTREAM: ${{ needs.prepare.outputs.deb_upstream }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          clean: false
+          path: checkout
+
+      - name: Fix repository ownership
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if command -v sudo >/dev/null 2>&1; then
+            sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/checkout" || true
+          fi
+
+      - name: Sync Debian changelog
         run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
 
-      # clean: false + 自托管会复用工作区，必须删掉往期 dist/release，否则 artifact 会带上多版本二进制
       - name: Clean stale dist and root debs
         run: |
           set -euo pipefail
@@ -83,8 +138,7 @@ jobs:
 
       - name: Build .deb and binary (x86 family)
         env:
-          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
-          WG_MC_VERSION: ${{ steps.version.outputs.tag }}
+          WG_MC_VERSION: ${{ env.TAG }}
           REPO_DIR: ${{ github.workspace }}/checkout
           RUNNER_FAMILY: x86
           GO_VERSION: ${{ env.GO_VERSION }}
@@ -154,8 +208,7 @@ jobs:
 
       - name: Cross-compile Windows binaries (Windows 10+ amd64)
         env:
-          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
-          WG_MC_VERSION: ${{ steps.version.outputs.tag }}
+          WG_MC_VERSION: ${{ env.TAG }}
           GO_VERSION: ${{ env.GO_VERSION }}
         run: |
           set -euo pipefail
@@ -167,7 +220,6 @@ jobs:
             export PATH="/usr/local/go/bin:${PATH}"
           fi
           go version
-          # Ensure official wintun.dll is present for go:embed (Windows builds).
           if [[ ! -f third_party/wintun/amd64/wintun.dll ]]; then
             apt-get update -qq
             apt-get install -y -qq --no-install-recommends unzip >/dev/null || sudo apt-get install -y -qq unzip
@@ -189,31 +241,7 @@ jobs:
           done
           ls -la dist/release/bin/
 
-      - name: Build Docker image (linux/amd64)
-        if: ${{ env.BUILD_DOCKER == 'true' }}
-        env:
-          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
-          WG_MC_VERSION: ${{ steps.version.outputs.tag }}
-          GO_VERSION: ${{ env.GO_VERSION }}
-        run: |
-          set -euo pipefail
-          GO_VERSION="${GO_VERSION:-1.23.1}"
-          mkdir -p dist/release/docker
-          local_tag="wireguard-mc:ci-amd64-${DEB_UPSTREAM}"
-          docker build \
-            --platform linux/amd64 \
-            --build-arg "VERSION=${WG_MC_VERSION}" \
-            --build-arg "GO_VERSION=${GO_VERSION}" \
-            -t "${local_tag}" \
-            -f Dockerfile \
-            .
-          out="dist/release/docker/wireguard-mc-linux-amd64-${DEB_UPSTREAM}.tar"
-          docker save -o "${out}" "${local_tag}"
-          ls -lh "${out}"
-
-      - name: Keep only files matching this version (defense in depth)
-        env:
-          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+      - name: Keep only files matching this version
         run: |
           set -euo pipefail
           find dist/release -type f -print0 2>/dev/null | while IFS= read -r -d '' f; do
@@ -227,6 +255,40 @@ jobs:
             esac
           done
 
+      - name: Upload x86 assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=( dist/release/deb/*.deb dist/release/bin/* )
+          [ "${#files[@]}" -gt 0 ] || { echo "No files to upload" >&2; exit 1; }
+          gh release upload "${TAG}" "${files[@]}" --clobber
+          ls -la "${files[@]}"
+
+      - name: Build and push Docker image (linux/amd64)
+        if: ${{ env.BUILD_DOCKER == 'true' }}
+        env:
+          WG_MC_VERSION: ${{ env.TAG }}
+          GO_VERSION: ${{ env.GO_VERSION }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          GO_VERSION="${GO_VERSION:-1.23.1}"
+          IMAGE_RAW="${DOCKER_IMAGE:-ghcr.io/${GITHUB_REPOSITORY}}"
+          IMAGE="$(echo "${IMAGE_RAW}" | tr '[:upper:]' '[:lower:]')"
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          remote="${IMAGE}:${DEB_UPSTREAM}-amd64"
+          docker build \
+            --platform linux/amd64 \
+            --build-arg "VERSION=${WG_MC_VERSION}" \
+            --build-arg "GO_VERSION=${GO_VERSION}" \
+            -t "${remote}" \
+            -f Dockerfile \
+            .
+          docker push "${remote}"
+          echo "Pushed ${remote}"
+
       - name: Restore ownership
         if: always()
         working-directory: ${{ github.workspace }}
@@ -235,22 +297,17 @@ jobs:
             sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/checkout" || true
           fi
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-x86
-          path: checkout/dist/release/
-          if-no-files-found: error
-
   build-arm:
+    needs: [prepare]
     runs-on: [self-hosted, Linux, ARM64]
-    outputs:
-      tag: ${{ steps.version.outputs.tag }}
-      deb_upstream: ${{ steps.version.outputs.deb_upstream }}
     defaults:
       run:
         working-directory: checkout
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      DEB_UPSTREAM: ${{ needs.prepare.outputs.deb_upstream }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
           clean: false
@@ -264,21 +321,7 @@ jobs:
             sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/checkout" || true
           fi
 
-      - name: Read version
-        id: version
-        run: |
-          set -euo pipefail
-          VERSION_RAW="$(tr -d '\r\n\t ' < .github/build/version.txt)"
-          [ -n "$VERSION_RAW" ] || { echo "version.txt is empty" >&2; exit 1; }
-          DEB_UPSTREAM="${VERSION_RAW#v}"
-          if [[ "$VERSION_RAW" == v* ]]; then TAG="$VERSION_RAW"; else TAG="v$VERSION_RAW"; fi
-          echo "version=$VERSION_RAW" >> "$GITHUB_OUTPUT"
-          echo "deb_upstream=$DEB_UPSTREAM" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
       - name: Sync Debian changelog
-        env:
-          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
         run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
 
       - name: Clean stale dist and root debs
@@ -289,8 +332,7 @@ jobs:
 
       - name: Build .deb and binary (ARM family)
         env:
-          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
-          WG_MC_VERSION: ${{ steps.version.outputs.tag }}
+          WG_MC_VERSION: ${{ env.TAG }}
           REPO_DIR: ${{ github.workspace }}/checkout
           RUNNER_FAMILY: arm
           GO_VERSION: ${{ env.GO_VERSION }}
@@ -358,31 +400,7 @@ jobs:
             chmod a+x "$bin_out"
           done
 
-      - name: Build Docker image (linux/arm64)
-        if: ${{ env.BUILD_DOCKER == 'true' }}
-        env:
-          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
-          WG_MC_VERSION: ${{ steps.version.outputs.tag }}
-          GO_VERSION: ${{ env.GO_VERSION }}
-        run: |
-          set -euo pipefail
-          GO_VERSION="${GO_VERSION:-1.23.1}"
-          mkdir -p dist/release/docker
-          local_tag="wireguard-mc:ci-arm64-${DEB_UPSTREAM}"
-          docker build \
-            --platform linux/arm64 \
-            --build-arg "VERSION=${WG_MC_VERSION}" \
-            --build-arg "GO_VERSION=${GO_VERSION}" \
-            -t "${local_tag}" \
-            -f Dockerfile \
-            .
-          out="dist/release/docker/wireguard-mc-linux-arm64-${DEB_UPSTREAM}.tar"
-          docker save -o "${out}" "${local_tag}"
-          ls -lh "${out}"
-
-      - name: Keep only files matching this version (defense in depth)
-        env:
-          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+      - name: Keep only files matching this version
         run: |
           set -euo pipefail
           find dist/release -type f -print0 2>/dev/null | while IFS= read -r -d '' f; do
@@ -396,6 +414,40 @@ jobs:
             esac
           done
 
+      - name: Upload ARM assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=( dist/release/deb/*.deb dist/release/bin/* )
+          [ "${#files[@]}" -gt 0 ] || { echo "No files to upload" >&2; exit 1; }
+          gh release upload "${TAG}" "${files[@]}" --clobber
+          ls -la "${files[@]}"
+
+      - name: Build and push Docker image (linux/arm64)
+        if: ${{ env.BUILD_DOCKER == 'true' }}
+        env:
+          WG_MC_VERSION: ${{ env.TAG }}
+          GO_VERSION: ${{ env.GO_VERSION }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          GO_VERSION="${GO_VERSION:-1.23.1}"
+          IMAGE_RAW="${DOCKER_IMAGE:-ghcr.io/${GITHUB_REPOSITORY}}"
+          IMAGE="$(echo "${IMAGE_RAW}" | tr '[:upper:]' '[:lower:]')"
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          remote="${IMAGE}:${DEB_UPSTREAM}-arm64"
+          docker build \
+            --platform linux/arm64 \
+            --build-arg "VERSION=${WG_MC_VERSION}" \
+            --build-arg "GO_VERSION=${GO_VERSION}" \
+            -t "${remote}" \
+            -f Dockerfile \
+            .
+          docker push "${remote}"
+          echo "Pushed ${remote}"
+
       - name: Restore ownership
         if: always()
         working-directory: ${{ github.workspace }}
@@ -404,189 +456,53 @@ jobs:
             sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}/checkout" || true
           fi
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-arm
-          path: checkout/dist/release/
-          if-no-files-found: error
-
   release:
-    needs: [build-x86, build-arm]
+    needs: [prepare, build-x86, build-arm]
     runs-on: [self-hosted, Linux, X64]
     env:
-      TAG: ${{ needs.build-x86.outputs.tag }}
-      DEB_UPSTREAM: ${{ needs.build-x86.outputs.deb_upstream }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      DEB_UPSTREAM: ${{ needs.prepare.outputs.deb_upstream }}
     defaults:
       run:
         working-directory: checkout
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
           path: checkout
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-x86
-          path: ${{ github.workspace }}/_artifacts/x86
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-arm
-          path: ${{ github.workspace }}/_artifacts/arm
-
-      - name: Merge artifacts for release
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          rm -rf checkout/dist/release
-          mkdir -p checkout/dist/release/deb checkout/dist/release/bin checkout/dist/release/docker
-          shopt -s nullglob
-          cp _artifacts/x86/deb/*.deb checkout/dist/release/deb/ 2>/dev/null || true
-          cp _artifacts/x86/bin/* checkout/dist/release/bin/ 2>/dev/null || true
-          cp _artifacts/x86/docker/* checkout/dist/release/docker/ 2>/dev/null || true
-          cp _artifacts/arm/deb/*.deb checkout/dist/release/deb/
-          cp _artifacts/arm/bin/* checkout/dist/release/bin/
-          cp _artifacts/arm/docker/* checkout/dist/release/docker/ 2>/dev/null || true
-          echo "Merged debs:"; ls -la checkout/dist/release/deb/
-          echo "Merged bins:"; ls -la checkout/dist/release/bin/
-          echo "Merged docker:"; ls -la checkout/dist/release/docker/ || true
-          DU="${DEB_UPSTREAM:?}"
-          find checkout/dist/release -type f -print0 | while IFS= read -r -d '' f; do
-            b=$(basename "$f")
-            case "$b" in *"${DU}"*) ;; *)
-              echo "Removing merged stray: $f"; rm -f "$f" ;;
-            esac
-          done
-
-      - name: Push multi-arch Docker image to GHCR
+      - name: Publish multi-arch Docker manifest
         if: ${{ env.BUILD_DOCKER == 'true' }}
         env:
-          TAG: ${{ needs.build-x86.outputs.tag }}
-          DEB_UPSTREAM: ${{ needs.build-x86.outputs.deb_upstream }}
           GITHUB_TOKEN: ${{ github.token }}
-        working-directory: ${{ github.workspace }}
         run: |
           set -euo pipefail
           IMAGE_RAW="${DOCKER_IMAGE:-ghcr.io/${GITHUB_REPOSITORY}}"
           IMAGE="$(echo "${IMAGE_RAW}" | tr '[:upper:]' '[:lower:]')"
           echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-
-          amd_tar="checkout/dist/release/docker/wireguard-mc-linux-amd64-${DEB_UPSTREAM}.tar"
-          arm_tar="checkout/dist/release/docker/wireguard-mc-linux-arm64-${DEB_UPSTREAM}.tar"
-          [ -f "${amd_tar}" ] || { echo "missing ${amd_tar}" >&2; exit 1; }
-          [ -f "${arm_tar}" ] || { echo "missing ${arm_tar}" >&2; exit 1; }
-
-          docker load -i "${amd_tar}"
-          docker load -i "${arm_tar}"
-
-          amd_local="wireguard-mc:ci-amd64-${DEB_UPSTREAM}"
-          arm_local="wireguard-mc:ci-arm64-${DEB_UPSTREAM}"
           amd_remote="${IMAGE}:${DEB_UPSTREAM}-amd64"
           arm_remote="${IMAGE}:${DEB_UPSTREAM}-arm64"
-
-          docker tag "${amd_local}" "${amd_remote}"
-          docker tag "${arm_local}" "${arm_remote}"
-          docker push "${amd_remote}"
-          docker push "${arm_remote}"
-
-          # Prefer buildx imagetools for multi-arch index (works without experimental manifest)
           docker buildx imagetools create \
             -t "${IMAGE}:${DEB_UPSTREAM}" \
             -t "${IMAGE}:${TAG}" \
             "${amd_remote}" "${arm_remote}"
-
           if [[ "${DOCKER_LATEST}" == "true" ]]; then
             docker buildx imagetools create \
               -t "${IMAGE}:latest" \
               "${amd_remote}" "${arm_remote}"
           fi
-
-          echo "Pushed ${IMAGE}:${TAG} (${DEB_UPSTREAM})"
+          echo "Published ${IMAGE}:${TAG}"
           docker buildx imagetools inspect "${IMAGE}:${DEB_UPSTREAM}" || true
 
-      - name: Create and push version tag
-        run: |
-          set -euo pipefail
-          TAG="${TAG:?missing tag from build-x86}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
-            echo "Remote tag ${TAG} exists; skip"
-          else
-            git tag -a "${TAG}" -m "Release ${TAG}" "${GITHUB_SHA}"
-            git push origin "refs/tags/${TAG}"
-          fi
-
-      # softprops 只会「追加」Release 资源，不会删掉往期上传；重跑 workflow 会在同一 Release 上堆多版本附件
-      - name: Delete existing wireguard-mc assets on this tag (GitHub API)
+      - name: Publish GitHub Release (undraft)
         env:
-          TAG: ${{ needs.build-x86.outputs.tag }}
-          GITHUB_TOKEN: ${{ github.token }}
-        working-directory: ${{ github.workspace }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 << 'PY'
-          import json
-          import os
-          import sys
-          import urllib.error
-          import urllib.request
-          from urllib.parse import quote
-
-          repo = os.environ["GITHUB_REPOSITORY"]
-          tag = os.environ["TAG"]
-          token = os.environ["GITHUB_TOKEN"]
-          url = f"https://api.github.com/repos/{repo}/releases/tags/{quote(tag)}"
-          req = urllib.request.Request(
-              url,
-              headers={
-                  "Authorization": f"Bearer {token}",
-                  "Accept": "application/vnd.github+json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
-          )
-          try:
-              with urllib.request.urlopen(req) as resp:
-                  data = json.load(resp)
-          except urllib.error.HTTPError as e:
-              if e.code == 404:
-                  print("No release yet for tag; skip asset delete", file=sys.stderr)
-                  sys.exit(0)
-              raise
-
-          for asset in data.get("assets", []):
-              name = asset.get("name") or ""
-              aid = asset.get("id")
-              if not name.startswith("wireguard-mc") or aid is None:
-                  continue
-              del_url = f"https://api.github.com/repos/{repo}/releases/assets/{aid}"
-              dreq = urllib.request.Request(
-                  del_url,
-                  method="DELETE",
-                  headers={
-                      "Authorization": f"Bearer {token}",
-                      "Accept": "application/vnd.github+json",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                  },
-              )
-              with urllib.request.urlopen(dreq) as _:
-                  pass
-              print(f"Removed release asset: {name}", file=sys.stderr)
-          PY
-
-      - name: Create/Update GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          name: ${{ env.TAG }}
-          draft: false
-          prerelease: false
-          fail_on_unmatched_files: true
-          generate_release_notes: true
-          files: |
-            checkout/dist/release/deb/*.deb
-            checkout/dist/release/bin/*
+          # Assets already uploaded by build jobs; just publish the draft.
+          gh release edit "${TAG}" --draft=false --title "${TAG}"
+          echo "Published release ${TAG}"
+          gh release view "${TAG}"
 
       - name: Set up SSH agent (reprepro deploy)
         if: ${{ vars.ENABLE_REPREPRO_DEPLOY == 'true' }}
@@ -594,10 +510,11 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.REPREPRO_SSH_PRIVATE_KEY }}
 
-      - name: Upload .deb via SSH and import with reprepro
+      - name: Download .deb from Release and import with reprepro
         if: ${{ vars.ENABLE_REPREPRO_DEPLOY == 'true' }}
         working-directory: ${{ github.workspace }}
         env:
+          GH_TOKEN: ${{ github.token }}
           REPREPRO_SSH_HOST: ${{ secrets.REPREPRO_SSH_HOST }}
           REPREPRO_SSH_USER: ${{ secrets.REPREPRO_SSH_USER }}
           REPREPRO_SSH_PORT: ${{ secrets.REPREPRO_SSH_PORT }}
@@ -611,8 +528,13 @@ jobs:
           BASE="${REPREPRO_BASE:-/www/myrepo}"
           CODENAME="${REPREPRO_CODENAME:-stable}"
           INCOMING="/tmp/wireguard-mc-deb-${GITHUB_RUN_ID}"
+          DEB_DIR="${GITHUB_WORKSPACE}/_release_debs"
+          rm -rf "${DEB_DIR}"
+          mkdir -p "${DEB_DIR}"
+          # Pull from GitHub Release (not Actions Artifacts)
+          gh release download "${TAG}" -D "${DEB_DIR}" -p 'wireguard-mc_*.deb'
           shopt -s nullglob
-          all_debs=( "${GITHUB_WORKSPACE}/checkout/dist/release/deb/"*.deb )
+          all_debs=( "${DEB_DIR}"/*.deb )
           debs=()
           for f in "${all_debs[@]}"; do
             case "$f" in
@@ -638,8 +560,4 @@ jobs:
           done
           rm -rf "${INCOMING}"
           REMOTE
-
-      - name: Remove local .deb after reprepro
-        if: ${{ success() && vars.ENABLE_REPREPRO_DEPLOY == 'true' }}
-        working-directory: ${{ github.workspace }}
-        run: rm -f checkout/dist/release/deb/*.deb
+          rm -rf "${DEB_DIR}"
