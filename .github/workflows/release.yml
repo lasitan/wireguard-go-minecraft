@@ -34,6 +34,9 @@ env:
   DOCKER_LATEST: ${{ github.event_name != 'workflow_dispatch' || inputs.docker_latest }}
   # 可选 Variables.DOCKER_IMAGE 覆盖，默认 ghcr.io/<owner>/<repo>
   DOCKER_IMAGE: ${{ vars.DOCKER_IMAGE }}
+  # gh 不依赖本地 .git remote（自托管 cwd / 浅克隆时很常见）
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   # Create tag + draft release first so build jobs can upload assets in parallel.
@@ -63,31 +66,37 @@ jobs:
           echo "deb_upstream=$DEB_UPSTREAM" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Ensure GitHub CLI
+        run: bash scripts/ensure-gh.sh
+
       - name: Create and push version tag
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+          # Prefer API so we do not depend on a local git remote/credentials.
+          if gh api "repos/${GH_REPO}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
             echo "Remote tag ${TAG} exists; skip"
           else
-            git tag -a "${TAG}" -m "Release ${TAG}" "${GITHUB_SHA}"
-            git push origin "refs/tags/${TAG}"
+            # Lightweight tag via Git refs API
+            gh api "repos/${GH_REPO}/git/refs" \
+              -f ref="refs/tags/${TAG}" \
+              -f sha="${GITHUB_SHA}"
+            echo "Created tag ${TAG} → ${GITHUB_SHA}"
           fi
-
-      - name: Ensure GitHub CLI
-        run: bash scripts/ensure-gh.sh
 
       - name: Ensure draft release (wipe prior wireguard-mc assets)
         env:
           TAG: ${{ steps.version.outputs.tag }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if ! gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release create "${TAG}" --draft --title "${TAG}" --generate-notes
+            # generate-notes via API (no local git history required)
+            notes="$(gh api "repos/${GH_REPO}/releases/generate-notes" \
+              -f tag_name="${TAG}" \
+              -f target_commitish="${GITHUB_SHA}" \
+              --jq .body 2>/dev/null || printf 'Release %s\n' "${TAG}")"
+            gh release create "${TAG}" --draft --title "${TAG}" --notes "${notes}"
             echo "Created draft release ${TAG}"
           else
             echo "Release ${TAG} exists; set draft and clear wireguard-mc assets"
@@ -262,8 +271,6 @@ jobs:
         run: bash scripts/ensure-gh.sh
 
       - name: Upload x86 assets to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -424,8 +431,6 @@ jobs:
         run: bash scripts/ensure-gh.sh
 
       - name: Upload ARM assets to GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -507,8 +512,6 @@ jobs:
           docker buildx imagetools inspect "${IMAGE}:${DEB_UPSTREAM}" || true
 
       - name: Publish GitHub Release (undraft)
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # Assets already uploaded by build jobs; just publish the draft.
@@ -526,7 +529,6 @@ jobs:
         if: ${{ vars.ENABLE_REPREPRO_DEPLOY == 'true' }}
         working-directory: ${{ github.workspace }}
         env:
-          GH_TOKEN: ${{ github.token }}
           REPREPRO_SSH_HOST: ${{ secrets.REPREPRO_SSH_HOST }}
           REPREPRO_SSH_USER: ${{ secrets.REPREPRO_SSH_USER }}
           REPREPRO_SSH_PORT: ${{ secrets.REPREPRO_SSH_PORT }}
