@@ -46,6 +46,33 @@ Binary path: /usr/bin/wireguard-go
 Config dir:  /etc/wireguard/
 Unit file:   /lib/systemd/system/wireguard-go@.service
 
+Docker
+------
+
+Release workflow can build/push a multi-arch image (amd64+arm64) to GHCR when
+workflow_dispatch input "build_docker" is checked, or when repository Variable
+ENABLE_DOCKER_RELEASE=true. Optional Variable DOCKER_IMAGE overrides the image
+name (default ghcr.io/<owner>/<repo>).
+
+Local build:
+
+  bash scripts/package-docker.sh
+  # IMAGE=ghcr.io/OWNER/REPO bash scripts/package-docker.sh --push
+
+Run (host network + TUN):
+
+  mkdir -p config
+  cp /path/to/wg0.conf config/wg0.conf
+  cp /path/to/wireguard-go-transport.json config/
+  docker compose up -d
+
+Or:
+
+  docker run --rm --network host --cap-add=NET_ADMIN --cap-add=NET_RAW \
+    --device=/dev/net/tun \
+    -v "$PWD/config:/etc/wireguard" \
+    ghcr.io/OWNER/REPO:TAG
+
 Dual-server / TO NAT
 --------------------
 

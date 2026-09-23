@@ -8,14 +8,29 @@ on:
     paths:
       - '.github/build/version.txt'
   workflow_dispatch:
+    inputs:
+      build_docker:
+        description: 'Build and push multi-arch Docker image to GHCR'
+        type: boolean
+        default: false
+      docker_latest:
+        description: 'Also tag/push :latest (only when build_docker)'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
+  packages: write
 
 env:
   DEBIAN_BUILD_IMAGE: ${{ vars.DEBIAN_BUILD_IMAGE }}
   # 可在仓库 Variables 设 GO_VERSION 覆盖；留空则默认 1.23.1
   GO_VERSION: ${{ vars.GO_VERSION }}
+  # Docker：手动运行勾选 build_docker，或仓库 Variables 设 ENABLE_DOCKER_RELEASE=true
+  BUILD_DOCKER: ${{ vars.ENABLE_DOCKER_RELEASE == 'true' || (github.event_name == 'workflow_dispatch' && inputs.build_docker) }}
+  DOCKER_LATEST: ${{ github.event_name != 'workflow_dispatch' || inputs.docker_latest }}
+  # 可选 Variables.DOCKER_IMAGE 覆盖，默认 ghcr.io/<owner>/<repo>
+  DOCKER_IMAGE: ${{ vars.DOCKER_IMAGE }}
 
 jobs:
   # 在对应原生架构 runner 上构建，无需 QEMU。请修改 runs-on 为你的自托管标签。
@@ -174,6 +189,28 @@ jobs:
           done
           ls -la dist/release/bin/
 
+      - name: Build Docker image (linux/amd64)
+        if: ${{ env.BUILD_DOCKER == 'true' }}
+        env:
+          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+          WG_MC_VERSION: ${{ steps.version.outputs.tag }}
+          GO_VERSION: ${{ env.GO_VERSION }}
+        run: |
+          set -euo pipefail
+          GO_VERSION="${GO_VERSION:-1.23.1}"
+          mkdir -p dist/release/docker
+          local_tag="wireguard-mc:ci-amd64-${DEB_UPSTREAM}"
+          docker build \
+            --platform linux/amd64 \
+            --build-arg "VERSION=${WG_MC_VERSION}" \
+            --build-arg "GO_VERSION=${GO_VERSION}" \
+            -t "${local_tag}" \
+            -f Dockerfile \
+            .
+          out="dist/release/docker/wireguard-mc-linux-amd64-${DEB_UPSTREAM}.tar"
+          docker save -o "${out}" "${local_tag}"
+          ls -lh "${out}"
+
       - name: Keep only files matching this version (defense in depth)
         env:
           DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
@@ -321,6 +358,28 @@ jobs:
             chmod a+x "$bin_out"
           done
 
+      - name: Build Docker image (linux/arm64)
+        if: ${{ env.BUILD_DOCKER == 'true' }}
+        env:
+          DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
+          WG_MC_VERSION: ${{ steps.version.outputs.tag }}
+          GO_VERSION: ${{ env.GO_VERSION }}
+        run: |
+          set -euo pipefail
+          GO_VERSION="${GO_VERSION:-1.23.1}"
+          mkdir -p dist/release/docker
+          local_tag="wireguard-mc:ci-arm64-${DEB_UPSTREAM}"
+          docker build \
+            --platform linux/arm64 \
+            --build-arg "VERSION=${WG_MC_VERSION}" \
+            --build-arg "GO_VERSION=${GO_VERSION}" \
+            -t "${local_tag}" \
+            -f Dockerfile \
+            .
+          out="dist/release/docker/wireguard-mc-linux-arm64-${DEB_UPSTREAM}.tar"
+          docker save -o "${out}" "${local_tag}"
+          ls -lh "${out}"
+
       - name: Keep only files matching this version (defense in depth)
         env:
           DEB_UPSTREAM: ${{ steps.version.outputs.deb_upstream }}
@@ -381,14 +440,17 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf checkout/dist/release
-          mkdir -p checkout/dist/release/deb checkout/dist/release/bin
+          mkdir -p checkout/dist/release/deb checkout/dist/release/bin checkout/dist/release/docker
           shopt -s nullglob
           cp _artifacts/x86/deb/*.deb checkout/dist/release/deb/ 2>/dev/null || true
           cp _artifacts/x86/bin/* checkout/dist/release/bin/ 2>/dev/null || true
+          cp _artifacts/x86/docker/* checkout/dist/release/docker/ 2>/dev/null || true
           cp _artifacts/arm/deb/*.deb checkout/dist/release/deb/
           cp _artifacts/arm/bin/* checkout/dist/release/bin/
+          cp _artifacts/arm/docker/* checkout/dist/release/docker/ 2>/dev/null || true
           echo "Merged debs:"; ls -la checkout/dist/release/deb/
           echo "Merged bins:"; ls -la checkout/dist/release/bin/
+          echo "Merged docker:"; ls -la checkout/dist/release/docker/ || true
           DU="${DEB_UPSTREAM:?}"
           find checkout/dist/release -type f -print0 | while IFS= read -r -d '' f; do
             b=$(basename "$f")
@@ -396,6 +458,52 @@ jobs:
               echo "Removing merged stray: $f"; rm -f "$f" ;;
             esac
           done
+
+      - name: Push multi-arch Docker image to GHCR
+        if: ${{ env.BUILD_DOCKER == 'true' }}
+        env:
+          TAG: ${{ needs.build-x86.outputs.tag }}
+          DEB_UPSTREAM: ${{ needs.build-x86.outputs.deb_upstream }}
+          GITHUB_TOKEN: ${{ github.token }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          IMAGE_RAW="${DOCKER_IMAGE:-ghcr.io/${GITHUB_REPOSITORY}}"
+          IMAGE="$(echo "${IMAGE_RAW}" | tr '[:upper:]' '[:lower:]')"
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+          amd_tar="checkout/dist/release/docker/wireguard-mc-linux-amd64-${DEB_UPSTREAM}.tar"
+          arm_tar="checkout/dist/release/docker/wireguard-mc-linux-arm64-${DEB_UPSTREAM}.tar"
+          [ -f "${amd_tar}" ] || { echo "missing ${amd_tar}" >&2; exit 1; }
+          [ -f "${arm_tar}" ] || { echo "missing ${arm_tar}" >&2; exit 1; }
+
+          docker load -i "${amd_tar}"
+          docker load -i "${arm_tar}"
+
+          amd_local="wireguard-mc:ci-amd64-${DEB_UPSTREAM}"
+          arm_local="wireguard-mc:ci-arm64-${DEB_UPSTREAM}"
+          amd_remote="${IMAGE}:${DEB_UPSTREAM}-amd64"
+          arm_remote="${IMAGE}:${DEB_UPSTREAM}-arm64"
+
+          docker tag "${amd_local}" "${amd_remote}"
+          docker tag "${arm_local}" "${arm_remote}"
+          docker push "${amd_remote}"
+          docker push "${arm_remote}"
+
+          # Prefer buildx imagetools for multi-arch index (works without experimental manifest)
+          docker buildx imagetools create \
+            -t "${IMAGE}:${DEB_UPSTREAM}" \
+            -t "${IMAGE}:${TAG}" \
+            "${amd_remote}" "${arm_remote}"
+
+          if [[ "${DOCKER_LATEST}" == "true" ]]; then
+            docker buildx imagetools create \
+              -t "${IMAGE}:latest" \
+              "${amd_remote}" "${arm_remote}"
+          fi
+
+          echo "Pushed ${IMAGE}:${TAG} (${DEB_UPSTREAM})"
+          docker buildx imagetools inspect "${IMAGE}:${DEB_UPSTREAM}" || true
 
       - name: Create and push version tag
         run: |

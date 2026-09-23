@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Build and package Linux amd64 server + client config bundles (binary + examples).
-# Prefer apt (.deb) for installs. Usage (from repo root):
+# Prefer apt (.deb) for installs. For Docker images see scripts/package-docker.sh
+# and workflow_dispatch input build_docker / Variable ENABLE_DOCKER_RELEASE.
+# Usage (from repo root):
 #   bash scripts/package-linux-amd64.sh
 set -euo pipefail
 
