@@ -563,13 +563,18 @@ jobs:
           set -euo pipefail
           BASE="$1"; CODENAME="$2"; INCOMING="$3"
           shopt -s nullglob
+          run_reprepro() {
+            if command -v sudo >/dev/null 2>&1 && [ ! -w "$BASE" ]; then
+              sudo reprepro -b "$BASE" "$@"
+            else
+              reprepro -b "$BASE" "$@"
+            fi
+          }
+          # Same upstream version rebuild → checksums differ; drop old package first.
+          run_reprepro remove "$CODENAME" wireguard-mc || true
           for deb in "${INCOMING}"/*.deb; do
             [ -f "$deb" ] || continue
-            if command -v sudo >/dev/null 2>&1 && [ ! -w "$BASE" ]; then
-              sudo reprepro -b "$BASE" includedeb "$CODENAME" "$deb"
-            else
-              reprepro -b "$BASE" includedeb "$CODENAME" "$deb"
-            fi
+            run_reprepro includedeb "$CODENAME" "$deb"
             rm -f -- "$deb"
           done
           rm -rf "${INCOMING}"
