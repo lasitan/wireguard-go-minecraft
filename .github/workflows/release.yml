@@ -77,6 +77,9 @@ jobs:
             git push origin "refs/tags/${TAG}"
           fi
 
+      - name: Ensure GitHub CLI
+        run: bash scripts/ensure-gh.sh
+
       - name: Ensure draft release (wipe prior wireguard-mc assets)
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -255,6 +258,9 @@ jobs:
             esac
           done
 
+      - name: Ensure GitHub CLI
+        run: bash scripts/ensure-gh.sh
+
       - name: Upload x86 assets to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -414,6 +420,9 @@ jobs:
             esac
           done
 
+      - name: Ensure GitHub CLI
+        run: bash scripts/ensure-gh.sh
+
       - name: Upload ARM assets to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -470,6 +479,9 @@ jobs:
         with:
           fetch-depth: 1
           path: checkout
+
+      - name: Ensure GitHub CLI
+        run: bash scripts/ensure-gh.sh
 
       - name: Publish multi-arch Docker manifest
         if: ${{ env.BUILD_DOCKER == 'true' }}
