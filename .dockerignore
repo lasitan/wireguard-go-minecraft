@@ -1,5 +1,8 @@
 .git
-.github
+# Keep version.txt for go:embed in version.go; exclude the rest of .github
+.github/**
+!.github/build/
+!.github/build/version.txt
 dist
 **/*.deb
 **/*.tar.gz
@@ -16,3 +19,4 @@ deploy
 scripts/package-linux-amd64.sh
 scripts/fetch-wintun.sh
 scripts/package-docker.sh
+scripts/ensure-gh.sh
