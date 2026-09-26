@@ -19,7 +19,7 @@ func handleMasterCommand() bool {
 		os.Exit(ExitSetupFailed)
 	}
 
-	cfgPath := filepath.Join(wgConfDir(), meshcfg.MasterFileName)
+	cfgPath := filepath.Join(meshcfg.ConfDir(), meshcfg.MasterFileName)
 	var cfg meshcfg.MasterConfig
 	if err := meshcfg.LoadJSON(cfgPath, &cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "master: load %s: %v\n", cfgPath, err)

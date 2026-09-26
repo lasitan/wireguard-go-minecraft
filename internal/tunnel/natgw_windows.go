@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package tunnel
 
 import (
 	"context"
@@ -21,12 +21,12 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 )
 
-// natGateway manages IP forwarding (IPEnableRouter / NetIPInterface.Forwarding),
+// NatGateway manages IP forwarding (IPEnableRouter / NetIPInterface.Forwarding),
 // best-effort WinNAT + firewall nested block, and userspace nested drop on B.
-type natGateway struct {
+type NatGateway struct {
 	logger  *device.Logger
 	iface   string
-	cfg     natGatewayResult
+	cfg     NatGatewayResult
 	runtime *natRuntime
 
 	mu                 sync.Mutex
@@ -38,12 +38,12 @@ type natGateway struct {
 	fwRuleNames        []string
 }
 
-func newNatGateway(logger *device.Logger, iface string, cfg natGatewayResult) *natGateway {
-	return &natGateway{
+func NewNatGateway(logger *device.Logger, iface string, cfg NatGatewayResult) *NatGateway {
+	return &NatGateway{
 		logger:         logger,
 		iface:          iface,
 		cfg:            cfg,
-		runtime:        newNatRuntime(cfg.clientKeyHex),
+		runtime:        newNatRuntime(cfg.ClientKeyHex),
 		prevForwarding: make(map[uint32]string),
 		natName:        "wggo-nat-" + sanitizeWinName(iface),
 	}
@@ -68,15 +68,15 @@ func sanitizeWinName(s string) string {
 	return out
 }
 
-func (g *natGateway) Start(dev *device.Device) error {
-	if !g.cfg.serverMode {
+func (g *NatGateway) Start(dev *device.Device) error {
+	if !g.cfg.ServerMode {
 		return nil
 	}
-	if !g.cfg.upstreamAddr.IsValid() {
+	if !g.cfg.UpstreamAddr.IsValid() {
 		return fmt.Errorf("nat gateway: missing upstream endpoint")
 	}
 
-	for _, h := range g.cfg.clientHosts {
+	for _, h := range g.cfg.ClientHosts {
 		g.runtime.mu.Lock()
 		g.runtime.hosts[h] = struct{}{}
 		g.runtime.mu.Unlock()
@@ -90,20 +90,20 @@ func (g *natGateway) Start(dev *device.Device) error {
 		g.logger.Verbosef("NAT gateway: WinNAT/firewall setup warning: %v (userspace nested-block still active)", err)
 	}
 
-	installNatInboundFilter(dev, g.runtime, g.cfg.upstreamAddr, g.logger)
+	installNatInboundFilter(dev, g.runtime, g.cfg.UpstreamAddr, g.logger)
 
 	fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway ready on %s (windows); ToNAT clients auto-register; block nested %s\n",
-		g.iface, g.cfg.upstreamAddr.String())
+		g.iface, g.cfg.UpstreamAddr.String())
 	g.logger.Verbosef("NAT gateway: IP forwarding + dynamic ToNAT NatClient")
 	return nil
 }
 
-func (g *natGateway) addClientMasquerade(host string) {
+func (g *NatGateway) addClientMasquerade(host string) {
 	// WinNAT is prefix-based; per-host add is a no-op beyond logging.
 	g.logger.Verbosef("NAT gateway: ToNAT client host %s (WinNAT covers VPN prefix)", host)
 }
 
-func (g *natGateway) Close(dev *device.Device) {
+func (g *NatGateway) Close(dev *device.Device) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.closed {
@@ -117,7 +117,7 @@ func (g *natGateway) Close(dev *device.Device) {
 	g.restoreForwarding()
 }
 
-func (g *natGateway) runPS(script string) (string, error) {
+func (g *NatGateway) runPS(script string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
@@ -135,7 +135,7 @@ func (g *natGateway) runPS(script string) (string, error) {
 // enableForwarding is the Windows equivalent of Linux net.ipv4.ip_forward=1:
 //  1. HKLM\...\Tcpip\Parameters\IPEnableRouter = 1
 //  2. Set-NetIPInterface -Forwarding Enabled on all interfaces (Win8+/Server2012+)
-func (g *natGateway) enableForwarding() error {
+func (g *NatGateway) enableForwarding() error {
 	const tcpipParams = `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`
 	k, err := registry.OpenKey(registry.LOCAL_MACHINE, tcpipParams, registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
@@ -209,7 +209,7 @@ Get-NetIPInterface | ForEach-Object {
 	return nil
 }
 
-func (g *natGateway) restoreForwarding() {
+func (g *NatGateway) restoreForwarding() {
 	if g.changedRouter {
 		const tcpipParams = `SYSTEM\CurrentControlSet\Services\Tcpip\Parameters`
 		if k, err := registry.OpenKey(registry.LOCAL_MACHINE, tcpipParams, registry.SET_VALUE); err == nil {
@@ -234,10 +234,10 @@ func (g *natGateway) restoreForwarding() {
 	}
 }
 
-func (g *natGateway) installFirewall() error {
+func (g *NatGateway) installFirewall() error {
 	// WinNAT for SNAT (optional; requires supported SKU).
 	var lastErr error
-	for _, pfx := range g.cfg.vpnPrefixes {
+	for _, pfx := range g.cfg.VPNPrefixes {
 		if !pfx.IsValid() {
 			continue
 		}
@@ -257,8 +257,8 @@ New-NetNat -Name $name -InternalIPInterfaceAddressPrefix $prefix -ErrorAction St
 	}
 
 	// Firewall block nested dial to upstream public endpoint.
-	upIP := g.cfg.upstreamAddr.Addr().String()
-	upPort := int(g.cfg.upstreamAddr.Port())
+	upIP := g.cfg.UpstreamAddr.Addr().String()
+	upPort := int(g.cfg.UpstreamAddr.Port())
 	for _, proto := range []string{"TCP", "UDP"} {
 		rule := fmt.Sprintf("%s-block-%s-%d", g.natName, strings.ToLower(proto), upPort)
 		script := fmt.Sprintf(`
@@ -278,7 +278,7 @@ New-NetFirewallRule -DisplayName $rule -Direction Outbound -Action Block -Remote
 	return lastErr
 }
 
-func (g *natGateway) removeFirewall() {
+func (g *NatGateway) removeFirewall() {
 	if g.natName != "" {
 		script := fmt.Sprintf(
 			`Get-NetNat -Name '%s' -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue`,

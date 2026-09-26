@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"encoding/json"
@@ -11,15 +11,16 @@ import (
 	"time"
 
 	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/internal/tunnel"
 	"golang.zx2c4.com/wireguard/meshcfg"
 )
 
-func agentBootstrapPath() string {
-	return filepath.Join(wgConfDir(), meshcfg.AgentFileName)
+func BootstrapPath() string {
+	return filepath.Join(meshcfg.ConfDir(), meshcfg.AgentFileName)
 }
 
-func loadAgentBootstrap() (*meshcfg.AgentBootstrap, error) {
-	path := agentBootstrapPath()
+func LoadBootstrap() (*meshcfg.AgentBootstrap, error) {
+	path := BootstrapPath()
 	var b meshcfg.AgentBootstrap
 	if err := meshcfg.LoadJSON(path, &b); err != nil {
 		return nil, err
@@ -31,11 +32,11 @@ func loadAgentBootstrap() (*meshcfg.AgentBootstrap, error) {
 }
 
 // agentConfigLoop polls Master and re-applies desired config when revision changes.
-func agentConfigLoop(
+func ConfigLoop(
 	dev *device.Device,
 	logger *device.Logger,
 	iface string,
-	fwdPtr **portForwardManager,
+	fwdPtr **tunnel.PortForwardManager,
 	fwdMu *sync.Mutex,
 	boot *meshcfg.AgentBootstrap,
 	stop <-chan struct{},
@@ -81,14 +82,14 @@ func agentConfigLoop(
 			return
 		}
 
-		newFwd := newPortForwardManager(logger)
-		result, err := applyDesiredConfig(dev, logger, iface, &desired)
+		newFwd := tunnel.NewPortForwardManager(logger)
+		result, err := tunnel.ApplyDesiredConfig(dev, logger, iface, &desired)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: apply desired rev=%d: %v\n", desired.Revision, err)
 			logger.Errorf("apply desired: %v", err)
 			return
 		}
-		if err := newFwd.StartFromPeers(result.peers); err != nil {
+		if err := newFwd.StartFromPeers(result.Peers); err != nil {
 			newFwd.Close()
 			fmt.Fprintf(os.Stderr, "wireguard-go: port forward: %v\n", err)
 			logger.Errorf("port forward: %v", err)

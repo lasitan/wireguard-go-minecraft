@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package tunnel
 
 import (
 	"encoding/binary"
@@ -81,12 +81,12 @@ func installNatInboundFilter(dev *device.Device, rt *natRuntime, upstream netip.
 	})
 }
 
-func (g *natGateway) RegisterClient(peerKey device.NoisePublicKey) {
-	if g == nil || !g.cfg.serverMode {
+func (g *NatGateway) RegisterClient(peerKey device.NoisePublicKey) {
+	if g == nil || !g.cfg.ServerMode {
 		return
 	}
 	hx := hex.EncodeToString(peerKey[:])
-	hosts := g.cfg.peersByKeyHex[hx]
+	hosts := g.cfg.PeersByKeyHex[hx]
 	if len(hosts) == 0 {
 		// Peer not in conf AllowedIPs — still mark for nested-block filter.
 		isNew, _ := g.runtime.add(peerKey, nil)

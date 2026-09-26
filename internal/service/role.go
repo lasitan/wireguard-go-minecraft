@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 )
 
 func roleLockPath() string {
-	return filepath.Join(wgConfDir(), meshcfg.RoleLockName)
+	return filepath.Join(meshcfg.ConfDir(), meshcfg.RoleLockName)
 }
 
 func readRoleLock() (string, error) {
@@ -25,7 +25,7 @@ func readRoleLock() (string, error) {
 }
 
 func writeRoleLock(role string) error {
-	if err := os.MkdirAll(wgConfDir(), 0755); err != nil {
+	if err := os.MkdirAll(meshcfg.ConfDir(), 0755); err != nil {
 		return err
 	}
 	return os.WriteFile(roleLockPath(), []byte(role+"\n"), 0644)

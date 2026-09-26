@@ -18,7 +18,11 @@ import (
 
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/internal/agent"
+	"golang.zx2c4.com/wireguard/internal/service"
+	"golang.zx2c4.com/wireguard/internal/tunnel"
 	"golang.zx2c4.com/wireguard/ipc"
+	"golang.zx2c4.com/wireguard/meshcfg"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -35,18 +39,16 @@ func main() {
 	if runAsWindowsServiceIfRequested() {
 		return
 	}
-	if handleKeyCommand() {
+	if tunnel.HandleKeyCommand() {
 		return
 	}
 	if handleMasterCommand() {
 		return
 	}
-	if handleServiceCommand() {
+	if service.HandleCommand() {
 		return
 	}
 
-	// On Windows there is no daemon fork; -f/--foreground only selects the
-	// interface arg form and prints the startup summary (same UX as Linux).
 	var foreground bool
 	var interfaceName string
 	switch {
@@ -56,16 +58,16 @@ func main() {
 	case len(os.Args) == 2:
 		interfaceName = os.Args[1]
 		if interfaceName == "-f" || interfaceName == "--foreground" {
-			printUsage()
+			tunnel.PrintUsage()
 			os.Exit(ExitSetupFailed)
 		}
 	default:
-		printUsage()
+		tunnel.PrintUsage()
 		os.Exit(ExitSetupFailed)
 	}
 	if strings.ContainsAny(interfaceName, `/\`) || strings.HasSuffix(strings.ToLower(interfaceName), ".conf") {
 		fmt.Fprintf(os.Stderr, "wireguard-go: pass interface name (e.g. wg0), not a config path\n")
-		fmt.Fprintf(os.Stderr, "wireguard-go: config is loaded from %s\\<iface>.conf\n", wgConfDir())
+		fmt.Fprintf(os.Stderr, "wireguard-go: config is loaded from %s\\<iface>.conf\n", meshcfg.ConfDir())
 		os.Exit(ExitSetupFailed)
 	}
 
@@ -73,7 +75,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "wireguard-go: wintun.dll: %v\n", err)
 		os.Exit(ExitSetupFailed)
 	}
-	if err := ensureTransportConfigWindows(); err != nil {
+	if err := service.EnsureTransportConfig(); err != nil {
 		fmt.Fprintf(os.Stderr, "wireguard-go: transport config: %v\n", err)
 		os.Exit(ExitSetupFailed)
 	}
@@ -111,33 +113,32 @@ func main() {
 		os.Exit(ExitSetupFailed)
 	}
 
-	var natgw *natGateway
-	fwd := newPortForwardManager(logger)
+	var natgw *tunnel.NatGateway
+	fwd := tunnel.NewPortForwardManager(logger)
 	var fwdMu sync.Mutex
 	agentStop := make(chan struct{})
-	confDir := wgConfDir()
 	confPath := ""
-	if boot, err := loadAgentBootstrap(); err == nil {
+	if boot, err := agent.LoadBootstrap(); err == nil {
 		fmt.Fprintf(os.Stderr, "wireguard-go: agent mode → %s (node %s)\n", boot.MasterURL, boot.NodeID)
-		go agentConfigLoop(dev, logger, interfaceName, &fwd, &fwdMu, boot, agentStop)
+		go agent.ConfigLoop(dev, logger, interfaceName, &fwd, &fwdMu, boot, agentStop)
 	} else if os.Getenv("WG_LEGACY_CONF") == "1" {
-		confFile := filepath.Join(confDir, interfaceName+".conf")
+		confFile := filepath.Join(meshcfg.ConfDir(), interfaceName+".conf")
 		if _, statErr := os.Stat(confFile); statErr == nil {
 			confPath = confFile
 			fmt.Fprintf(os.Stderr, "wireguard-go: loading legacy %s\n", confFile)
-			result, err := applyWGConf(dev, logger, interfaceName)
+			result, err := tunnel.ApplyWGConf(dev, logger, interfaceName)
 			if err != nil {
 				logger.Errorf("Failed to apply wg conf: %v", err)
 				fmt.Fprintf(os.Stderr, "wireguard-go: failed to apply %s: %v\n", confFile, err)
 				os.Exit(ExitSetupFailed)
 			}
 			if result != nil {
-				if result.nat.toNATClient {
+				if result.Nat.ToNATClient {
 					fmt.Fprintln(os.Stderr, "wireguard-go: ToNAT client mode (dial [Peer] Endpoint)")
 					tcpBind.SetDialToNAT(true)
 				}
-				if result.nat.serverMode {
-					natgw = newNatGateway(logger, interfaceName, result.nat)
+				if result.Nat.ServerMode {
+					natgw = tunnel.NewNatGateway(logger, interfaceName, result.Nat)
 					if err := natgw.Start(dev); err != nil {
 						logger.Errorf("Failed to start NAT gateway: %v", err)
 						fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway error: %v\n", err)
@@ -147,13 +148,13 @@ func main() {
 						natgw.RegisterClient(pk)
 					})
 				}
-				_ = fwd.StartFromPeers(result.peers)
+				_ = fwd.StartFromPeers(result.Peers)
 			}
 		} else {
 			fmt.Fprintf(os.Stderr, "wireguard-go: no agent bootstrap and no legacy conf at %s\n", confFile)
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "wireguard-go: waiting for %s (or set WG_LEGACY_CONF=1 for .conf)\n", agentBootstrapPath())
+		fmt.Fprintf(os.Stderr, "wireguard-go: waiting for %s (or set WG_LEGACY_CONF=1 for .conf)\n", agent.BootstrapPath())
 	}
 
 	logger.Verbosef("Device started")
@@ -191,7 +192,7 @@ func main() {
 				}
 			}
 		}
-		printStartupInfo(dev, logger, interfaceName, confPath, tcpPort, true, fwd.Count())
+		tunnel.PrintStartupInfo(dev, logger, interfaceName, confPath, tcpPort, true, fwd.Count())
 		fmt.Fprintln(os.Stderr, "wireguard-go: ready (foreground). Waiting for peers — Ctrl+C to stop.")
 	}
 

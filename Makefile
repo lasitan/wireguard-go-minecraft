@@ -7,7 +7,7 @@ all: wireguard-go
 
 MAKEFLAGS += --no-print-directory
 
-wireguard-go: $(wildcard *.go) $(wildcard */*.go) .github/build/version.txt
+wireguard-go: $(wildcard *.go) $(wildcard */*.go) $(wildcard internal/*/*.go) .github/build/version.txt
 	go build -v -o "$@"
 
 install: wireguard-go

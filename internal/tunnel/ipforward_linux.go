@@ -1,6 +1,6 @@
 //go:build !windows
 
-package main
+package tunnel
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 )
 
-func enableIPForward(logger *device.Logger) error {
+func EnableIPForward(logger *device.Logger) error {
 	v4, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward")
 	if err != nil {
 		return err

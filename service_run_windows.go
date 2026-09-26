@@ -9,6 +9,7 @@ package main
 
 import (
 	"fmt"
+	"golang.zx2c4.com/wireguard/meshcfg"
 	"os"
 	"path/filepath"
 	"sync"
@@ -17,6 +18,9 @@ import (
 	"golang.org/x/sys/windows/svc"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/internal/agent"
+	"golang.zx2c4.com/wireguard/internal/service"
+	"golang.zx2c4.com/wireguard/internal/tunnel"
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
 )
@@ -29,7 +33,7 @@ import (
 func runAsWindowsServiceIfRequested() bool {
 	if len(os.Args) >= 3 && os.Args[1] == "-service" {
 		iface := os.Args[2]
-		if err := svc.Run(windowsServiceName(iface), &wgWindowsService{iface: iface}); err != nil {
+		if err := svc.Run(service.WindowsServiceName(iface), &wgWindowsService{iface: iface}); err != nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: service error: %v\n", err)
 			os.Exit(ExitSetupFailed)
 		}
@@ -56,7 +60,7 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 		logger.Errorf("wintun.dll: %v", err)
 		return true, 1
 	}
-	if err := ensureTransportConfigWindows(); err != nil {
+	if err := service.EnsureTransportConfig(); err != nil {
 		logger.Errorf("transport config: %v", err)
 		return true, 1
 	}
@@ -79,27 +83,27 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 		return true, 1
 	}
 
-	var natgw *natGateway
-	fwd := newPortForwardManager(logger)
+	var natgw *tunnel.NatGateway
+	fwd := tunnel.NewPortForwardManager(logger)
 	var fwdMu sync.Mutex
 	agentStop := make(chan struct{})
-	if boot, err := loadAgentBootstrap(); err == nil {
-		go agentConfigLoop(dev, logger, m.iface, &fwd, &fwdMu, boot, agentStop)
+	if boot, err := agent.LoadBootstrap(); err == nil {
+		go agent.ConfigLoop(dev, logger, m.iface, &fwd, &fwdMu, boot, agentStop)
 	} else if os.Getenv("WG_LEGACY_CONF") == "1" {
-		confFile := filepath.Join(wgConfDir(), m.iface+".conf")
+		confFile := filepath.Join(meshcfg.ConfDir(), m.iface+".conf")
 		if _, err := os.Stat(confFile); err == nil {
-			result, err := applyWGConf(dev, logger, m.iface)
+			result, err := tunnel.ApplyWGConf(dev, logger, m.iface)
 			if err != nil {
 				logger.Errorf("conf: %v", err)
 				_ = tcpBind.Close()
 				dev.Close()
 				return true, 1
 			}
-			if result != nil && result.nat.toNATClient {
+			if result != nil && result.Nat.ToNATClient {
 				tcpBind.SetDialToNAT(true)
 			}
-			if result != nil && result.nat.serverMode {
-				natgw = newNatGateway(logger, m.iface, result.nat)
+			if result != nil && result.Nat.ServerMode {
+				natgw = tunnel.NewNatGateway(logger, m.iface, result.Nat)
 				if err := natgw.Start(dev); err != nil {
 					logger.Errorf("NAT gateway: %v", err)
 					_ = tcpBind.Close()
@@ -110,7 +114,7 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 					natgw.RegisterClient(pk)
 				})
 			}
-			_ = fwd.StartFromPeers(result.peers)
+			_ = fwd.StartFromPeers(result.Peers)
 		}
 	}
 

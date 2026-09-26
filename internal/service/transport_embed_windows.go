@@ -1,15 +1,16 @@
+//go:build windows
+
 /* SPDX-License-Identifier: MIT
  *
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-//go:build windows
-
-package main
+package service
 
 import (
 	_ "embed"
 	"fmt"
+	"golang.zx2c4.com/wireguard/meshcfg"
 	"os"
 	"path/filepath"
 )
@@ -20,11 +21,11 @@ var embeddedTransportConfigExample []byte
 // ensureTransportConfigWindows writes the embedded transport example to
 // %ProgramData%\wireguard\wireguard-go-transport.json when missing so deep MC
 // camouflage secrets match a fresh Debian install (same example file).
-func ensureTransportConfigWindows() error {
+func EnsureTransportConfig() error {
 	if len(embeddedTransportConfigExample) == 0 {
 		return fmt.Errorf("embedded transport config example is empty")
 	}
-	dir := wgConfDir()
+	dir := meshcfg.ConfDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}

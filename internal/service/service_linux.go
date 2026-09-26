@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package service
 
 import (
 	"fmt"
@@ -17,16 +17,17 @@ import (
 	"golang.zx2c4.com/wireguard/meshcfg"
 )
 
+const ExitSetupFailed = 1
+
 const (
 	defaultIface         = "wg0"
 	systemdUnitPathLib   = "/lib/systemd/system/wireguard-go@.service"
 	systemdUnitPathEtc   = "/etc/systemd/system/wireguard-go@.service"
 	systemdMasterUnitLib = "/lib/systemd/system/wireguard-go-master.service"
 	systemdMasterUnitEtc = "/etc/systemd/system/wireguard-go-master.service"
-	wgConfDirInstall     = "/etc/wireguard"
 )
 
-func handleServiceCommand() bool {
+func HandleCommand() bool {
 	if len(os.Args) < 2 {
 		return false
 	}
@@ -152,10 +153,10 @@ func serviceInstallMaster() error {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
-	if err := os.MkdirAll(wgConfDirInstall, 0755); err != nil {
+	if err := os.MkdirAll(meshcfg.ConfDir(), 0755); err != nil {
 		return err
 	}
-	masterCfg := filepath.Join(wgConfDirInstall, "wireguard-go-master.json")
+	masterCfg := filepath.Join(meshcfg.ConfDir(), "wireguard-go-master.json")
 	if _, err := os.Stat(masterCfg); os.IsNotExist(err) {
 		example := `{
   "listen": ":8443",
@@ -206,7 +207,7 @@ func serviceUninstallMaster(purge bool) error {
 	_ = runSystemctl("disable", "--now", "wireguard-go-master")
 	_ = clearRoleLock()
 	if purge {
-		_ = os.Remove(filepath.Join(wgConfDirInstall, "wireguard-go-master.json"))
+		_ = os.Remove(filepath.Join(meshcfg.ConfDir(), "wireguard-go-master.json"))
 		if err := os.Remove(systemdMasterUnitEtc); err == nil {
 			_ = runSystemctl("daemon-reload")
 		}
@@ -237,20 +238,20 @@ func serviceUninstall(iface string, purge bool) error {
 	_ = clearRoleLock()
 
 	if purge {
-		conf := filepath.Join(wgConfDirInstall, iface+".conf")
+		conf := filepath.Join(meshcfg.ConfDir(), iface+".conf")
 		if err := os.Remove(conf); err == nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", conf)
 		}
-		transport := filepath.Join(wgConfDirInstall, "wireguard-go-transport.json")
+		transport := filepath.Join(meshcfg.ConfDir(), "wireguard-go-transport.json")
 		if err := os.Remove(transport); err == nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", transport)
 		}
-		agent := filepath.Join(wgConfDirInstall, "wireguard-go-agent.json")
+		agent := filepath.Join(meshcfg.ConfDir(), "wireguard-go-agent.json")
 		if err := os.Remove(agent); err == nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", agent)
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "wireguard-go: kept configs under %s (pass --purge to delete)\n", wgConfDirInstall)
+		fmt.Fprintf(os.Stderr, "wireguard-go: kept configs under %s (pass --purge to delete)\n", meshcfg.ConfDir())
 	}
 
 	if purge {
@@ -311,10 +312,10 @@ WantedBy=multi-user.target
 }
 
 func ensureWGConfigs(iface string) error {
-	if err := os.MkdirAll(wgConfDirInstall, 0755); err != nil {
+	if err := os.MkdirAll(meshcfg.ConfDir(), 0755); err != nil {
 		return err
 	}
-	agentPath := filepath.Join(wgConfDirInstall, "wireguard-go-agent.json")
+	agentPath := filepath.Join(meshcfg.ConfDir(), "wireguard-go-agent.json")
 	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
 		example := `{
   "masterUrl": "http://127.0.0.1:8443",
@@ -329,9 +330,9 @@ func ensureWGConfigs(iface string) error {
 		}
 		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set masterUrl/nodeId/nodeToken\n", agentPath)
 	}
-	transport := filepath.Join(wgConfDirInstall, "wireguard-go-transport.json")
+	transport := filepath.Join(meshcfg.ConfDir(), "wireguard-go-transport.json")
 	if _, err := os.Stat(transport); os.IsNotExist(err) {
-		example := filepath.Join(wgConfDirInstall, "wireguard-go-transport.json.example")
+		example := filepath.Join(meshcfg.ConfDir(), "wireguard-go-transport.json.example")
 		if data, readErr := os.ReadFile(example); readErr == nil {
 			_ = os.WriteFile(transport, data, 0644)
 			fmt.Fprintf(os.Stderr, "wireguard-go: created %s from example\n", transport)

@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package tunnel
 
 import (
 	"bufio"
@@ -17,36 +17,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/meshcfg"
 )
 
-const wgConfDirDefaultUnix = "/etc/wireguard"
-
-func wgConfDir() string {
-	if d := os.Getenv("WG_CONF_DIR"); d != "" {
-		return d
-	}
-	if runtime.GOOS == "windows" {
-		if pd := os.Getenv("ProgramData"); pd != "" {
-			return filepath.Join(pd, "wireguard")
-		}
-		return `C:\ProgramData\wireguard`
-	}
-	return wgConfDirDefaultUnix
-}
-
-type ifaceNetConfig struct {
+type IfaceNetConfig struct {
 	addresses []string
 	mtu       int
 }
 
-// peerHookConfig holds per-peer extras that are not part of WireGuard UAPI.
-type peerHookConfig struct {
+// PeerHookConfig holds per-peer extras that are not part of WireGuard UAPI.
+type PeerHookConfig struct {
 	label         string // truncated public key for logs
 	publicKeyB64  string // original base64 public key
 	publicKeyHex  string
@@ -57,39 +42,42 @@ type peerHookConfig struct {
 	hasKeepalive  bool
 	natClient     bool // effective NatClient (after auto-detect)
 	natClientSet  bool // NatClient= was present in conf
-	forwards      []portForwardSpec
+	forwards      []PortForwardSpec
 	onUp          []string
 	onDown        []string
 }
 
-// natGatewayResult is populated when dual-server / TO NAT is configured.
-type natGatewayResult struct {
-	toNATClient    bool // C-side Interface ToNAT=true
-	serverMode     bool // B-side: ListenPort + upstream — ready for ToNAT clients
-	natUpstreamB64 string
-	listenPort     uint16
-	clientHosts    []string // explicit NatClient=true hosts (optional seed)
-	clientKeyHex   []string // explicit NatClient=true keys
-	upstreamAddr   netip.AddrPort
-	vpnPrefixes    []netip.Prefix
-	// peersByKeyHex maps peer public key hex → AllowedIPs hosts (for runtime ToNAT)
-	peersByKeyHex map[string][]string
+// NatGatewayResult is populated when dual-server / TO NAT is configured.
+type NatGatewayResult struct {
+	ToNATClient    bool // C-side Interface ToNAT=true
+	ServerMode     bool // B-side: ListenPort + upstream — ready for ToNAT clients
+	NatUpstreamB64 string
+	ListenPort     uint16
+	ClientHosts    []string // explicit NatClient=true hosts (optional seed)
+	ClientKeyHex   []string // explicit NatClient=true keys
+	UpstreamAddr   netip.AddrPort
+	VPNPrefixes    []netip.Prefix
+	// PeersByKeyHex maps peer public key hex → AllowedIPs hosts (for runtime ToNAT)
+	PeersByKeyHex map[string][]string
 }
 
-type confApplyResult struct {
-	netCfg ifaceNetConfig
-	peers  []peerHookConfig
-	nat    natGatewayResult
+type ConfApplyResult struct {
+	NetCfg IfaceNetConfig
+	Peers  []PeerHookConfig
+	Nat    NatGatewayResult
 }
+
+func (c IfaceNetConfig) Addresses() []string { return c.addresses }
+func (c IfaceNetConfig) MTU() int            { return c.mtu }
 
 // applyWGConf reads /etc/wireguard/<iface>.conf, applies UAPI settings,
 // configures Address/MTU, starts ForwardTCP proxies, and runs peer OnUp scripts.
-func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*confApplyResult, error) {
-	confPath := filepath.Join(wgConfDir(), iface+".conf")
+func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*ConfApplyResult, error) {
+	confPath := filepath.Join(meshcfg.ConfDir(), iface+".conf")
 	f, err := os.Open(confPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &confApplyResult{}, nil
+			return &ConfApplyResult{}, nil
 		}
 		return nil, fmt.Errorf("open %s: %w", confPath, err)
 	}
@@ -98,9 +86,9 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 	var buf bytes.Buffer
 	w := &buf
 	expectedPeers := 0
-	var netCfg ifaceNetConfig
-	var peers []peerHookConfig
-	var cur *peerHookConfig
+	var netCfg IfaceNetConfig
+	var peers []PeerHookConfig
+	var cur *PeerHookConfig
 	var toNATClient bool
 	var natUpstreamB64 string
 	var listenPort uint16
@@ -127,7 +115,7 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 			case "[peer]":
 				flushPeer()
 				inInterface, inPeer = false, true
-				cur = &peerHookConfig{}
+				cur = &PeerHookConfig{}
 			default:
 				flushPeer()
 				inInterface, inPeer = false, false
@@ -284,7 +272,7 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 	seenListen := make(map[string]string) // "tcp/0.0.0.0:25565" -> peer label
 	for i := range peers {
 		p := &peers[i]
-		resolved := make([]portForwardSpec, 0, len(p.forwards))
+		resolved := make([]PortForwardSpec, 0, len(p.forwards))
 		for _, fw := range p.forwards {
 			if fw.DestHost == "" {
 				if p.allowedIP == "" {
@@ -334,14 +322,14 @@ func applyWGConf(dev *device.Device, logger *device.Logger, iface string) (*conf
 	}
 
 	logger.Verbosef("Applied config from %s", confPath)
-	return &confApplyResult{netCfg: netCfg, peers: peers, nat: nat}, nil
+	return &ConfApplyResult{NetCfg: netCfg, Peers: peers, Nat: nat}, nil
 }
 
-func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort uint16, netCfg ifaceNetConfig, peers []peerHookConfig) (natGatewayResult, []peerHookConfig, error) {
-	var nat natGatewayResult
-	nat.toNATClient = toNATClient
-	nat.natUpstreamB64 = natUpstreamB64
-	nat.listenPort = listenPort
+func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort uint16, netCfg IfaceNetConfig, peers []PeerHookConfig) (NatGatewayResult, []PeerHookConfig, error) {
+	var nat NatGatewayResult
+	nat.ToNATClient = toNATClient
+	nat.NatUpstreamB64 = natUpstreamB64
+	nat.ListenPort = listenPort
 
 	for _, a := range netCfg.addresses {
 		prefix, err := netip.ParsePrefix(a)
@@ -356,7 +344,7 @@ func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort u
 				continue
 			}
 		}
-		nat.vpnPrefixes = append(nat.vpnPrefixes, prefix)
+		nat.VPNPrefixes = append(nat.VPNPrefixes, prefix)
 	}
 
 	// C-side: ToNAT=true is a mode flag; [Peer] Endpoint dials B as usual.
@@ -376,7 +364,7 @@ func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort u
 
 	// Resolve upstream: explicit NatUpstream, else the unique peer that has Endpoint
 	// while this node also listens (dual-server B).
-	var up *peerHookConfig
+	var up *PeerHookConfig
 	if natUpstreamB64 != "" {
 		upHex, err := base64ToHex(natUpstreamB64)
 		if err != nil {
@@ -392,7 +380,7 @@ func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort u
 			return nat, peers, fmt.Errorf("NatUpstream %s does not match any [Peer] PublicKey", truncateKey(natUpstreamB64))
 		}
 	} else if listenPort != 0 {
-		var endpointPeers []*peerHookConfig
+		var endpointPeers []*PeerHookConfig
 		for i := range peers {
 			if peers[i].endpoint != "" {
 				endpointPeers = append(endpointPeers, &peers[i])
@@ -400,7 +388,7 @@ func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort u
 		}
 		if len(endpointPeers) == 1 {
 			up = endpointPeers[0]
-			nat.natUpstreamB64 = up.publicKeyB64
+			nat.NatUpstreamB64 = up.publicKeyB64
 		}
 	}
 	if up != nil {
@@ -411,7 +399,7 @@ func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort u
 		if err != nil {
 			return nat, peers, fmt.Errorf("upstream Endpoint %q: %w", up.endpoint, err)
 		}
-		nat.upstreamAddr = addrPort
+		nat.UpstreamAddr = addrPort
 	}
 
 	// Conf-level NatClient=true still honored; otherwise clients are learned at
@@ -431,21 +419,21 @@ func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort u
 			if len(p.allowedHosts) == 0 {
 				return nat, peers, fmt.Errorf("peer %s: NatClient requires single-host AllowedIPs (/32 or /128)", p.label)
 			}
-			nat.clientHosts = append(nat.clientHosts, p.allowedHosts...)
-			nat.clientKeyHex = append(nat.clientKeyHex, p.publicKeyHex)
+			nat.ClientHosts = append(nat.ClientHosts, p.allowedHosts...)
+			nat.ClientKeyHex = append(nat.ClientKeyHex, p.publicKeyHex)
 		}
 	}
 
-	if listenPort != 0 && nat.upstreamAddr.IsValid() {
-		nat.serverMode = true
-		nat.peersByKeyHex = make(map[string][]string)
+	if listenPort != 0 && nat.UpstreamAddr.IsValid() {
+		nat.ServerMode = true
+		nat.PeersByKeyHex = make(map[string][]string)
 		for i := range peers {
 			p := &peers[i]
 			if up != nil && p.publicKeyHex == up.publicKeyHex {
 				continue
 			}
 			if p.publicKeyHex != "" && len(p.allowedHosts) > 0 {
-				nat.peersByKeyHex[p.publicKeyHex] = append([]string{}, p.allowedHosts...)
+				nat.PeersByKeyHex[p.publicKeyHex] = append([]string{}, p.allowedHosts...)
 			}
 		}
 	}
@@ -504,12 +492,12 @@ func firstHostFromCIDR(cidr string) (string, error) {
 	return "", fmt.Errorf("%s is not a single-host prefix (use /32 or /128, or explicit ForwardTCP dest)", cidr)
 }
 
-func parseForwardList(val, defaultHost, proto string) ([]portForwardSpec, error) {
+func parseForwardList(val, defaultHost, proto string) ([]PortForwardSpec, error) {
 	// Allow multiple entries separated by comma or semicolon, e.g.
 	//   ForwardTCP = 25565, 8080:80, 8443:10.0.0.3:443
 	//   ForwardUDP = 19132; 25565
 	val = strings.ReplaceAll(val, ";", ",")
-	var out []portForwardSpec
+	var out []PortForwardSpec
 	for _, part := range strings.Split(val, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
@@ -530,7 +518,7 @@ func parseForwardList(val, defaultHost, proto string) ([]portForwardSpec, error)
 //	25565:25566            → 0.0.0.0:25565 -> <host>:25566
 //	25565:10.0.0.3:25565   → 0.0.0.0:25565 -> 10.0.0.3:25565
 //	0.0.0.0:25565:10.0.0.3:25565
-func parseForwardSpec(spec, defaultHost, proto string) (portForwardSpec, error) {
+func parseForwardSpec(spec, defaultHost, proto string) (PortForwardSpec, error) {
 	label := "ForwardTCP"
 	if proto == protoUDP {
 		label = "ForwardUDP"
@@ -549,7 +537,7 @@ func parseForwardSpec(spec, defaultHost, proto string) (portForwardSpec, error) 
 		destPort, err = strconv.Atoi(parts[0])
 	case 2:
 		if net.ParseIP(parts[1]) != nil {
-			return portForwardSpec{}, fmt.Errorf("ambiguous %s %q; use listenPort:destHost:destPort", label, spec)
+			return PortForwardSpec{}, fmt.Errorf("ambiguous %s %q; use listenPort:destHost:destPort", label, spec)
 		}
 		listenHost = "0.0.0.0"
 		listenPort = parts[0]
@@ -566,16 +554,16 @@ func parseForwardSpec(spec, defaultHost, proto string) (portForwardSpec, error) 
 		destHost = parts[2]
 		destPort, err = strconv.Atoi(parts[3])
 	default:
-		return portForwardSpec{}, fmt.Errorf("invalid %s %q", label, spec)
+		return PortForwardSpec{}, fmt.Errorf("invalid %s %q", label, spec)
 	}
 	if err != nil {
-		return portForwardSpec{}, fmt.Errorf("invalid %s port in %q: %w", label, spec, err)
+		return PortForwardSpec{}, fmt.Errorf("invalid %s port in %q: %w", label, spec, err)
 	}
 	lp, err := strconv.Atoi(listenPort)
 	if err != nil || lp <= 0 || lp > 65535 || destPort <= 0 || destPort > 65535 {
-		return portForwardSpec{}, fmt.Errorf("invalid %s ports in %q", label, spec)
+		return PortForwardSpec{}, fmt.Errorf("invalid %s ports in %q", label, spec)
 	}
-	return portForwardSpec{
+	return PortForwardSpec{
 		Proto:      proto,
 		ListenHost: listenHost,
 		ListenPort: lp,
@@ -632,7 +620,7 @@ func base64ToHex(b64 string) (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
-func printStartupInfo(dev *device.Device, logger *device.Logger, iface, confPath string, tcpPort uint16, mcEnabled bool, fwdCount int) {
+func PrintStartupInfo(dev *device.Device, logger *device.Logger, iface, confPath string, tcpPort uint16, mcEnabled bool, fwdCount int) {
 	var sb strings.Builder
 	sb.WriteString("\n┌─────────────────────────────────────────────────┐\n")
 	sb.WriteString("│         wireguard-go (TCP + MC mode)            │\n")

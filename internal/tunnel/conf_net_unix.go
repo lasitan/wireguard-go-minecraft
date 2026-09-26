@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package tunnel
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 )
 
-func applyIfaceNetConfig(iface string, cfg ifaceNetConfig, logger *device.Logger) error {
+func applyIfaceNetConfig(iface string, cfg IfaceNetConfig, logger *device.Logger) error {
 	const ipTimeout = 5 * time.Second
 	runIP := func(args ...string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), ipTimeout)

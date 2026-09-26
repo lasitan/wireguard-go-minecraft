@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package tunnel
 
 import (
 	"fmt"
@@ -22,7 +22,7 @@ const (
 	forwardCloseWait = 1 * time.Second
 )
 
-type portForwardManager struct {
+type PortForwardManager struct {
 	logger  *device.Logger
 	mu      sync.Mutex
 	closers []io.Closer
@@ -36,14 +36,14 @@ type portForwardManager struct {
 	closed bool
 }
 
-func newPortForwardManager(logger *device.Logger) *portForwardManager {
-	return &portForwardManager{
+func NewPortForwardManager(logger *device.Logger) *PortForwardManager {
+	return &PortForwardManager{
 		logger: logger,
 		active: make(map[net.Conn]struct{}),
 	}
 }
 
-func (m *portForwardManager) StartFromPeers(peers []peerHookConfig) error {
+func (m *PortForwardManager) StartFromPeers(peers []PeerHookConfig) error {
 	tcpN, udpN := 0, 0
 	for _, p := range peers {
 		env := map[string]string{
@@ -92,13 +92,13 @@ func (m *portForwardManager) StartFromPeers(peers []peerHookConfig) error {
 	return nil
 }
 
-func (m *portForwardManager) Count() int {
+func (m *PortForwardManager) Count() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.closers)
 }
 
-func (m *portForwardManager) track(c net.Conn) {
+func (m *PortForwardManager) track(c net.Conn) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed {
@@ -108,13 +108,13 @@ func (m *portForwardManager) track(c net.Conn) {
 	m.active[c] = struct{}{}
 }
 
-func (m *portForwardManager) untrack(c net.Conn) {
+func (m *PortForwardManager) untrack(c net.Conn) {
 	m.mu.Lock()
 	delete(m.active, c)
 	m.mu.Unlock()
 }
 
-func (m *portForwardManager) startTCPForward(spec portForwardSpec, peerLabel string) error {
+func (m *PortForwardManager) startTCPForward(spec PortForwardSpec, peerLabel string) error {
 	ln, err := net.Listen("tcp", spec.ListenAddr())
 	if err != nil {
 		return fmt.Errorf("ForwardTCP listen %s: %w", spec.ListenAddr(), err)
@@ -149,7 +149,7 @@ func (m *portForwardManager) startTCPForward(spec portForwardSpec, peerLabel str
 	return nil
 }
 
-func (m *portForwardManager) proxyTCP(client net.Conn, spec portForwardSpec) {
+func (m *PortForwardManager) proxyTCP(client net.Conn, spec PortForwardSpec) {
 	m.track(client)
 	defer func() {
 		_ = client.Close()
@@ -196,7 +196,7 @@ type udpSession struct {
 	lastActive time.Time
 }
 
-func (m *portForwardManager) startUDPForward(spec portForwardSpec, peerLabel string) error {
+func (m *PortForwardManager) startUDPForward(spec PortForwardSpec, peerLabel string) error {
 	listenAddr, err := net.ResolveUDPAddr("udp", spec.ListenAddr())
 	if err != nil {
 		return fmt.Errorf("ForwardUDP resolve listen %s: %w", spec.ListenAddr(), err)
@@ -231,7 +231,7 @@ func (m *portForwardManager) startUDPForward(spec portForwardSpec, peerLabel str
 	return nil
 }
 
-func (m *portForwardManager) serveUDP(pc *net.UDPConn, destAddr *net.UDPAddr, peerLabel string) {
+func (m *PortForwardManager) serveUDP(pc *net.UDPConn, destAddr *net.UDPAddr, peerLabel string) {
 	sessions := make(map[string]*udpSession)
 	var sessMu sync.Mutex
 
@@ -332,7 +332,7 @@ func (m *portForwardManager) serveUDP(pc *net.UDPConn, destAddr *net.UDPAddr, pe
 	}
 }
 
-func (m *portForwardManager) Close() {
+func (m *PortForwardManager) Close() {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()

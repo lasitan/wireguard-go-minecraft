@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package service
 
 import (
 	"fmt"
@@ -20,12 +20,14 @@ import (
 	"golang.zx2c4.com/wireguard/meshcfg"
 )
 
+const ExitSetupFailed = 1
+
 const (
 	defaultIface         = "wg0"
 	windowsServicePrefix = "wireguard-go-"
 )
 
-func handleServiceCommand() bool {
+func HandleCommand() bool {
 	if len(os.Args) < 2 {
 		return false
 	}
@@ -85,7 +87,7 @@ func handleServiceCommand() bool {
 	}
 }
 
-func windowsServiceName(iface string) string {
+func WindowsServiceName(iface string) string {
 	return windowsServicePrefix + iface
 }
 
@@ -121,7 +123,7 @@ func serviceInstall(iface string) error {
 	}
 	defer m.Disconnect()
 
-	name := windowsServiceName(iface)
+	name := WindowsServiceName(iface)
 	if s, err := m.OpenService(name); err == nil {
 		defer s.Close()
 		if err := updateWindowsServiceBinary(s, exe, iface); err != nil {
@@ -149,7 +151,7 @@ func serviceInstall(iface string) error {
 		return fmt.Errorf("start service %s: %w", name, err)
 	}
 	fmt.Fprintf(os.Stderr, "wireguard-go: started %s\n", name)
-	fmt.Fprintf(os.Stderr, "wireguard-go: agent config → %s\n", filepath.Join(wgConfDir(), meshcfg.AgentFileName))
+	fmt.Fprintf(os.Stderr, "wireguard-go: agent config → %s\n", filepath.Join(meshcfg.ConfDir(), meshcfg.AgentFileName))
 	return nil
 }
 
@@ -167,7 +169,7 @@ func serviceInstallMaster() error {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
-	dir := wgConfDir()
+	dir := meshcfg.ConfDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
@@ -245,7 +247,7 @@ func serviceUninstallMaster(purge bool) error {
 	}
 	_ = clearRoleLock()
 	if purge {
-		_ = os.Remove(filepath.Join(wgConfDir(), meshcfg.MasterFileName))
+		_ = os.Remove(filepath.Join(meshcfg.ConfDir(), meshcfg.MasterFileName))
 	}
 	fmt.Fprintln(os.Stderr, "wireguard-go: uninstalled master service")
 	return nil
@@ -319,7 +321,7 @@ func serviceUninstall(iface string, purge bool) error {
 	}
 	defer m.Disconnect()
 
-	name := windowsServiceName(iface)
+	name := WindowsServiceName(iface)
 	s, err := m.OpenService(name)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wireguard-go: service %s not found\n", name)
@@ -343,26 +345,26 @@ func serviceUninstall(iface string, purge bool) error {
 	_ = clearRoleLock()
 
 	if purge {
-		conf := filepath.Join(wgConfDir(), iface+".conf")
+		conf := filepath.Join(meshcfg.ConfDir(), iface+".conf")
 		if err := os.Remove(conf); err == nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", conf)
 		}
-		transport := filepath.Join(wgConfDir(), "wireguard-go-transport.json")
+		transport := filepath.Join(meshcfg.ConfDir(), "wireguard-go-transport.json")
 		if err := os.Remove(transport); err == nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", transport)
 		}
-		agent := filepath.Join(wgConfDir(), meshcfg.AgentFileName)
+		agent := filepath.Join(meshcfg.ConfDir(), meshcfg.AgentFileName)
 		if err := os.Remove(agent); err == nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", agent)
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "wireguard-go: kept configs under %s (pass --purge to delete)\n", wgConfDir())
+		fmt.Fprintf(os.Stderr, "wireguard-go: kept configs under %s (pass --purge to delete)\n", meshcfg.ConfDir())
 	}
 	return nil
 }
 
 func ensureWGConfigsWindows(iface string) error {
-	dir := wgConfDir()
+	dir := meshcfg.ConfDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
@@ -381,7 +383,7 @@ func ensureWGConfigsWindows(iface string) error {
 		}
 		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set masterUrl/nodeId/nodeToken\n", agentPath)
 	}
-	if err := ensureTransportConfigWindows(); err != nil {
+	if err := EnsureTransportConfig(); err != nil {
 		return err
 	}
 	return nil

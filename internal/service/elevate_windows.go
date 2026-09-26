@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package service
 
 import (
 	"fmt"

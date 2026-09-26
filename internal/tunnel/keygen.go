@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package tunnel
 
 import (
 	"crypto/rand"
@@ -16,7 +16,9 @@ import (
 	"golang.org/x/crypto/curve25519"
 )
 
-func printUsage() {
+const ExitSetupFailed = 1
+
+func PrintUsage() {
 	fmt.Printf(`Usage:
   %s [-f/--foreground] INTERFACE-NAME
   %s install [INTERFACE|master]
@@ -42,7 +44,7 @@ Key commands (same as wg(8)):
 
 // handleKeyCommand runs wg-compatible key utilities.
 // Returns true if a key command was handled (caller should return).
-func handleKeyCommand() bool {
+func HandleKeyCommand() bool {
 	if len(os.Args) < 2 {
 		return false
 	}

@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package tunnel
 
 import (
 	"context"
@@ -21,11 +21,11 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 )
 
-// natGateway manages IP forwarding, MASQUERADE, and nested-WG hard block on B.
-type natGateway struct {
+// NatGateway manages IP forwarding, MASQUERADE, and nested-WG hard block on B.
+type NatGateway struct {
 	logger *device.Logger
 	iface  string
-	cfg    natGatewayResult
+	cfg    NatGatewayResult
 	runtime *natRuntime
 
 	mu       sync.Mutex
@@ -41,12 +41,12 @@ type natGateway struct {
 	changedIPv6     bool
 }
 
-func newNatGateway(logger *device.Logger, iface string, cfg natGatewayResult) *natGateway {
-	return &natGateway{
+func NewNatGateway(logger *device.Logger, iface string, cfg NatGatewayResult) *NatGateway {
+	return &NatGateway{
 		logger:   logger,
 		iface:    iface,
 		cfg:      cfg,
-		runtime:  newNatRuntime(cfg.clientKeyHex),
+		runtime:  newNatRuntime(cfg.ClientKeyHex),
 		nftTable: "wggo_nat_" + sanitizeNftName(iface),
 	}
 }
@@ -67,16 +67,16 @@ func sanitizeNftName(s string) string {
 	return out
 }
 
-func (g *natGateway) Start(dev *device.Device) error {
-	if !g.cfg.serverMode {
+func (g *NatGateway) Start(dev *device.Device) error {
+	if !g.cfg.ServerMode {
 		return nil
 	}
-	if !g.cfg.upstreamAddr.IsValid() {
+	if !g.cfg.UpstreamAddr.IsValid() {
 		return fmt.Errorf("nat gateway: missing upstream endpoint")
 	}
 
 	// Seed hosts from explicit NatClient=true
-	for _, h := range g.cfg.clientHosts {
+	for _, h := range g.cfg.ClientHosts {
 		g.runtime.mu.Lock()
 		g.runtime.hosts[h] = struct{}{}
 		g.runtime.mu.Unlock()
@@ -91,15 +91,15 @@ func (g *natGateway) Start(dev *device.Device) error {
 		return err
 	}
 
-	installNatInboundFilter(dev, g.runtime, g.cfg.upstreamAddr, g.logger)
+	installNatInboundFilter(dev, g.runtime, g.cfg.UpstreamAddr, g.logger)
 
 	fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway ready on %s (%s); ToNAT clients auto-register; block nested %s\n",
-		g.iface, g.backend, g.cfg.upstreamAddr.String())
+		g.iface, g.backend, g.cfg.UpstreamAddr.String())
 	g.logger.Verbosef("NAT gateway: forward+SNAT+nested-block via %s (dynamic ToNAT)", g.backend)
 	return nil
 }
 
-func (g *natGateway) Close(dev *device.Device) {
+func (g *NatGateway) Close(dev *device.Device) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.closed {
@@ -113,7 +113,7 @@ func (g *natGateway) Close(dev *device.Device) {
 	g.restoreForwarding()
 }
 
-func (g *natGateway) enableForwarding() error {
+func (g *NatGateway) enableForwarding() error {
 	v4, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward")
 	if err == nil {
 		g.prevIPv4Forward = strings.TrimSpace(string(v4))
@@ -139,7 +139,7 @@ func (g *natGateway) enableForwarding() error {
 	return nil
 }
 
-func (g *natGateway) restoreForwarding() {
+func (g *NatGateway) restoreForwarding() {
 	if g.changedIPv4 && g.prevIPv4Forward != "" {
 		_ = os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte(g.prevIPv4Forward+"\n"), 0o644)
 	}
@@ -148,7 +148,7 @@ func (g *natGateway) restoreForwarding() {
 	}
 }
 
-func (g *natGateway) installFirewall() error {
+func (g *NatGateway) installFirewall() error {
 	if err := g.installNft(); err == nil {
 		g.backend = "nft"
 		return nil
@@ -162,7 +162,7 @@ func (g *natGateway) installFirewall() error {
 	return nil
 }
 
-func (g *natGateway) removeFirewall() {
+func (g *NatGateway) removeFirewall() {
 	switch g.backend {
 	case "nft":
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -199,12 +199,12 @@ func runCmd(name string, args ...string) error {
 	return nil
 }
 
-func (g *natGateway) installNft() error {
+func (g *NatGateway) installNft() error {
 	_ = runCmd("nft", "delete", "table", "inet", g.nftTable)
 
-	upIP := g.cfg.upstreamAddr.Addr().String()
-	upPort := strconv.Itoa(int(g.cfg.upstreamAddr.Port()))
-	up := g.cfg.upstreamAddr.Addr()
+	upIP := g.cfg.UpstreamAddr.Addr().String()
+	upPort := strconv.Itoa(int(g.cfg.UpstreamAddr.Port()))
+	up := g.cfg.UpstreamAddr.Addr()
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "table inet %s {\n", g.nftTable)
@@ -221,7 +221,7 @@ func (g *natGateway) installNft() error {
 	b.WriteString("  }\n")
 	b.WriteString("  chain postrouting {\n")
 	b.WriteString("    type nat hook postrouting priority 100; policy accept;\n")
-	for _, host := range g.cfg.clientHosts {
+	for _, host := range g.cfg.ClientHosts {
 		writeNftMasquerade(&b, g.iface, host)
 	}
 	b.WriteString("  }\n")
@@ -250,7 +250,7 @@ func writeNftMasquerade(b *strings.Builder, iface, host string) {
 	}
 }
 
-func (g *natGateway) addClientMasquerade(host string) {
+func (g *NatGateway) addClientMasquerade(host string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.closed {
@@ -283,10 +283,10 @@ func (g *natGateway) addClientMasquerade(host string) {
 	}
 }
 
-func (g *natGateway) installIptables() error {
-	upIP := g.cfg.upstreamAddr.Addr().String()
-	upPort := strconv.Itoa(int(g.cfg.upstreamAddr.Port()))
-	upIs4 := g.cfg.upstreamAddr.Addr().Is4()
+func (g *NatGateway) installIptables() error {
+	upIP := g.cfg.UpstreamAddr.Addr().String()
+	upPort := strconv.Itoa(int(g.cfg.UpstreamAddr.Port()))
+	upIs4 := g.cfg.UpstreamAddr.Addr().Is4()
 	bin := "iptables"
 	if !upIs4 {
 		bin = "ip6tables"
@@ -299,7 +299,7 @@ func (g *natGateway) installIptables() error {
 		}
 		g.iptFilterRules = append(g.iptFilterRules, rule)
 	}
-	for _, host := range g.cfg.clientHosts {
+	for _, host := range g.cfg.ClientHosts {
 		ip, err := netip.ParseAddr(host)
 		if err != nil {
 			continue

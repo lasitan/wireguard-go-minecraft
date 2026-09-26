@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package tunnel
 
 import (
 	"net"
@@ -15,7 +15,7 @@ const (
 	protoUDP = "udp"
 )
 
-type portForwardSpec struct {
+type PortForwardSpec struct {
 	Proto      string // "tcp" or "udp"
 	ListenHost string
 	ListenPort int
@@ -23,7 +23,7 @@ type portForwardSpec struct {
 	DestPort   int
 }
 
-func (s portForwardSpec) ListenAddr() string {
+func (s PortForwardSpec) ListenAddr() string {
 	host := s.ListenHost
 	if host == "" {
 		host = "0.0.0.0"
@@ -31,10 +31,10 @@ func (s portForwardSpec) ListenAddr() string {
 	return net.JoinHostPort(host, strconv.Itoa(s.ListenPort))
 }
 
-func (s portForwardSpec) DestAddr() string {
+func (s PortForwardSpec) DestAddr() string {
 	return net.JoinHostPort(s.DestHost, strconv.Itoa(s.DestPort))
 }
 
-func (s portForwardSpec) String() string {
+func (s PortForwardSpec) String() string {
 	return s.Proto + " " + s.ListenAddr() + " -> " + s.DestAddr()
 }

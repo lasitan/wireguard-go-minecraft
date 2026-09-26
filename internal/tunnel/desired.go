@@ -1,4 +1,4 @@
-package main
+package tunnel
 
 import (
 	"bufio"
@@ -13,9 +13,9 @@ import (
 )
 
 // applyDesiredConfig applies a Master-compiled desired config via UAPI + iface net + returns peers for forwards.
-func applyDesiredConfig(dev *device.Device, logger *device.Logger, iface string, d *meshcfg.DesiredConfig) (*confApplyResult, error) {
+func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string, d *meshcfg.DesiredConfig) (*ConfApplyResult, error) {
 	if d == nil {
-		return &confApplyResult{}, nil
+		return &ConfApplyResult{}, nil
 	}
 	var buf bytes.Buffer
 	w := &buf
@@ -30,7 +30,7 @@ func applyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 	}
 	fmt.Fprintf(w, "replace_peers=true\n")
 
-	var netCfg ifaceNetConfig
+	var netCfg IfaceNetConfig
 	if d.Interface.Address != "" {
 		netCfg.addresses = append(netCfg.addresses, d.Interface.Address)
 	}
@@ -38,7 +38,7 @@ func applyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		netCfg.mtu = d.Interface.MTU
 	}
 
-	var peers []peerHookConfig
+	var peers []PeerHookConfig
 	for _, p := range d.Peers {
 		pubHex, err := base64ToHex(p.PublicKey)
 		if err != nil {
@@ -48,7 +48,7 @@ func applyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		if p.Endpoint != "" {
 			fmt.Fprintf(w, "endpoint=%s\n", p.Endpoint)
 		}
-		ph := peerHookConfig{
+		ph := PeerHookConfig{
 			label:        truncateKey(p.PublicKey),
 			publicKeyB64: p.PublicKey,
 			publicKeyHex: pubHex,
@@ -77,13 +77,13 @@ func applyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 
 	// Attach node-level forwards to a synthetic peer hook (or first matching dest).
 	if len(d.Forwards) > 0 {
-		var fwdPeer *peerHookConfig
+		var fwdPeer *PeerHookConfig
 		for i := range peers {
 			fwdPeer = &peers[i]
 			break
 		}
 		if fwdPeer == nil {
-			peers = append(peers, peerHookConfig{label: "forwards"})
+			peers = append(peers, PeerHookConfig{label: "forwards"})
 			fwdPeer = &peers[len(peers)-1]
 		}
 		for _, fw := range d.Forwards {
@@ -91,7 +91,7 @@ func applyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 			if err != nil {
 				return nil, fmt.Errorf("forward listen %q: %w", fw.Listen, err)
 			}
-			spec := portForwardSpec{
+			spec := PortForwardSpec{
 				Proto:      strings.ToLower(fw.Protocol),
 				ListenHost: listenHost,
 				ListenPort: int(listenPort),
@@ -113,12 +113,12 @@ func applyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		return nil, err
 	}
 	if d.IPForward {
-		if err := enableIPForward(logger); err != nil {
+		if err := EnableIPForward(logger); err != nil {
 			logger.Verbosef("ip forward: %v", err)
 			fmt.Fprintf(os.Stderr, "wireguard-go: warning: enable ip forward: %v\n", err)
 		}
 	}
-	return &confApplyResult{netCfg: netCfg, peers: peers}, nil
+	return &ConfApplyResult{NetCfg: netCfg, Peers: peers}, nil
 }
 
 func parseListen(listen string) (host string, port uint16, err error) {
