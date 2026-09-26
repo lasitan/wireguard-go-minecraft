@@ -26,7 +26,9 @@ export function EdgeLegend() {
           <span>红色 · 端点离线或链路异常</span>
         </li>
       </ul>
-      <p className="edge-legend-note">虚实互斥；同 IP 仅前端标黄，不影响已运行隧道。</p>
+      <p className="edge-legend-note">
+        拖动画布平移 · 滚轮缩放 · 拖拽 Agent 改位置。虚实互斥；同 IP 仅前端标黄。
+      </p>
     </aside>
   );
 }

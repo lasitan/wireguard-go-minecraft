@@ -9,13 +9,30 @@
   height: 100%;
   display: block;
   transition: none;
+  cursor: grab;
+  touch-action: none;
+}
+.mesh-svg.is-panning {
+  cursor: grabbing;
+}
+.node-wrap.is-dragging {
+  cursor: grabbing;
+}
+.node-wrap.is-dragging .node-card {
+  animation: none;
+  box-shadow: 0 10px 28px rgba(27, 36, 48, 0.16);
 }
 
+
 /* —— Edges: solid = active rule, dashed = indirect; traffic-light status —— */
+/* Dim/undim on the group so individual lines never get their own opacity layer. */
+.mesh-edges {
+  transition: opacity 0.28s ease;
+}
 .mesh-edge {
   fill: none;
   pointer-events: none;
-  transition: opacity 0.28s ease, stroke 0.28s ease;
+  transition: stroke 0.28s ease;
 }
 .mesh-edge.kind-solid {
   stroke-width: 2.4;
@@ -30,21 +47,28 @@
 .mesh-edge.status-yellow { stroke: var(--edge-yellow); opacity: 0.95; }
 .mesh-edge.status-red { stroke: var(--edge-red); opacity: 0.75; }
 
-/* Green edges: dash pattern slowly rolls toward Master (x2 is nearer hub). */
+/*
+ * Green edges: dash pattern slowly rolls toward Master (x2 is nearer hub).
+ * Offset travel must be a whole multiple of the dash period, or the loop jumps.
+ */
 .mesh-edge.kind-solid.status-green.is-flowing {
   stroke-dasharray: 6 10;
-  animation: edge-flow-to-master 2.8s linear infinite;
+  animation: edge-flow-solid 2.8s linear infinite;
 }
 .mesh-edge.kind-dashed.status-green.is-flowing {
   stroke-dasharray: 5 7;
-  animation: edge-flow-to-master 3.6s linear infinite;
+  animation: edge-flow-dashed 3.6s linear infinite;
 }
-@keyframes edge-flow-to-master {
+@keyframes edge-flow-solid {
   from { stroke-dashoffset: 32; }
   to { stroke-dashoffset: 0; }
 }
+@keyframes edge-flow-dashed {
+  from { stroke-dashoffset: 36; }
+  to { stroke-dashoffset: 0; }
+}
 
-.hub, .node-wrap, .mesh-edge {
+.hub, .node-wrap {
   transition: opacity 0.28s ease;
 }
 .hub-ring {
@@ -136,7 +160,7 @@
 .stage.has-selection .hub:not(.is-selected) {
   opacity: 0.42;
 }
-.stage.has-selection .mesh-edge {
+.stage.has-selection .mesh-edges {
   opacity: 0.3;
 }
 

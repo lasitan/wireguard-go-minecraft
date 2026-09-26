@@ -15,6 +15,8 @@ export type AppState = {
   demo: boolean;
   camera: Cam;
   placed: PlacedNode[];
+  /** User-dragged (and initial) agent positions keyed by node id. */
+  nodePositions: Record<string, { x: number; y: number }>;
   busy: boolean;
 };
 
@@ -30,6 +32,7 @@ export const state: AppState = {
   demo: isDevPreview,
   camera: homeCam(),
   placed: [],
+  nodePositions: {},
   busy: false,
 };
 

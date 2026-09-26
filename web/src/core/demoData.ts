@@ -1,5 +1,19 @@
 import type { Mesh, Meta } from "./models";
 
+/** Demo nodes that should stay offline (never receive simulated heartbeats). */
+const DEMO_OFFLINE_IDS = new Set(["aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0004"]);
+
+/**
+ * Simulate agent heartbeats in dev preview so online status does not expire
+ * after ONLINE_MS. Mutates lastSeen in place; keeps topology/positions intact.
+ */
+export function touchDemoHeartbeats(mesh: Mesh) {
+  const now = new Date().toISOString();
+  for (const n of mesh.nodes) {
+    if (!DEMO_OFFLINE_IDS.has(n.id)) n.lastSeen = now;
+  }
+}
+
 /** Dev-preview mesh: solid rules, indirect dashed peers, and one IP conflict. */
 export function demoMesh(): Mesh {
   const now = new Date().toISOString();

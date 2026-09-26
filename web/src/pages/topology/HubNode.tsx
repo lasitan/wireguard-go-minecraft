@@ -10,6 +10,7 @@ export function HubNode() {
       data-id={MASTER_ID}
       transform={`translate(${VIEW.cx}, ${VIEW.cy})`}
       style={{ cursor: "pointer" }}
+      onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();
         void focusTarget(MASTER_ID);

@@ -3,7 +3,7 @@ import { state } from "../../core/state";
 import { hostOf } from "../../utils/hostOf";
 import { isOnline } from "../../utils/isOnline";
 import { shortName } from "../../utils/shortName";
-import { focusTarget } from "../../app/FocusNav";
+import { useAgentDrag } from "./useAgentDrag";
 
 function jitterDelay(id: string): number {
   let h = 0;
@@ -18,6 +18,8 @@ export function AgentNodes({
   placed: PlacedNode[];
   conflicts: IpConflictMap;
 }) {
+  const drag = useAgentDrag();
+
   return (
     <>
       {placed.map((p, i) => {
@@ -49,11 +51,11 @@ export function AgentNodes({
             data-id={p.node.id}
             data-jitter={(i % 5) + 1}
             transform={`translate(${p.x}, ${p.y})`}
-            style={{ ["--jitter-delay" as string]: `${delay}s` }}
-            onClick={(e) => {
-              e.stopPropagation();
-              void focusTarget(p.node.id);
-            }}
+            style={{ ["--jitter-delay" as string]: `${delay}s`, cursor: "grab" }}
+            onPointerDown={(e) => drag.onPointerDown(e, p.node.id, p.x, p.y)}
+            onPointerMove={drag.onPointerMove}
+            onPointerUp={drag.onPointerUp}
+            onPointerCancel={drag.onPointerUp}
           >
             <foreignObject x={-78} y={-34} width={156} height={68}>
               <div className={cardClass}>

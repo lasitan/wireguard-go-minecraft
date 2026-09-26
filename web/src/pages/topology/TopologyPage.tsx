@@ -1,25 +1,29 @@
+import { useRef } from "react";
 import { VIEW } from "../../core/constants";
 import { state } from "../../core/state";
 import { camToAttr } from "../../camera/CameraMath";
 import { BuildEdgeGraph } from "../../topology/BuildEdgeGraph";
-import { layoutNodes } from "../../topology/layoutNodes";
 import { ResolveIpConflicts } from "../../topology/ResolveIpConflicts";
-import { goHome } from "../../app/FocusNav";
+import { syncPlacedNodes } from "../../topology/SyncPlacedNodes";
 import { AgentNodes } from "./AgentNodes";
 import { EdgeLegend } from "./EdgeLegend";
 import { HubNode } from "./HubNode";
 import { MeshEdges } from "./MeshEdges";
 import { SettingsDrawer } from "./SettingsDrawer";
+import { useCameraGestures } from "./useCameraGestures";
 import "./topology.css";
 import "./drawer.css";
 
 export function TopologyPage() {
+  const svgRef = useRef<SVGSVGElement>(null);
+  useCameraGestures(svgRef);
+
   const m = state.mesh || { revision: 0, nodes: [], links: [], forwards: [] };
   const nodes = m.nodes || [];
-  state.placed = layoutNodes(nodes);
+  const placed = syncPlacedNodes(nodes);
 
   const conflicts = ResolveIpConflicts(m);
-  const edges = BuildEdgeGraph(m, state.placed, conflicts);
+  const edges = BuildEdgeGraph(m, placed, conflicts);
   const vb = camToAttr(state.camera);
 
   const stageClass = [
@@ -32,19 +36,25 @@ export function TopologyPage() {
 
   return (
     <div className={stageClass}>
-      <svg className="mesh-svg" viewBox={vb} preserveAspectRatio="xMidYMid meet" role="img" aria-label="mesh">
+      <svg
+        ref={svgRef}
+        className="mesh-svg"
+        viewBox={vb}
+        preserveAspectRatio="xMidYMid meet"
+        role="img"
+        aria-label="mesh"
+      >
         <rect
           className="stage-hit"
-          x={VIEW.cx - VIEW.w}
-          y={VIEW.cy - VIEW.h}
-          width={VIEW.w * 2}
-          height={VIEW.h * 2}
+          x={VIEW.cx - VIEW.w * 4}
+          y={VIEW.cy - VIEW.h * 4}
+          width={VIEW.w * 8}
+          height={VIEW.h * 8}
           fill="transparent"
-          onClick={() => void goHome()}
         />
         <MeshEdges edges={edges} />
         <HubNode />
-        <AgentNodes placed={state.placed} conflicts={conflicts} />
+        <AgentNodes placed={placed} conflicts={conflicts} />
       </svg>
 
       <EdgeLegend />

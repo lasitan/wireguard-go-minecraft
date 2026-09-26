@@ -5,7 +5,7 @@ import { Login as LoginApi } from "../api/Login";
 import { isCameraAnimating } from "../camera/CameraController";
 import { homeCam } from "../camera/CameraMath";
 import { MASTER_ID, TOKEN_KEY } from "../core/constants";
-import { demoMesh, demoMeta } from "../core/demoData";
+import { demoMesh, demoMeta, touchDemoHeartbeats } from "../core/demoData";
 import { notify, state } from "../core/state";
 import { goHome } from "./FocusNav";
 
@@ -72,8 +72,16 @@ export function logout() {
 }
 
 export function startPoll() {
-  if (state.demo) return;
   if (state.pollTimer != null) clearInterval(state.pollTimer);
+  if (state.demo) {
+    // Keep demo agents online and re-evaluate edge status as time passes.
+    state.pollTimer = window.setInterval(() => {
+      if (!state.mesh) return;
+      touchDemoHeartbeats(state.mesh);
+      notify();
+    }, 8000);
+    return;
+  }
   state.pollTimer = window.setInterval(() => {
     if (!state.token || state.busy || isCameraAnimating()) return;
     refresh().catch(() => {});

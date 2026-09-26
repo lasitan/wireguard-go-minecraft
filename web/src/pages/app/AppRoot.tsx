@@ -14,6 +14,7 @@ export function AppRoot() {
     if (state.demo) {
       if (!state.mesh) state.mesh = demoMesh();
       if (!state.meta) state.meta = demoMeta();
+      startPoll();
       bump();
       return;
     }
