@@ -1,0 +1,15 @@
+.login-wrap {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+.login-card {
+  width: min(380px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.25rem;
+  box-shadow: 0 10px 30px rgba(27, 36, 48, 0.06);
+}
+.login-card h2 { margin: 0 0 0.5rem; font-size: 1.1rem; }

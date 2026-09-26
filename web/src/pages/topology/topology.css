@@ -1,0 +1,177 @@
+.stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.mesh-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  transition: none;
+}
+
+/* —— Edges: solid = active rule, dashed = indirect; traffic-light status —— */
+.mesh-edge {
+  fill: none;
+  pointer-events: none;
+  transition: opacity 0.28s ease, stroke 0.28s ease;
+}
+.mesh-edge.kind-solid {
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+.mesh-edge.kind-dashed {
+  stroke-width: 1.6;
+  stroke-dasharray: 5 7;
+  stroke-linecap: round;
+}
+.mesh-edge.status-green { stroke: var(--edge-green); opacity: 0.9; }
+.mesh-edge.status-yellow { stroke: var(--edge-yellow); opacity: 0.95; }
+.mesh-edge.status-red { stroke: var(--edge-red); opacity: 0.75; }
+
+/* Green edges: dash pattern slowly rolls toward Master (x2 is nearer hub). */
+.mesh-edge.kind-solid.status-green.is-flowing {
+  stroke-dasharray: 6 10;
+  animation: edge-flow-to-master 2.8s linear infinite;
+}
+.mesh-edge.kind-dashed.status-green.is-flowing {
+  stroke-dasharray: 5 7;
+  animation: edge-flow-to-master 3.6s linear infinite;
+}
+@keyframes edge-flow-to-master {
+  from { stroke-dashoffset: 32; }
+  to { stroke-dashoffset: 0; }
+}
+
+.hub, .node-wrap, .mesh-edge {
+  transition: opacity 0.28s ease;
+}
+.hub-ring {
+  fill: #ffe4c8;
+  stroke: #ffd2a1;
+  stroke-width: 2;
+  transition: filter 0.28s ease;
+}
+.hub-core { fill: var(--accent); }
+.hub-label {
+  fill: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  pointer-events: none;
+}
+.hub.is-selected .hub-ring {
+  filter: drop-shadow(0 0 12px rgba(243, 128, 32, 0.45));
+}
+
+/*
+ * Jitter lives on the HTML card inside foreignObject so it never fights
+ * the SVG transform="translate(x,y)" used for layout.
+ */
+.node-wrap.is-jitter .node-card {
+  animation: card-float 5.5s ease-in-out infinite;
+  animation-delay: var(--jitter-delay, 0s);
+}
+.node-wrap[data-jitter="1"] .node-card { animation-duration: 5.2s; }
+.node-wrap[data-jitter="2"] .node-card { animation-duration: 5.8s; }
+.node-wrap[data-jitter="3"] .node-card { animation-duration: 6.1s; }
+.node-wrap[data-jitter="4"] .node-card { animation-duration: 5.4s; }
+.node-wrap[data-jitter="5"] .node-card { animation-duration: 6.4s; }
+@keyframes card-float {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(1.1px, -1.2px); }
+  50% { transform: translate(-1.2px, 0.6px); }
+  75% { transform: translate(0.6px, 1px); }
+}
+
+.node-card {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-start;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.45rem 0.55rem;
+  box-shadow: 0 6px 18px rgba(27, 36, 48, 0.08);
+  cursor: pointer;
+  height: 58px;
+  user-select: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.28s ease;
+}
+.node-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(243, 128, 32, 0.18);
+}
+.node-card.conflict {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 3px rgba(226, 160, 8, 0.2);
+  background: #fffbeb;
+}
+.node-card.conflict .dot {
+  background: var(--warn) !important;
+  box-shadow: 0 0 0 3px rgba(226, 160, 8, 0.22) !important;
+}
+.conflict-tag {
+  color: var(--warn);
+  font-weight: 650;
+  font-size: 0.65rem;
+}
+.node-card .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex: 0 0 auto;
+  background: var(--offline);
+}
+.node-card.online .dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(18, 183, 106, 0.18);
+}
+.node-name { font-size: 0.82rem; font-weight: 650; line-height: 1.2; }
+.node-ip { font-size: 0.72rem; color: var(--muted); margin-top: 0.15rem; }
+
+.stage.has-selection .node-wrap:not(.is-selected),
+.stage.has-selection .hub:not(.is-selected) {
+  opacity: 0.42;
+}
+.stage.has-selection .mesh-edge {
+  opacity: 0.3;
+}
+
+.topo-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  pointer-events: none;
+  font-size: 0.95rem;
+}
+.dev-chip {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--accent);
+  z-index: 3;
+}
+.toast {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.55rem 0.85rem;
+  box-shadow: 0 8px 24px rgba(27, 36, 48, 0.08);
+  z-index: 4;
+}
+.toast.error { color: var(--danger); }

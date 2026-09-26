@@ -1,0 +1,28 @@
+button {
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.5rem 0.95rem;
+  cursor: pointer;
+  font-weight: 650;
+}
+button:hover { background: var(--accent-deep); }
+button.secondary {
+  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 100%;
+}
+button.danger { background: var(--danger); width: 100%; margin-top: 1rem; }
+
+label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.25rem; }
+input {
+  width: 100%;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  margin-bottom: 0.75rem;
+}

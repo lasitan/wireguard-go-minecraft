@@ -1,0 +1,35 @@
+:root {
+  --bg: #f3f5f7;
+  --panel: #ffffff;
+  --text: #1b2430;
+  --muted: #6b7a90;
+  --accent: #f38020;
+  --accent-deep: #e06b0c;
+  --border: #e2e8f0;
+  --danger: #d9485f;
+  --ok: #12b76a;
+  --warn: #e2a008;
+  --offline: #98a2b3;
+  --edge-green: #12b76a;
+  --edge-yellow: #e2a008;
+  --edge-red: #d9485f;
+  --drawer-w: min(380px, 92vw);
+  font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(900px 500px at 50% 42%, #fff6ec 0%, transparent 58%),
+    var(--bg);
+  color: var(--text);
+}
+
+.muted { color: var(--muted); font-size: 0.85rem; }
+.error { color: var(--danger); }
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
