@@ -212,7 +212,7 @@ func main() {
 	fwdCount := 0
 	confPath := ""
 	if boot, err := agent.LoadBootstrap(); err == nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go: agent mode → %s (node %s)\n", boot.MasterURL, boot.NodeID)
+		fmt.Fprintf(os.Stderr, "wireguard-go: agent mode → %s (nodeId from Master)\n", boot.MasterURL)
 		go agent.ConfigLoop(dev, logger, interfaceName, &fwd, &fwdMu, boot, agentStop)
 	} else if os.Getenv("WG_LEGACY_CONF") == "1" {
 		confFile := filepath.Join(meshcfg.ConfDir(), interfaceName+".conf")

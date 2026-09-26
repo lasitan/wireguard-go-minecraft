@@ -65,9 +65,9 @@ type Forward struct {
 }
 
 // AgentBootstrap is the only local config an agent needs.
+// Node identity (nodeId) is assigned by Master and delivered in DesiredConfig.
 type AgentBootstrap struct {
 	MasterURL    string `json:"masterUrl"`
-	NodeID       string `json:"nodeId"`
 	NodeToken    string `json:"nodeToken"`
 	PollInterval string `json:"pollInterval,omitempty"` // default 10s
 	Interface    string `json:"interface,omitempty"`    // default wg0
@@ -84,12 +84,13 @@ type MasterConfig struct {
 
 // DesiredConfig is what an agent applies (UAPI + forwards).
 type DesiredConfig struct {
-	Revision  int             `json:"revision"`
-	Role      string          `json:"role"`
-	Interface DesiredIface    `json:"interface"`
-	Peers     []DesiredPeer   `json:"peers"`
+	Revision  int              `json:"revision"`
+	NodeID    string           `json:"nodeId"`
+	Role      string           `json:"role"`
+	Interface DesiredIface     `json:"interface"`
+	Peers     []DesiredPeer    `json:"peers"`
 	Forwards  []DesiredForward `json:"forwards"`
-	IPForward bool            `json:"ipForward"`
+	IPForward bool             `json:"ipForward"`
 }
 
 type DesiredIface struct {
@@ -233,6 +234,7 @@ func CompileDesired(mesh *Mesh, nodeID string) (*DesiredConfig, error) {
 	}
 	out := &DesiredConfig{
 		Revision: mesh.Revision,
+		NodeID:   n.ID,
 		Role:     n.Role,
 		Interface: DesiredIface{
 			PrivateKey: n.PrivateKey,

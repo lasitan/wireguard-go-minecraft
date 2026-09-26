@@ -28,11 +28,13 @@ Agent nodes only need:
   /etc/wireguard/wireguard-go-agent.json
   {
     "masterUrl": "http://MASTER:8443",
-    "nodeId": "client-a",
     "nodeToken": "<token from Master UI>",
     "pollInterval": "10s",
     "interface": "wg0"
   }
+
+nodeId is assigned on the Master when the node is created; agents authenticate
+with nodeToken only and receive their nodeId in the desired config.
 
 Then: sudo wireguard-go install
 

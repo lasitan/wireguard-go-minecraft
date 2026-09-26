@@ -319,7 +319,6 @@ func ensureWGConfigs(iface string) error {
 	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
 		example := `{
   "masterUrl": "http://127.0.0.1:8443",
-  "nodeId": "CHANGE_ME",
   "nodeToken": "CHANGE_ME",
   "pollInterval": "10s",
   "interface": "` + iface + `"
@@ -328,7 +327,7 @@ func ensureWGConfigs(iface string) error {
 		if err := os.WriteFile(agentPath, []byte(example), 0600); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set masterUrl/nodeId/nodeToken\n", agentPath)
+		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set masterUrl/nodeToken (nodeId comes from Master)\n", agentPath)
 	}
 	transport := filepath.Join(meshcfg.ConfDir(), "wireguard-go-transport.json")
 	if _, err := os.Stat(transport); os.IsNotExist(err) {

@@ -22,6 +22,9 @@ func TestCompileDesiredClientAndServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if client.NodeID != "ca" {
+		t.Fatalf("client nodeId: %q", client.NodeID)
+	}
 	if client.Role != RoleClient || client.IPForward {
 		t.Fatalf("client role/ipforward: %+v", client)
 	}
@@ -38,6 +41,9 @@ func TestCompileDesiredClientAndServer(t *testing.T) {
 	server, err := CompileDesired(&mesh, "sa")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if server.NodeID != "sa" {
+		t.Fatalf("server nodeId: %q", server.NodeID)
 	}
 	if !server.IPForward || server.Interface.ListenPort != 25590 {
 		t.Fatalf("server: %+v", server)

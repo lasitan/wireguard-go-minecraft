@@ -25,8 +25,8 @@ func LoadBootstrap() (*meshcfg.AgentBootstrap, error) {
 	if err := meshcfg.LoadJSON(path, &b); err != nil {
 		return nil, err
 	}
-	if b.MasterURL == "" || b.NodeID == "" || b.NodeToken == "" {
-		return nil, fmt.Errorf("%s: masterUrl, nodeId, nodeToken are required", path)
+	if b.MasterURL == "" || b.NodeToken == "" {
+		return nil, fmt.Errorf("%s: masterUrl and nodeToken are required", path)
 	}
 	return &b, nil
 }
@@ -105,8 +105,8 @@ func ConfigLoop(
 		}
 
 		appliedRev = desired.Revision
-		fmt.Fprintf(os.Stderr, "wireguard-go: applied mesh revision %d (%s, %d peers, %d forwards)\n",
-			appliedRev, desired.Role, len(desired.Peers), len(desired.Forwards))
+		fmt.Fprintf(os.Stderr, "wireguard-go: applied mesh revision %d (node %s, %s, %d peers, %d forwards)\n",
+			appliedRev, desired.NodeID, desired.Role, len(desired.Peers), len(desired.Forwards))
 	}
 
 	fetch()
