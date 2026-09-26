@@ -142,6 +142,27 @@ jobs:
       - name: Sync Debian changelog
         run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
 
+      - name: Build Master UI (go:embed master/ui)
+        env:
+          NODE_IMAGE: ${{ vars.NODE_BUILD_IMAGE }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build-master-ui.sh
+          NODE_IMAGE="${NODE_IMAGE:-node:22-bookworm}" bash scripts/build-master-ui.sh
+
+      - name: Verify Go modules and packages
+        env:
+          GO_VERSION: ${{ env.GO_VERSION }}
+        run: |
+          set -euo pipefail
+          GO_VERSION="${GO_VERSION:-1.23.1}"
+          if ! command -v go >/dev/null 2>&1; then
+            curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | sudo tar -C /usr/local -xz
+            export PATH="/usr/local/go/bin:${PATH}"
+          fi
+          go version
+          go test ./meshcfg/... ./internal/... ./master/... ./conn/...
+
       - name: Clean stale dist and root debs
         run: |
           set -euo pipefail
@@ -196,9 +217,15 @@ jobs:
                 BUILD_ROOT=/tmp/wireguard-mc-build
                 rm -rf "${BUILD_ROOT}"
                 mkdir -p "${BUILD_ROOT}/wireguard-mc"
-                tar -C /src --exclude=./dist --exclude=./.git -cf - . \
+                tar -C /src \
+                  --exclude=./dist \
+                  --exclude=./.git \
+                  --exclude=./web/node_modules \
+                  --exclude=./.github/workflows \
+                  -cf - . \
                   | tar -C "${BUILD_ROOT}/wireguard-mc" -xf -
                 cd "${BUILD_ROOT}/wireguard-mc"
+                test -f master/ui/index.html
                 sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
                 fakeroot dpkg-buildpackage -us -uc -b
                 deb_name="wireguard-mc_${DEB_UPSTREAM}-1_$(dpkg-architecture -qDEB_HOST_ARCH).deb"
@@ -337,6 +364,14 @@ jobs:
       - name: Sync Debian changelog
         run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
 
+      - name: Build Master UI (go:embed master/ui)
+        env:
+          NODE_IMAGE: ${{ vars.NODE_BUILD_IMAGE }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build-master-ui.sh
+          NODE_IMAGE="${NODE_IMAGE:-node:22-bookworm}" bash scripts/build-master-ui.sh
+
       - name: Clean stale dist and root debs
         run: |
           set -euo pipefail
@@ -391,9 +426,15 @@ jobs:
                 BUILD_ROOT=/tmp/wireguard-mc-build
                 rm -rf "${BUILD_ROOT}"
                 mkdir -p "${BUILD_ROOT}/wireguard-mc"
-                tar -C /src --exclude=./dist --exclude=./.git -cf - . \
+                tar -C /src \
+                  --exclude=./dist \
+                  --exclude=./.git \
+                  --exclude=./web/node_modules \
+                  --exclude=./.github/workflows \
+                  -cf - . \
                   | tar -C "${BUILD_ROOT}/wireguard-mc" -xf -
                 cd "${BUILD_ROOT}/wireguard-mc"
+                test -f master/ui/index.html
                 sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
                 fakeroot dpkg-buildpackage -us -uc -b
                 deb_name="wireguard-mc_${DEB_UPSTREAM}-1_$(dpkg-architecture -qDEB_HOST_ARCH).deb"

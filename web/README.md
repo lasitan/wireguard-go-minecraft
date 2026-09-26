@@ -3,9 +3,9 @@
 Build into the Go embed directory:
 
 ```bash
-cd web
-npm install
-npm run build   # writes to ../master/ui
+bash scripts/build-master-ui.sh
+# or:
+cd web && npm install && npm run build   # writes to ../master/ui
 ```
 
 The committed `master/ui/` assets are used by `go:embed` so Debian/CI builds

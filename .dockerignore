@@ -10,6 +10,7 @@ dist
 third_party/wintun
 tests
 agent-transcripts
+web/node_modules
 *.md
 !debian/README.Debian
 .dockerignore
@@ -20,3 +21,4 @@ scripts/package-linux-amd64.sh
 scripts/fetch-wintun.sh
 scripts/package-docker.sh
 scripts/ensure-gh.sh
+scripts/build-master-ui.sh
