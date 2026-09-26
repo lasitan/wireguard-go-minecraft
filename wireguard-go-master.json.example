@@ -1,5 +1,7 @@
 {
   "listen": ":8443",
   "adminPassword": "change-me",
+  "enrollToken": "change-me-enroll",
+  "vpnSubnet": "10.10.0.0/24",
   "dataDir": "/var/lib/wireguard-mc"
 }

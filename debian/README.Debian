@@ -28,13 +28,13 @@ Agent nodes only need:
   /etc/wireguard/wireguard-go-agent.json
   {
     "masterUrl": "http://MASTER:8443",
-    "nodeToken": "<token from Master UI>",
-    "pollInterval": "10s",
-    "interface": "wg0"
+    "key": "<enrollToken or node API key>"
   }
 
-nodeId is assigned on the Master when the node is created; agents authenticate
-with nodeToken only and receive their nodeId in the desired config.
+Agent local file only stores masterUrl + key. All other settings (interface,
+poll interval, transport/MC camouflage, peers, forwards) are pushed by Master
+via /api/agent/config and stored in Master's SQLite database (mesh.db).
+After first enroll, key is replaced with the node token automatically.
 
 Then: sudo wireguard-go install
 

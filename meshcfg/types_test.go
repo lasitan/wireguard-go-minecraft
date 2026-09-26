@@ -36,7 +36,7 @@ func TestCompileDesiredClientAndServer(t *testing.T) {
 		},
 	}
 
-	client, err := CompileDesired(&mesh, clientID)
+	client, err := CompileDesired(&mesh, clientID, DesiredDefaults{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestCompileDesiredClientAndServer(t *testing.T) {
 		t.Fatalf("client should have no forwards")
 	}
 
-	server, err := CompileDesired(&mesh, serverID)
+	server, err := CompileDesired(&mesh, serverID, DesiredDefaults{})
 	if err != nil {
 		t.Fatal(err)
 	}

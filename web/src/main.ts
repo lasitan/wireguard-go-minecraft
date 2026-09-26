@@ -8,6 +8,7 @@ type Node = {
   endpoint?: string;
   token?: string;
   listenPort?: number;
+  lastSeen?: string;
 };
 
 type Link = {
@@ -32,21 +33,124 @@ type Mesh = {
   forwards: Forward[];
 };
 
-type Tab = "nodes" | "links" | "forwards" | "raw";
+type Meta = {
+  enrollToken: string;
+  vpnSubnet: string;
+  listen: string;
+};
+
+type Tab = "topology" | "forwards" | "raw";
+
+const ONLINE_MS = 45_000;
+/** Vite `npm run dev` — skip login and render demo mesh. */
+const isDevPreview = import.meta.env.DEV;
+
+function demoMesh(): Mesh {
+  const now = new Date().toISOString();
+  const ago = new Date(Date.now() - 120_000).toISOString();
+  return {
+    revision: 7,
+    nodes: [
+      {
+        id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001",
+        name: "web-server",
+        role: "server",
+        address: "100.96.0.1/24",
+        endpoint: "1.2.3.4:25590",
+        listenPort: 25590,
+        token: "demo-token-web",
+        lastSeen: now,
+      },
+      {
+        id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002",
+        name: "db-replica",
+        role: "client",
+        address: "100.96.0.2/24",
+        token: "demo-token-db",
+        lastSeen: now,
+      },
+      {
+        id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0003",
+        name: "MacBook Pro",
+        role: "client",
+        address: "100.96.0.10/24",
+        token: "demo-token-mac",
+        lastSeen: now,
+      },
+      {
+        id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0004",
+        name: "dev-vm",
+        role: "client",
+        address: "",
+        token: "demo-token-vm",
+        lastSeen: ago,
+      },
+    ],
+    links: [
+      {
+        fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002",
+        toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001",
+        keepalive: 5,
+      },
+      {
+        fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0003",
+        toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001",
+        keepalive: 5,
+      },
+      {
+        fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0004",
+        toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001",
+        keepalive: 5,
+      },
+    ],
+    forwards: [
+      {
+        nodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001",
+        protocol: "tcp",
+        listen: "3389",
+        destNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0003",
+        destPort: 3389,
+      },
+      {
+        nodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001",
+        protocol: "tcp",
+        listen: "5432",
+        destNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002",
+        destPort: 5432,
+      },
+    ],
+  };
+}
+
+function demoMeta(): Meta {
+  return {
+    enrollToken: "dev-preview-enroll-token",
+    vpnSubnet: "100.96.0.0/24",
+    listen: ":8443",
+  };
+}
 
 const app = document.getElementById("app")!;
 const state: {
   token: string;
   mesh: Mesh | null;
+  meta: Meta | null;
   tab: Tab;
+  selectedId: string | null;
   msg: string;
   err: string;
+  pollTimer: number | null;
+  demo: boolean;
 } = {
-  token: localStorage.getItem("wgmc_admin_token") || "",
-  mesh: null,
-  tab: "nodes",
-  msg: "",
+  token: isDevPreview ? "dev-preview" : localStorage.getItem("wgmc_admin_token") || "",
+  mesh: isDevPreview ? demoMesh() : null,
+  meta: isDevPreview ? demoMeta() : null,
+  tab: "topology",
+  selectedId: null,
+  msg: isDevPreview ? "开发预览：假数据（npm run dev）" : "",
   err: "",
+  pollTimer: null,
+  demo: isDevPreview,
 };
 
 async function api<T = unknown>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -73,6 +177,24 @@ function setMsg(ok: boolean, text: string) {
   render();
 }
 
+function isOnline(n: Node): boolean {
+  if (!n.lastSeen) return false;
+  const t = Date.parse(n.lastSeen);
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t < ONLINE_MS;
+}
+
+function hostOf(addr: string): string {
+  if (!addr) return "—";
+  const i = addr.indexOf("/");
+  return i >= 0 ? addr.slice(0, i) : addr;
+}
+
+function shortName(n: Node): string {
+  const raw = (n.name || n.role || n.id).trim();
+  return raw.length > 14 ? raw.slice(0, 12) + "…" : raw;
+}
+
 async function login(password: string) {
   const body = await api<{ token: string }>("/api/login", {
     method: "POST",
@@ -80,48 +202,84 @@ async function login(password: string) {
   });
   state.token = body.token;
   localStorage.setItem("wgmc_admin_token", state.token);
-  await loadMesh();
+  await refresh();
+  startPoll();
 }
 
-async function loadMesh() {
-  state.mesh = await api<Mesh>("/api/mesh");
+async function refresh() {
+  if (state.demo) {
+    state.mesh = demoMesh();
+    state.meta = demoMeta();
+    render();
+    return;
+  }
+  const [mesh, meta] = await Promise.all([api<Mesh>("/api/mesh"), api<Meta>("/api/meta")]);
+  state.mesh = mesh;
+  state.meta = meta;
+  if (state.selectedId && !(mesh.nodes || []).some((n) => n.id === state.selectedId)) {
+    state.selectedId = null;
+  }
   render();
 }
 
 async function saveMesh() {
+  if (state.demo) {
+    setMsg(true, "开发预览：已忽略保存");
+    return;
+  }
   const ta = document.getElementById("mesh-json") as HTMLTextAreaElement;
   const parsed = JSON.parse(ta.value) as Mesh;
   state.mesh = await api<Mesh>("/api/mesh", { method: "PUT", body: JSON.stringify(parsed) });
   setMsg(true, "已保存 revision=" + state.mesh.revision);
 }
 
-async function createNode(ev: Event) {
-  ev.preventDefault();
-  const fd = new FormData(ev.target as HTMLFormElement);
-  const node = {
-    name: String(fd.get("name") || "") || undefined,
-    role: String(fd.get("role")),
-    address: String(fd.get("address")),
-    listenPort: Number(fd.get("listenPort") || 0) || undefined,
-    endpoint: String(fd.get("endpoint") || "") || undefined,
-  };
-  const created = await api<Node>("/api/nodes", { method: "POST", body: JSON.stringify(node) });
-  await loadMesh();
-  setMsg(true, "节点已创建 UUID=" + created.id);
+async function deleteNode(id: string) {
+  if (state.demo) {
+    if (!state.mesh) return;
+    state.mesh = {
+      ...state.mesh,
+      revision: state.mesh.revision + 1,
+      nodes: state.mesh.nodes.filter((n) => n.id !== id),
+      links: state.mesh.links.filter((l) => l.fromNodeId !== id && l.toNodeId !== id),
+      forwards: state.mesh.forwards.filter((f) => f.nodeId !== id && f.destNodeId !== id),
+    };
+    state.selectedId = null;
+    setMsg(true, "开发预览：已从假数据中移除（不持久）");
+    return;
+  }
+  if (!confirm("删除该节点？相关链接与转发也会移除。")) return;
+  state.mesh = await api<Mesh>("/api/nodes?id=" + encodeURIComponent(id), { method: "DELETE" });
+  state.selectedId = null;
+  setMsg(true, "节点已删除");
 }
 
 function logout() {
+  if (state.pollTimer != null) {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+  }
   state.token = "";
   localStorage.removeItem("wgmc_admin_token");
   state.mesh = null;
+  state.meta = null;
+  state.selectedId = null;
   render();
+}
+
+function startPoll() {
+  if (state.demo) return;
+  if (state.pollTimer != null) clearInterval(state.pollTimer);
+  state.pollTimer = window.setInterval(() => {
+    if (!state.token) return;
+    refresh().catch(() => {});
+  }, 8000);
 }
 
 function renderLogin() {
   app.innerHTML = `
-    <main>
-      <div class="card" style="max-width:380px;margin:4rem auto;">
-        <h2>Master 登录</h2>
+    <main class="login-wrap">
+      <div class="login-card">
+        <h2>Master 控制台</h2>
         <p class="muted">使用 wireguard-go-master.json 中的 adminPassword</p>
         <form id="login-form">
           <label>密码</label>
@@ -141,29 +299,154 @@ function renderLogin() {
   };
 }
 
+function layoutNodes(nodes: Node[], cx: number, cy: number, radius: number) {
+  const n = nodes.length;
+  return nodes.map((node, i) => {
+    const angle = -Math.PI / 2 + (2 * Math.PI * i) / Math.max(n, 1);
+    return {
+      node,
+      x: cx + Math.cos(angle) * radius,
+      y: cy + Math.sin(angle) * radius,
+    };
+  });
+}
+
+function renderTopology(m: Mesh) {
+  const nodes = m.nodes || [];
+  const links = m.links || [];
+  const W = 920;
+  const H = 560;
+  const cx = W / 2;
+  const cy = H / 2;
+  const radius = Math.min(W, H) * 0.34;
+  const placed = layoutNodes(nodes, cx, cy, radius);
+  const byId = new Map(placed.map((p) => [p.node.id, p]));
+
+  const linkLines = links
+    .map((l) => {
+      const a = byId.get(l.fromNodeId);
+      const b = byId.get(l.toNodeId);
+      if (!a || !b) return "";
+      return `<line class="mesh-link" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" />`;
+    })
+    .join("");
+
+  const spokes = placed
+    .map(
+      (p) =>
+        `<line class="mesh-spoke" x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}" />`
+    )
+    .join("");
+
+  const cards = placed
+    .map((p) => {
+      const online = isOnline(p.node);
+      const selected = state.selectedId === p.node.id;
+      return `
+        <g class="node-wrap ${selected ? "selected" : ""}" data-id="${p.node.id}" transform="translate(${p.x}, ${p.y})">
+          <foreignObject x="-78" y="-34" width="156" height="68">
+            <div xmlns="http://www.w3.org/1999/xhtml" class="node-card ${online ? "online" : "offline"} ${selected ? "selected" : ""}">
+              <span class="dot"></span>
+              <div class="node-text">
+                <div class="node-name">${escapeHtml(shortName(p.node))}</div>
+                <div class="node-ip">${escapeHtml(hostOf(p.node.address))}</div>
+              </div>
+            </div>
+          </foreignObject>
+        </g>`;
+    })
+    .join("");
+
+  const selected = nodes.find((n) => n.id === state.selectedId) || null;
+
+  return `
+    <div class="topo-layout">
+      <div class="topo-stage">
+        <div class="topo-hint muted">节点由 Agent 持 enrollToken 自动加入 · 仅可删除 · 绿点=近期在线</div>
+        <svg class="mesh-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="mesh topology">
+          ${spokes}
+          ${linkLines}
+          <g class="hub" transform="translate(${cx}, ${cy})">
+            <circle class="hub-ring" r="36" />
+            <circle class="hub-core" r="28" />
+            <text class="hub-label" text-anchor="middle" dy="5">Master</text>
+          </g>
+          ${cards}
+        </svg>
+        ${
+          nodes.length === 0
+            ? `<div class="topo-empty">尚无节点。在 Agent 的 wireguard-go-agent.json 填入 masterUrl + enrollToken 后启动即可入网。</div>`
+            : ""
+        }
+      </div>
+      <aside class="topo-side">
+        <h3>入网凭证</h3>
+        <p class="muted">Agent 配置 enrollToken（与 Master 相同）即可自动注册。</p>
+        <code class="token-box" id="enroll-token">${escapeHtml(state.meta?.enrollToken || "")}</code>
+        <button class="secondary" id="btn-copy-enroll" type="button">复制 enrollToken</button>
+        <p class="muted" style="margin-top:0.75rem">VPN 网段 ${escapeHtml(state.meta?.vpnSubnet || "")}</p>
+        <hr />
+        ${
+          selected
+            ? `<h3>节点详情</h3>
+               <div class="detail"><span>名称</span><b>${escapeHtml(selected.name || "—")}</b></div>
+               <div class="detail"><span>角色</span><b>${escapeHtml(selected.role)}</b></div>
+               <div class="detail"><span>地址</span><b>${escapeHtml(selected.address || "—")}</b></div>
+               <div class="detail"><span>状态</span><b class="${isOnline(selected) ? "ok" : "muted"}">${isOnline(selected) ? "在线" : "离线"}</b></div>
+               <div class="detail"><span>UUID</span><code class="tiny">${escapeHtml(selected.id)}</code></div>
+               <div class="detail"><span>Token</span><code class="tiny">${escapeHtml(selected.token || "")}</code></div>
+               <button class="danger" id="btn-del-node" type="button">删除节点</button>`
+            : `<p class="muted">点击图中节点查看详情 / 删除</p>`
+        }
+      </aside>
+    </div>`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function renderApp() {
   const m = state.mesh || { revision: 0, nodes: [], links: [], forwards: [] };
+  const online = (m.nodes || []).filter(isOnline).length;
   app.innerHTML = `
     <header>
-      <h1>wireguard-mc Master <span class="muted">rev ${m.revision}</span></h1>
+      <div>
+        <h1>wireguard-mc <span class="muted">mesh</span>${state.demo ? ` <span class="demo-badge">DEV</span>` : ""}</h1>
+        <div class="sub muted">rev ${m.revision} · ${online}/${(m.nodes || []).length} 在线${state.demo ? " · 假数据预览" : ""}</div>
+      </div>
       <div class="row">
-        <button class="secondary" id="btn-reload">刷新</button>
-        <button class="secondary" id="btn-logout">退出</button>
+        ${state.demo ? "" : `<button class="secondary" id="btn-reload" type="button">刷新</button>
+        <button class="secondary" id="btn-logout" type="button">退出</button>`}
+        ${state.demo ? `<button class="secondary" id="btn-reload" type="button">重置假数据</button>` : ""}
       </div>
     </header>
-    <main>
-      ${state.msg ? `<p class="ok">${state.msg}</p>` : ""}
-      ${state.err ? `<p class="error">${state.err}</p>` : ""}
+    <main class="wide">
+      ${state.msg ? `<p class="ok banner">${state.msg}</p>` : ""}
+      ${state.err ? `<p class="error banner">${state.err}</p>` : ""}
       <div class="tabs">
-        <button data-tab="nodes" class="${state.tab === "nodes" ? "active" : ""}">节点</button>
-        <button data-tab="links" class="${state.tab === "links" ? "active" : ""}">链接</button>
-        <button data-tab="forwards" class="${state.tab === "forwards" ? "active" : ""}">转发</button>
-        <button data-tab="raw" class="${state.tab === "raw" ? "active" : ""}">原始 JSON</button>
+        <button data-tab="topology" class="${state.tab === "topology" ? "active" : ""}" type="button">拓扑</button>
+        <button data-tab="forwards" class="${state.tab === "forwards" ? "active" : ""}" type="button">转发</button>
+        <button data-tab="raw" class="${state.tab === "raw" ? "active" : ""}" type="button">高级 JSON</button>
       </div>
       <div id="tab-body"></div>
     </main>`;
-  document.getElementById("btn-reload")!.onclick = () => loadMesh().catch((e) => setMsg(false, e.message));
-  document.getElementById("btn-logout")!.onclick = logout;
+  document.getElementById("btn-reload")!.onclick = () => {
+    if (state.demo) {
+      state.mesh = demoMesh();
+      state.meta = demoMeta();
+      state.selectedId = null;
+      setMsg(true, "开发预览：假数据已重置");
+      return;
+    }
+    refresh().catch((e) => setMsg(false, e.message));
+  };
+  const logoutBtn = document.getElementById("btn-logout");
+  if (logoutBtn) logoutBtn.onclick = logout;
   document.querySelectorAll(".tabs button").forEach((b) => {
     (b as HTMLButtonElement).onclick = () => {
       state.tab = (b as HTMLElement).dataset.tab as Tab;
@@ -171,97 +454,75 @@ function renderApp() {
     };
   });
   const body = document.getElementById("tab-body")!;
-  if (state.tab === "nodes") {
-    body.innerHTML = `
-      <div class="card">
-        <h2>节点列表</h2>
-        <table>
-          <thead><tr><th>名称</th><th>UUID</th><th>角色</th><th>Address</th><th>Endpoint</th><th>Token</th></tr></thead>
-          <tbody>
-            ${(m.nodes || [])
-              .map(
-                (n) => `<tr>
-              <td>${n.name || "—"}</td><td><code>${n.id}</code></td><td>${n.role}</td><td>${n.address}</td>
-              <td>${n.endpoint || ""}</td><td><code>${n.token || ""}</code></td>
-            </tr>`
-              )
-              .join("") || `<tr><td colspan="6" class="muted">暂无节点</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-      <div class="card">
-        <h2>添加节点（Master 分配 UUID，自动生成密钥与 token）</h2>
-        <form id="node-form">
-          <label>名称</label><input name="name" placeholder="显示名（可选）" />
-          <label>角色</label>
-          <select name="role"><option value="client">client</option><option value="server">server</option></select>
-          <label>Address</label><input name="address" required placeholder="10.10.0.7/24" />
-          <label>ListenPort（server）</label><input name="listenPort" placeholder="25590" />
-          <label>Endpoint（server 公网）</label><input name="endpoint" placeholder="1.2.3.4:25590" />
-          <button type="submit">创建</button>
-        </form>
-      </div>`;
-    document.getElementById("node-form")!.onsubmit = (e) => createNode(e).catch((err) => setMsg(false, err.message));
-  } else if (state.tab === "links") {
-    body.innerHTML = `
-      <div class="card">
-        <h2>链接（from 拨号 to）</h2>
-        <table>
-          <thead><tr><th>From</th><th>To</th><th>AllowedIPs</th><th>Keepalive</th></tr></thead>
-          <tbody>
-            ${(m.links || [])
-              .map(
-                (l) => `<tr>
-              <td>${l.fromNodeId}</td><td>${l.toNodeId}</td>
-              <td>${(l.allowedIPs || []).join(", ") || "(默认 /32)"}</td>
-              <td>${l.keepalive || ""}</td>
-            </tr>`
-              )
-              .join("") || `<tr><td colspan="4" class="muted">暂无链接 — 请在「原始 JSON」中编辑</td></tr>`}
-          </tbody>
-        </table>
-        <p class="muted">在「原始 JSON」中编辑 links / forwards 后保存。</p>
-      </div>`;
+  if (state.tab === "topology") {
+    body.innerHTML = renderTopology(m);
+    body.querySelectorAll(".node-wrap").forEach((g) => {
+      (g as SVGGElement).onclick = () => {
+        state.selectedId = (g as HTMLElement).dataset.id || null;
+        render();
+      };
+    });
+    const copyBtn = document.getElementById("btn-copy-enroll");
+    if (copyBtn) {
+      copyBtn.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(state.meta?.enrollToken || "");
+          setMsg(true, "enrollToken 已复制");
+        } catch {
+          setMsg(false, "复制失败");
+        }
+      };
+    }
+    const del = document.getElementById("btn-del-node");
+    if (del && state.selectedId) {
+      del.onclick = () => deleteNode(state.selectedId!).catch((e) => setMsg(false, e.message));
+    }
   } else if (state.tab === "forwards") {
     body.innerHTML = `
-      <div class="card">
-        <h2>端口转发任务</h2>
-        <table>
-          <thead><tr><th>Node</th><th>Proto</th><th>Listen</th><th>Dest</th></tr></thead>
-          <tbody>
-            ${(m.forwards || [])
-              .map(
-                (f) => `<tr>
-              <td>${f.nodeId}</td><td>${f.protocol}</td><td>${f.listen}</td>
-              <td>${f.destNodeId}:${f.destPort}</td>
-            </tr>`
-              )
-              .join("") || `<tr><td colspan="4" class="muted">暂无转发</td></tr>`}
-          </tbody>
-        </table>
+      <div class="panel">
+        <h2>端口转发</h2>
+        <p class="muted">在「高级 JSON」中编辑 forwards；拓扑页只负责观察与删除节点。</p>
+        <div class="fwd-grid">
+          ${(m.forwards || [])
+            .map(
+              (f) => `<div class="fwd-card">
+                <div class="fwd-title">${escapeHtml(f.protocol.toUpperCase())} :${escapeHtml(f.listen)}</div>
+                <div class="muted">${escapeHtml(f.nodeId.slice(0, 8))}… → ${escapeHtml(f.destNodeId.slice(0, 8))}…:${f.destPort}</div>
+              </div>`
+            )
+            .join("") || `<p class="muted">暂无转发</p>`}
+        </div>
       </div>`;
   } else {
     body.innerHTML = `
-      <div class="card">
+      <div class="panel">
         <h2>Mesh JSON</h2>
-        <textarea id="mesh-json">${JSON.stringify(m, null, 2)}</textarea>
-        <div class="row">
-          <button id="btn-save">保存（revision+1）</button>
-        </div>
+        <p class="muted">可改链接/转发/已有节点字段；<b>不能通过 JSON 新增节点</b>（须 Agent enroll）。</p>
+        <textarea id="mesh-json"></textarea>
+        <div class="row"><button id="btn-save" type="button">保存</button></div>
       </div>`;
+    (document.getElementById("mesh-json") as HTMLTextAreaElement).value = JSON.stringify(m, null, 2);
     document.getElementById("btn-save")!.onclick = () => saveMesh().catch((e) => setMsg(false, e.message));
   }
 }
 
 function render() {
+  if (state.demo) {
+    if (!state.mesh) state.mesh = demoMesh();
+    if (!state.meta) state.meta = demoMeta();
+    renderApp();
+    return;
+  }
   if (!state.token) renderLogin();
   else if (!state.mesh) {
-    app.innerHTML = `<main><p class="muted">加载中…</p></main>`;
-    loadMesh().catch((e) => {
-      state.token = "";
-      localStorage.removeItem("wgmc_admin_token");
-      setMsg(false, e.message);
-    });
+    app.innerHTML = `<main class="login-wrap"><p class="muted">加载中…</p></main>`;
+    refresh()
+      .then(() => startPoll())
+      .catch((e) => {
+        state.token = "";
+        localStorage.removeItem("wgmc_admin_token");
+        setMsg(false, e.message);
+      });
   } else renderApp();
 }
 

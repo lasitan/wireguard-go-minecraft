@@ -36,62 +36,77 @@ type Mesh struct {
 // Node is a tunnel endpoint managed by Master.
 // ID is a Master-assigned UUID that uniquely identifies the agent.
 type Node struct {
-	ID         string `json:"id"` // UUID v4
-	Name       string `json:"name,omitempty"`
-	Role       string `json:"role"` // server | client
-	PublicKey  string `json:"publicKey"`
-	PrivateKey string `json:"privateKey,omitempty"` // never returned to other nodes
-	Address    string `json:"address"`              // e.g. 10.10.0.7/24
-	ListenPort uint16 `json:"listenPort,omitempty"`
-	Endpoint   string `json:"endpoint,omitempty"` // public host:port for servers
-	MTU        int    `json:"mtu,omitempty"`
-	Token      string `json:"token"` // agent auth bearer token
+	ID           string          `json:"id"` // UUID v4
+	Name         string          `json:"name,omitempty"`
+	Role         string          `json:"role"` // server | client
+	PublicKey    string          `json:"publicKey"`
+	PrivateKey   string          `json:"privateKey,omitempty"`
+	Address      string          `json:"address"`
+	ListenPort   uint16          `json:"listenPort,omitempty"`
+	Endpoint     string          `json:"endpoint,omitempty"`
+	MTU          int             `json:"mtu,omitempty"`
+	Token        string          `json:"token"`
+	Interface    string          `json:"interface,omitempty"`    // TUN name, default wg0 (Master-managed)
+	PollInterval string          `json:"pollInterval,omitempty"` // default 10s (Master-managed)
+	Transport    json.RawMessage `json:"transport,omitempty"`    // per-node override; else mesh default
+	LastSeen     time.Time       `json:"lastSeen,omitempty"`
 }
 
 // Link means fromNode dials toNode (client→server typically).
 type Link struct {
 	FromNodeID string   `json:"fromNodeId"`
 	ToNodeID   string   `json:"toNodeId"`
-	AllowedIPs []string `json:"allowedIPs,omitempty"` // default: toNode address /32
+	AllowedIPs []string `json:"allowedIPs,omitempty"`
 	Keepalive  int      `json:"keepalive,omitempty"`
 }
 
 // Forward is a port-forward task on nodeId toward destNodeId:destPort.
 type Forward struct {
 	NodeID     string `json:"nodeId"`
-	Protocol   string `json:"protocol"` // tcp | udp
-	Listen     string `json:"listen"`   // port or host:port
+	Protocol   string `json:"protocol"`
+	Listen     string `json:"listen"`
 	DestNodeID string `json:"destNodeId"`
 	DestPort   uint16 `json:"destPort"`
 }
 
-// AgentBootstrap is the only local config an agent needs.
-// Node identity (nodeId) is assigned by Master and delivered in DesiredConfig.
+// AgentBootstrap is the only local file an agent keeps: API URL + key.
+// key is enrollToken before join, then replaced by the node API token from Master.
 type AgentBootstrap struct {
-	MasterURL    string `json:"masterUrl"`
-	NodeToken    string `json:"nodeToken"`
-	PollInterval string `json:"pollInterval,omitempty"` // default 10s
-	Interface    string `json:"interface,omitempty"`    // default wg0
+	MasterURL string `json:"masterUrl"`
+	Key       string `json:"key"`
+
+	// Deprecated local fields (ignored if present; migrated away on enroll).
+	EnrollToken  string `json:"enrollToken,omitempty"`
+	NodeToken    string `json:"nodeToken,omitempty"`
+	PollInterval string `json:"pollInterval,omitempty"`
+	Interface    string `json:"interface,omitempty"`
 }
 
-// MasterConfig is local config for the Master process.
+// MasterConfig is the minimal process bootstrap for Master (path to SQLite + listen/auth).
+// Mesh/enroll/transport and all agent settings live in SQLite under DataDir.
 type MasterConfig struct {
-	Listen       string `json:"listen"`                 // e.g. :8443
+	Listen        string `json:"listen"`
 	AdminPassword string `json:"adminPassword"`
-	DataDir      string `json:"dataDir"`                // mesh.json lives here
-	TLSCert      string `json:"tlsCert,omitempty"`
-	TLSKey       string `json:"tlsKey,omitempty"`
+	DataDir       string `json:"dataDir"` // SQLite mesh.db lives here
+	TLSCert       string `json:"tlsCert,omitempty"`
+	TLSKey        string `json:"tlsKey,omitempty"`
+	// Seeded into SQLite on first run when meta is empty:
+	EnrollToken string `json:"enrollToken,omitempty"`
+	VPNSubnet   string `json:"vpnSubnet,omitempty"`
 }
 
-// DesiredConfig is what an agent applies (UAPI + forwards).
+// DesiredConfig is what an agent applies (fully Master-authored).
 type DesiredConfig struct {
-	Revision  int              `json:"revision"`
-	NodeID    string           `json:"nodeId"`
-	Role      string           `json:"role"`
-	Interface DesiredIface     `json:"interface"`
-	Peers     []DesiredPeer    `json:"peers"`
-	Forwards  []DesiredForward `json:"forwards"`
-	IPForward bool             `json:"ipForward"`
+	Revision      int              `json:"revision"`
+	NodeID        string           `json:"nodeId"`
+	Role          string           `json:"role"`
+	InterfaceName string           `json:"interfaceName"`
+	PollInterval  string           `json:"pollInterval"`
+	Interface     DesiredIface     `json:"interface"`
+	Peers         []DesiredPeer    `json:"peers"`
+	Forwards      []DesiredForward `json:"forwards"`
+	IPForward     bool             `json:"ipForward"`
+	Transport     json.RawMessage  `json:"transport,omitempty"`
 }
 
 type DesiredIface struct {
@@ -140,22 +155,28 @@ func SaveJSON(path string, v any, mode os.FileMode) error {
 	return os.Rename(tmp, path)
 }
 
+func (a AgentBootstrap) APIKey() string {
+	if a.Key != "" {
+		return a.Key
+	}
+	if a.NodeToken != "" {
+		return a.NodeToken
+	}
+	return a.EnrollToken
+}
+
 func (a AgentBootstrap) PollDuration() time.Duration {
-	if a.PollInterval == "" {
-		return 10 * time.Second
-	}
-	d, err := time.ParseDuration(a.PollInterval)
-	if err != nil || d < time.Second {
-		return 10 * time.Second
-	}
-	return d
+	// Local poll interval is obsolete; Master desired config drives polling.
+	return 10 * time.Second
 }
 
 func (a AgentBootstrap) IfaceName() string {
-	if a.Interface == "" {
-		return "wg0"
-	}
-	return a.Interface
+	return "wg0"
+}
+
+// Normalized returns a bootstrap with only masterUrl + key for persistence.
+func (a AgentBootstrap) Normalized() AgentBootstrap {
+	return AgentBootstrap{MasterURL: a.MasterURL, Key: a.APIKey()}
 }
 
 // GenerateKeyPair returns (privateKeyB64, publicKeyB64).
@@ -251,8 +272,15 @@ func hostAsSlash32(addr string) (string, error) {
 	return host + "/32", nil
 }
 
+// DesiredDefaults are mesh-wide defaults applied when a node omits overrides.
+type DesiredDefaults struct {
+	InterfaceName string
+	PollInterval  string
+	Transport     json.RawMessage
+}
+
 // CompileDesired builds the per-node desired config from the mesh table.
-func CompileDesired(mesh *Mesh, nodeID string) (*DesiredConfig, error) {
+func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*DesiredConfig, error) {
 	n := mesh.FindNode(nodeID)
 	if n == nil {
 		return nil, fmt.Errorf("node %q not found", nodeID)
@@ -264,10 +292,30 @@ func CompileDesired(mesh *Mesh, nodeID string) (*DesiredConfig, error) {
 	if mtu == 0 {
 		mtu = 1420
 	}
+	ifaceName := n.Interface
+	if ifaceName == "" {
+		ifaceName = defaults.InterfaceName
+	}
+	if ifaceName == "" {
+		ifaceName = "wg0"
+	}
+	poll := n.PollInterval
+	if poll == "" {
+		poll = defaults.PollInterval
+	}
+	if poll == "" {
+		poll = "10s"
+	}
+	transport := n.Transport
+	if len(transport) == 0 {
+		transport = defaults.Transport
+	}
 	out := &DesiredConfig{
-		Revision: mesh.Revision,
-		NodeID:   n.ID,
-		Role:     n.Role,
+		Revision:      mesh.Revision,
+		NodeID:        n.ID,
+		Role:          n.Role,
+		InterfaceName: ifaceName,
+		PollInterval:  poll,
 		Interface: DesiredIface{
 			PrivateKey: n.PrivateKey,
 			Address:    n.Address,
@@ -275,6 +323,7 @@ func CompileDesired(mesh *Mesh, nodeID string) (*DesiredConfig, error) {
 			MTU:        mtu,
 		},
 		IPForward: n.Role == RoleServer,
+		Transport: transport,
 	}
 
 	// Peers from links where this node is the "from" side (outbound dial).

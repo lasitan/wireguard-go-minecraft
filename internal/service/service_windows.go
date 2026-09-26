@@ -179,6 +179,8 @@ func serviceInstallMaster() error {
 		example := fmt.Sprintf(`{
   "listen": ":8443",
   "adminPassword": "change-me",
+  "enrollToken": "change-me-enroll",
+  "vpnSubnet": "10.10.0.0/24",
   "dataDir": %q
 }
 `, dataDir)
@@ -186,7 +188,7 @@ func serviceInstallMaster() error {
 			return err
 		}
 		_ = os.MkdirAll(dataDir, 0750)
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword\n", masterCfg)
+		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword/enrollToken\n", masterCfg)
 	}
 	if err := writeRoleLock(meshcfg.RoleMaster); err != nil {
 		return err
@@ -372,18 +374,13 @@ func ensureWGConfigsWindows(iface string) error {
 	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
 		example := fmt.Sprintf(`{
   "masterUrl": "http://127.0.0.1:8443",
-  "nodeToken": "CHANGE_ME",
-  "pollInterval": "10s",
-  "interface": %q
+  "key": "CHANGE_ME"
 }
-`, iface)
+`)
 		if err := os.WriteFile(agentPath, []byte(example), 0600); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set masterUrl/nodeToken (nodeId comes from Master)\n", agentPath)
-	}
-	if err := EnsureTransportConfig(); err != nil {
-		return err
+		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set masterUrl/key only\n", agentPath)
 	}
 	return nil
 }

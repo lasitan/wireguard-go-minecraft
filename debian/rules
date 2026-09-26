@@ -59,7 +59,7 @@ override_dh_auto_install:
 	install -m 0600 debian/wg-nat-c.conf.example debian/wireguard-mc/etc/wireguard/wg-nat-c.conf.example
 	install -d debian/wireguard-mc/usr/share/doc/wireguard-mc
 	install -m 0644 debian/README.Debian debian/wireguard-mc/usr/share/doc/wireguard-mc/README.Debian
-	install -m 0644 debian/mesh.example.json debian/wireguard-mc/usr/share/doc/wireguard-mc/mesh.example.json
+	install -D -m 0644 debian/mesh.example.json debian/wireguard-mc/usr/share/doc/wireguard-mc/mesh.example.json
 	install -d debian/wireguard-mc/lib/systemd/system
 	install -m 0644 debian/wireguard-go@.service debian/wireguard-mc/lib/systemd/system/wireguard-go@.service
 	install -m 0644 debian/wireguard-go-master.service debian/wireguard-mc/lib/systemd/system/wireguard-go-master.service

@@ -1,6 +1,4 @@
 {
   "masterUrl": "http://MASTER_IP:8443",
-  "nodeToken": "PASTE_TOKEN_FROM_MASTER",
-  "pollInterval": "10s",
-  "interface": "wg0"
+  "key": "ENROLL_OR_NODE_API_KEY"
 }

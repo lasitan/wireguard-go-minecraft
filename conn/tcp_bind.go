@@ -1069,7 +1069,35 @@ func loadReconnectConfig(fileCfg tcpConfigFile) reconnectConfig {
 	return cfg
 }
 
+var (
+	transportOverrideMu sync.RWMutex
+	transportOverride   []byte // if set, prefer over local wireguard-go-transport.json
+)
+
+// SetTransportConfigJSON installs an in-memory transport config (from Master desired).
+// Pass nil/empty to clear and fall back to the local file.
+func SetTransportConfigJSON(data []byte) {
+	transportOverrideMu.Lock()
+	defer transportOverrideMu.Unlock()
+	if len(data) == 0 {
+		transportOverride = nil
+		return
+	}
+	transportOverride = append([]byte(nil), data...)
+}
+
 func loadTransportConfigFile() (transportConfigFile, error) {
+	transportOverrideMu.RLock()
+	override := append([]byte(nil), transportOverride...)
+	transportOverrideMu.RUnlock()
+	if len(override) > 0 {
+		data := stripJSONComments(override)
+		var cfg transportConfigFile
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return transportConfigFile{}, fmt.Errorf("parse remote transport config: %w", err)
+		}
+		return cfg, nil
+	}
 	path := defaultTransportConfigPath()
 	data, err := os.ReadFile(path)
 	if err != nil {

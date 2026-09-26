@@ -161,13 +161,15 @@ func serviceInstallMaster() error {
 		example := `{
   "listen": ":8443",
   "adminPassword": "change-me",
+  "enrollToken": "change-me-enroll",
+  "vpnSubnet": "10.10.0.0/24",
   "dataDir": "/var/lib/wireguard-mc"
 }
 `
 		if err := os.WriteFile(masterCfg, []byte(example), 0600); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword before use\n", masterCfg)
+		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword/enrollToken before use\n", masterCfg)
 	}
 	_ = os.MkdirAll("/var/lib/wireguard-mc", 0750)
 
@@ -319,23 +321,13 @@ func ensureWGConfigs(iface string) error {
 	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
 		example := `{
   "masterUrl": "http://127.0.0.1:8443",
-  "nodeToken": "CHANGE_ME",
-  "pollInterval": "10s",
-  "interface": "` + iface + `"
+  "key": "CHANGE_ME"
 }
 `
 		if err := os.WriteFile(agentPath, []byte(example), 0600); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set masterUrl/nodeToken (nodeId comes from Master)\n", agentPath)
-	}
-	transport := filepath.Join(meshcfg.ConfDir(), "wireguard-go-transport.json")
-	if _, err := os.Stat(transport); os.IsNotExist(err) {
-		example := filepath.Join(meshcfg.ConfDir(), "wireguard-go-transport.json.example")
-		if data, readErr := os.ReadFile(example); readErr == nil {
-			_ = os.WriteFile(transport, data, 0644)
-			fmt.Fprintf(os.Stderr, "wireguard-go: created %s from example\n", transport)
-		}
+		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set masterUrl/key only\n", agentPath)
 	}
 	return nil
 }

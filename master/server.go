@@ -1,6 +1,7 @@
 package master
 
 import (
+	"crypto/subtle"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -31,7 +32,7 @@ func NewServer(cfg meshcfg.MasterConfig) (*Server, error) {
 	if cfg.AdminPassword == "" {
 		return nil, fmt.Errorf("adminPassword is required in %s", meshcfg.MasterFileName)
 	}
-	st, err := OpenStore(cfg.DataDir)
+	st, err := OpenStore(cfg.DataDir, cfg.EnrollToken, cfg.VPNSubnet)
 	if err != nil {
 		return nil, err
 	}
@@ -48,8 +49,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/mesh", s.handleMesh)
 	mux.HandleFunc("/api/nodes", s.handleNodes)
+	mux.HandleFunc("/api/agent/enroll", s.handleAgentEnroll)
 	mux.HandleFunc("/api/agent/config", s.handleAgentConfig)
-	mux.HandleFunc("/api/keys/generate", s.handleGenerateKeys)
+	mux.HandleFunc("/api/meta", s.handleMeta)
 
 	sub, err := fs.Sub(uiFS, "ui")
 	if err != nil {
@@ -61,7 +63,6 @@ func (s *Server) Handler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		// SPA fallback: serve index.html for unknown paths
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path == "" {
 			path = "index.html"
@@ -91,6 +92,28 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revision": s.store.Snapshot().Revision})
+}
+
+func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	settings, err := s.store.Settings()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enrollToken": settings.EnrollToken,
+		"vpnSubnet":   settings.VPNSubnet,
+		"listen":      s.cfg.Listen,
+		"defaultIface": settings.DefaultIface,
+		"defaultPoll":  settings.DefaultPoll,
+	})
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -127,8 +150,7 @@ func (s *Server) handleMesh(w http.ResponseWriter, r *http.Request) {
 		if !s.requireAdmin(w, r) {
 			return
 		}
-		m := s.store.Snapshot()
-		writeJSON(w, http.StatusOK, m)
+		writeJSON(w, http.StatusOK, s.store.Snapshot())
 	case http.MethodPut:
 		if !s.requireAdmin(w, r) {
 			return
@@ -149,24 +171,71 @@ func (s *Server) handleMesh(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodDelete:
+		if !s.requireAdmin(w, r) {
+			return
+		}
+		id := strings.TrimSpace(r.URL.Query().Get("id"))
+		if id == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id query required"})
+			return
+		}
+		if err := s.store.DeleteNode(id); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, s.store.Snapshot())
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
+			"error": "nodes are created by agent enroll only; use DELETE ?id=",
+		})
+	}
+}
+
+func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !s.requireAdmin(w, r) {
+	var body struct {
+		EnrollToken string `json:"enrollToken"`
+		Name        string `json:"name,omitempty"`
+		Role        string `json:"role,omitempty"`
+		Endpoint    string `json:"endpoint,omitempty"`
+		ListenPort  uint16 `json:"listenPort,omitempty"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
 	}
-	var n meshcfg.Node
-	if err := readJSON(r, &n); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	if subtle.ConstantTimeCompare([]byte(body.EnrollToken), []byte(mustEnroll(s))) != 1 {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid enrollToken"})
 		return
 	}
-	created, err := s.store.AddNode(n)
+	created, err := s.store.Enroll(body.Name, body.Role, body.Endpoint, body.ListenPort)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusCreated, created)
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"nodeId":    created.ID,
+		"nodeToken": created.Token,
+		"role":      created.Role,
+		"address":   created.Address,
+		"name":      created.Name,
+	})
+}
+
+func mustEnroll(s *Server) string {
+	settings, err := s.store.Settings()
+	if err != nil {
+		return s.cfg.EnrollToken
+	}
+	if settings.EnrollToken != "" {
+		return settings.EnrollToken
+	}
+	return s.cfg.EnrollToken
 }
 
 func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
@@ -195,29 +264,4 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, desired)
-}
-
-func (s *Server) handleGenerateKeys(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !s.requireAdmin(w, r) {
-		return
-	}
-	priv, pub, err := meshcfg.GenerateKeyPair()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	tok, err := meshcfg.GenerateToken()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"privateKey": priv,
-		"publicKey":  pub,
-		"token":      tok,
-	})
 }
