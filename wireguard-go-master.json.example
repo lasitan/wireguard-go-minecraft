@@ -1,0 +1,5 @@
+{
+  "listen": ":8443",
+  "adminPassword": "change-me",
+  "dataDir": "/var/lib/wireguard-mc"
+}

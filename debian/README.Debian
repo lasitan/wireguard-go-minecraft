@@ -12,17 +12,45 @@ Key generation (same as wg)
   wireguard-go genkey | tee private.key | wireguard-go pubkey > public.key
   wireguard-go genpsk > psk.key
 
-Quick start (systemd)
----------------------
+Quick start — Master (control plane)
+------------------------------------
+
+Master owns the mesh table and pushes desired config to agents. A host
+installed as master cannot also run an agent tunnel.
+
+1. sudo wireguard-go install master
+2. Edit /etc/wireguard/wireguard-go-master.json (adminPassword, listen, dataDir)
+3. systemctl restart wireguard-go-master
+4. Open http://HOST:8443/ — login, create nodes/links/forwards
+
+Agent nodes only need:
+
+  /etc/wireguard/wireguard-go-agent.json
+  {
+    "masterUrl": "http://MASTER:8443",
+    "nodeId": "client-a",
+    "nodeToken": "<token from Master UI>",
+    "pollInterval": "10s",
+    "interface": "wg0"
+  }
+
+Then: sudo wireguard-go install
+
+Transport (MC camouflage) remains local:
+  /etc/wireguard/wireguard-go-transport.json
+
+Legacy wg0.conf is disabled by default. Set WG_LEGACY_CONF=1 to load it.
+
+Quick start — legacy wg0.conf (optional)
+----------------------------------------
 
 1. Edit /etc/wireguard/wireguard-go-transport.json
    (loginPluginSecret must match on both ends).
 2. Copy and edit the interface config:
      cp /etc/wireguard/wg0.conf.example /etc/wireguard/wg0.conf
      chmod 600 /etc/wireguard/wg0.conf
-3. Enable and start the service:
-     sudo wireguard-go install          # interface wg0
-     sudo wireguard-go install wg0      # same
+3. Enable and start with WG_LEGACY_CONF=1, or keep using conf only when
+   wireguard-go-agent.json is absent and env is set on the unit.
 4. Status / logs:
      systemctl status wireguard-go@wg0
      journalctl -u wireguard-go@wg0 -f
@@ -33,6 +61,7 @@ automatically so the new binary is picked up.
 Stop and remove the service unit instance:
      sudo wireguard-go uninstall
      sudo wireguard-go uninstall --purge   # also delete configs
+     sudo wireguard-go uninstall master [--purge]
 
 install / uninstall auto-elevate when not root: try `sudo -n` (silent if
 credentials are cached), then `pkexec` (desktop prompt), then interactive
@@ -41,10 +70,12 @@ and register a LocalSystem service named wireguard-go-<iface>.
 
 Foreground (debug):
      sudo LOG_LEVEL=verbose /usr/bin/wireguard-go -f wg0
+     sudo /usr/bin/wireguard-go master
 
 Binary path: /usr/bin/wireguard-go
 Config dir:  /etc/wireguard/
-Unit file:   /lib/systemd/system/wireguard-go@.service
+Unit files:  /lib/systemd/system/wireguard-go@.service
+             /lib/systemd/system/wireguard-go-master.service
 
 Docker
 ------

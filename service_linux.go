@@ -13,13 +13,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.zx2c4.com/wireguard/meshcfg"
 )
 
 const (
-	defaultIface       = "wg0"
-	systemdUnitPathLib = "/lib/systemd/system/wireguard-go@.service"
-	systemdUnitPathEtc = "/etc/systemd/system/wireguard-go@.service"
-	wgConfDirInstall   = "/etc/wireguard"
+	defaultIface         = "wg0"
+	systemdUnitPathLib   = "/lib/systemd/system/wireguard-go@.service"
+	systemdUnitPathEtc   = "/etc/systemd/system/wireguard-go@.service"
+	systemdMasterUnitLib = "/lib/systemd/system/wireguard-go-master.service"
+	systemdMasterUnitEtc = "/etc/systemd/system/wireguard-go-master.service"
+	wgConfDirInstall     = "/etc/wireguard"
 )
 
 func handleServiceCommand() bool {
@@ -28,22 +32,29 @@ func handleServiceCommand() bool {
 	}
 	switch os.Args[1] {
 	case "install":
-		iface := defaultIface
+		target := defaultIface
 		if len(os.Args) >= 3 {
-			iface = os.Args[2]
+			target = os.Args[2]
 		}
 		if len(os.Args) > 3 {
-			fmt.Fprintln(os.Stderr, "Usage: wireguard-go install [INTERFACE]")
+			fmt.Fprintln(os.Stderr, "Usage: wireguard-go install [INTERFACE|master]")
 			os.Exit(ExitSetupFailed)
 		}
-		if err := serviceInstall(iface); err != nil {
+		if target == "master" {
+			if err := serviceInstallMaster(); err != nil {
+				fmt.Fprintf(os.Stderr, "install master: %v\n", err)
+				os.Exit(ExitSetupFailed)
+			}
+			return true
+		}
+		if err := serviceInstall(target); err != nil {
 			fmt.Fprintf(os.Stderr, "install: %v\n", err)
 			os.Exit(ExitSetupFailed)
 		}
 		return true
 
 	case "uninstall":
-		iface := defaultIface
+		target := defaultIface
 		purge := false
 		for _, a := range os.Args[2:] {
 			switch a {
@@ -51,13 +62,20 @@ func handleServiceCommand() bool {
 				purge = true
 			default:
 				if strings.HasPrefix(a, "-") {
-					fmt.Fprintln(os.Stderr, "Usage: wireguard-go uninstall [INTERFACE] [--purge]")
+					fmt.Fprintln(os.Stderr, "Usage: wireguard-go uninstall [INTERFACE|master] [--purge]")
 					os.Exit(ExitSetupFailed)
 				}
-				iface = a
+				target = a
 			}
 		}
-		if err := serviceUninstall(iface, purge); err != nil {
+		if target == "master" {
+			if err := serviceUninstallMaster(purge); err != nil {
+				fmt.Fprintf(os.Stderr, "uninstall master: %v\n", err)
+				os.Exit(ExitSetupFailed)
+			}
+			return true
+		}
+		if err := serviceUninstall(target, purge); err != nil {
 			fmt.Fprintf(os.Stderr, "uninstall: %v\n", err)
 			os.Exit(ExitSetupFailed)
 		}
@@ -70,6 +88,9 @@ func handleServiceCommand() bool {
 
 func serviceInstall(iface string) error {
 	if err := ensureElevated(); err != nil {
+		return err
+	}
+	if err := assertCanInstall(meshcfg.RoleAgent); err != nil {
 		return err
 	}
 	if err := validateIfaceName(iface); err != nil {
@@ -100,6 +121,9 @@ func serviceInstall(iface string) error {
 	if err := ensureWGConfigs(iface); err != nil {
 		return err
 	}
+	if err := writeRoleLock(meshcfg.RoleAgent); err != nil {
+		return err
+	}
 
 	unitInstance := fmt.Sprintf("wireguard-go@%s", iface)
 	if err := runSystemctl("daemon-reload"); err != nil {
@@ -111,6 +135,83 @@ func serviceInstall(iface string) error {
 	fmt.Fprintf(os.Stderr, "wireguard-go: enabled and started %s\n", unitInstance)
 	fmt.Fprintf(os.Stderr, "wireguard-go: status → systemctl status %s\n", unitInstance)
 	fmt.Fprintf(os.Stderr, "wireguard-go: logs   → journalctl -u %s -f\n", unitInstance)
+	return nil
+}
+
+func serviceInstallMaster() error {
+	if err := ensureElevated(); err != nil {
+		return err
+	}
+	if err := assertCanInstall(meshcfg.RoleMaster); err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve binary path: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	if err := os.MkdirAll(wgConfDirInstall, 0755); err != nil {
+		return err
+	}
+	masterCfg := filepath.Join(wgConfDirInstall, "wireguard-go-master.json")
+	if _, err := os.Stat(masterCfg); os.IsNotExist(err) {
+		example := `{
+  "listen": ":8443",
+  "adminPassword": "change-me",
+  "dataDir": "/var/lib/wireguard-mc"
+}
+`
+		if err := os.WriteFile(masterCfg, []byte(example), 0600); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword before use\n", masterCfg)
+	}
+	_ = os.MkdirAll("/var/lib/wireguard-mc", 0750)
+
+	unitPath := systemdMasterUnitLib
+	if _, err := os.Stat(unitPath); err != nil {
+		unitPath = systemdMasterUnitEtc
+		body := systemdMasterUnitTemplate(exe)
+		if err := os.MkdirAll(filepath.Dir(unitPath), 0755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(unitPath, []byte(body), 0644); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "wireguard-go: wrote %s\n", unitPath)
+	} else {
+		fmt.Fprintf(os.Stderr, "wireguard-go: using packaged unit %s\n", unitPath)
+	}
+	if err := writeRoleLock(meshcfg.RoleMaster); err != nil {
+		return err
+	}
+	if err := runSystemctl("daemon-reload"); err != nil {
+		return err
+	}
+	if err := runSystemctl("enable", "--now", "wireguard-go-master"); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "wireguard-go: enabled and started wireguard-go-master")
+	fmt.Fprintln(os.Stderr, "wireguard-go: this host is locked as master (cannot install agent roles)")
+	fmt.Fprintln(os.Stderr, "wireguard-go: status → systemctl status wireguard-go-master")
+	return nil
+}
+
+func serviceUninstallMaster(purge bool) error {
+	if err := ensureElevated(); err != nil {
+		return err
+	}
+	_ = runSystemctl("disable", "--now", "wireguard-go-master")
+	_ = clearRoleLock()
+	if purge {
+		_ = os.Remove(filepath.Join(wgConfDirInstall, "wireguard-go-master.json"))
+		if err := os.Remove(systemdMasterUnitEtc); err == nil {
+			_ = runSystemctl("daemon-reload")
+		}
+	}
+	fmt.Fprintln(os.Stderr, "wireguard-go: uninstalled master service")
 	return nil
 }
 
@@ -133,6 +234,7 @@ func serviceUninstall(iface string, purge bool) error {
 		fmt.Fprintf(os.Stderr, "wireguard-go: removed interface %s\n", iface)
 	}
 	_ = os.Remove(filepath.Join("/var/run/wireguard", iface+".sock"))
+	_ = clearRoleLock()
 
 	if purge {
 		conf := filepath.Join(wgConfDirInstall, iface+".conf")
@@ -142,6 +244,10 @@ func serviceUninstall(iface string, purge bool) error {
 		transport := filepath.Join(wgConfDirInstall, "wireguard-go-transport.json")
 		if err := os.Remove(transport); err == nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", transport)
+		}
+		agent := filepath.Join(wgConfDirInstall, "wireguard-go-agent.json")
+		if err := os.Remove(agent); err == nil {
+			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", agent)
 		}
 	} else {
 		fmt.Fprintf(os.Stderr, "wireguard-go: kept configs under %s (pass --purge to delete)\n", wgConfDirInstall)
@@ -156,6 +262,27 @@ func serviceUninstall(iface string, purge bool) error {
 
 	fmt.Fprintf(os.Stderr, "wireguard-go: uninstalled service %s\n", unitInstance)
 	return nil
+}
+
+func systemdMasterUnitTemplate(exe string) string {
+	return fmt.Sprintf(`[Unit]
+Description=wireguard-go Master (mesh control plane)
+Documentation=file:///usr/share/doc/wireguard-mc/README.Debian
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=LOG_LEVEL=error
+ExecStart=%s master
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+`, exe)
 }
 
 func systemdUnitTemplate(exe string) string {
@@ -187,23 +314,20 @@ func ensureWGConfigs(iface string) error {
 	if err := os.MkdirAll(wgConfDirInstall, 0755); err != nil {
 		return err
 	}
-	confPath := filepath.Join(wgConfDirInstall, iface+".conf")
-	if _, err := os.Stat(confPath); os.IsNotExist(err) {
-		example := filepath.Join(wgConfDirInstall, "wg0.conf.example")
-		if iface != "wg0" {
-			// still prefer generic example if present
-			if _, e := os.Stat(example); e != nil {
-				example = filepath.Join(wgConfDirInstall, iface+".conf.example")
-			}
-		}
-		data, readErr := os.ReadFile(example)
-		if readErr != nil {
-			return fmt.Errorf("%s missing — create it (see %s/wg0.conf.example)", confPath, wgConfDirInstall)
-		}
-		if err := os.WriteFile(confPath, data, 0600); err != nil {
+	agentPath := filepath.Join(wgConfDirInstall, "wireguard-go-agent.json")
+	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
+		example := `{
+  "masterUrl": "http://127.0.0.1:8443",
+  "nodeId": "CHANGE_ME",
+  "nodeToken": "CHANGE_ME",
+  "pollInterval": "10s",
+  "interface": "` + iface + `"
+}
+`
+		if err := os.WriteFile(agentPath, []byte(example), 0600); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s from example — edit keys before relying on the tunnel\n", confPath)
+		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set masterUrl/nodeId/nodeToken\n", agentPath)
 	}
 	transport := filepath.Join(wgConfDirInstall, "wireguard-go-transport.json")
 	if _, err := os.Stat(transport); os.IsNotExist(err) {

@@ -1,0 +1,17 @@
+[Unit]
+Description=wireguard-go Master (mesh control plane)
+Documentation=file:///usr/share/doc/wireguard-mc/README.Debian
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=LOG_LEVEL=error
+ExecStart=/usr/bin/wireguard-go master
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

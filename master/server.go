@@ -1,0 +1,223 @@
+package master
+
+import (
+	"embed"
+	"fmt"
+	"io/fs"
+	"net/http"
+	"os"
+	"strings"
+
+	"golang.zx2c4.com/wireguard/meshcfg"
+)
+
+//go:embed ui/*
+var uiFS embed.FS
+
+// Server is the Master control-plane HTTP API + embedded UI.
+type Server struct {
+	cfg      meshcfg.MasterConfig
+	store    *Store
+	sessions *sessionStore
+}
+
+func NewServer(cfg meshcfg.MasterConfig) (*Server, error) {
+	if cfg.Listen == "" {
+		cfg.Listen = ":8443"
+	}
+	if cfg.DataDir == "" {
+		cfg.DataDir = "/var/lib/wireguard-mc"
+	}
+	if cfg.AdminPassword == "" {
+		return nil, fmt.Errorf("adminPassword is required in %s", meshcfg.MasterFileName)
+	}
+	st, err := OpenStore(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	return &Server{
+		cfg:      cfg,
+		store:    st,
+		sessions: newSessionStore(cfg.AdminPassword),
+	}, nil
+}
+
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/health", s.handleHealth)
+	mux.HandleFunc("/api/login", s.handleLogin)
+	mux.HandleFunc("/api/mesh", s.handleMesh)
+	mux.HandleFunc("/api/nodes", s.handleNodes)
+	mux.HandleFunc("/api/agent/config", s.handleAgentConfig)
+	mux.HandleFunc("/api/keys/generate", s.handleGenerateKeys)
+
+	sub, err := fs.Sub(uiFS, "ui")
+	if err != nil {
+		panic(err)
+	}
+	fileServer := http.FileServer(http.FS(sub))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			http.NotFound(w, r)
+			return
+		}
+		// SPA fallback: serve index.html for unknown paths
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" {
+			path = "index.html"
+		}
+		if _, err := fs.Stat(sub, path); err != nil {
+			r.URL.Path = "/"
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	})
+	return mux
+}
+
+func (s *Server) ListenAndServe() error {
+	h := s.Handler()
+	fmt.Fprintf(os.Stderr, "wireguard-go master: listening on %s (data %s)\n", s.cfg.Listen, s.cfg.DataDir)
+	if s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
+		return http.ListenAndServeTLS(s.cfg.Listen, s.cfg.TLSCert, s.cfg.TLSKey, h)
+	}
+	return http.ListenAndServe(s.cfg.Listen, h)
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "revision": s.store.Snapshot().Revision})
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	tok, ok := s.sessions.login(body.Password)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid password"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": tok})
+}
+
+func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if !s.sessions.valid(bearerToken(r)) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleMesh(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		if !s.requireAdmin(w, r) {
+			return
+		}
+		m := s.store.Snapshot()
+		writeJSON(w, http.StatusOK, m)
+	case http.MethodPut:
+		if !s.requireAdmin(w, r) {
+			return
+		}
+		var m meshcfg.Mesh
+		if err := readJSON(r, &m); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		if err := s.store.PutMesh(m); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, s.store.Snapshot())
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var n meshcfg.Node
+	if err := readJSON(r, &n); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	created, err := s.store.AddNode(n)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	tok := bearerToken(r)
+	if tok == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing bearer token"})
+		return
+	}
+	desired, err := s.store.DesiredForToken(tok)
+	if err != nil {
+		if err == errUnauthorized {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	etag := fmt.Sprintf(`"%d"`, desired.Revision)
+	w.Header().Set("ETag", etag)
+	if match := r.Header.Get("If-None-Match"); match != "" && strings.Contains(match, fmt.Sprintf("%d", desired.Revision)) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	writeJSON(w, http.StatusOK, desired)
+}
+
+func (s *Server) handleGenerateKeys(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	priv, pub, err := meshcfg.GenerateKeyPair()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	tok, err := meshcfg.GenerateToken()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"privateKey": priv,
+		"publicKey":  pub,
+		"token":      tok,
+	})
+}

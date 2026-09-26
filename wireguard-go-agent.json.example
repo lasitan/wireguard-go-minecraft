@@ -1,0 +1,7 @@
+{
+  "masterUrl": "http://MASTER_IP:8443",
+  "nodeId": "client-a",
+  "nodeToken": "PASTE_TOKEN_FROM_MASTER",
+  "pollInterval": "10s",
+  "interface": "wg0"
+}

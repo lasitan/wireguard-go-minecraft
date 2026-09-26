@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/conn"
@@ -41,6 +42,9 @@ func main() {
 	}
 
 	if handleKeyCommand() {
+		return
+	}
+	if handleMasterCommand() {
 		return
 	}
 	if handleServiceCommand() {
@@ -216,50 +220,59 @@ func main() {
 	}
 
 	fwd := newPortForwardManager(logger)
+	var fwdMu sync.Mutex
 	var natgw *natGateway
+	agentStop := make(chan struct{})
 
-	// Auto-load /etc/wireguard/<iface>.conf if it exists.
-	confPath := ""
-	confFile := "/etc/wireguard/" + interfaceName + ".conf"
+	// Prefer Master agent bootstrap; legacy wg0.conf only with WG_LEGACY_CONF=1.
 	fwdCount := 0
-	if _, statErr := os.Stat(confFile); statErr == nil {
-		confPath = confFile
-		fmt.Fprintf(os.Stderr, "wireguard-go: loading %s\n", confFile)
-		result, err := applyWGConf(dev, logger, interfaceName)
-		if err != nil {
-			logger.Errorf("Failed to apply wg conf: %v", err)
-			fmt.Fprintf(os.Stderr, "wireguard-go: failed to apply %s: %v\n", confFile, err)
-			os.Exit(ExitSetupFailed)
-		}
-		if result != nil {
-			if len(result.netCfg.addresses) == 0 {
-				fmt.Fprintf(os.Stderr, "wireguard-go: WARNING: no Address= in %s — interface will have no IP\n", confFile)
-			}
-			if result.nat.toNATClient {
-				fmt.Fprintln(os.Stderr, "wireguard-go: ToNAT client mode (dial [Peer] Endpoint)")
-				tcpBind.SetDialToNAT(true)
-			}
-			if result.nat.serverMode {
-				natgw = newNatGateway(logger, interfaceName, result.nat)
-				if err := natgw.Start(dev); err != nil {
-					logger.Errorf("Failed to start NAT gateway: %v", err)
-					fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway error: %v\n", err)
-					os.Exit(ExitSetupFailed)
-				}
-				dev.SetNatClientHandler(func(pk device.NoisePublicKey) {
-					natgw.RegisterClient(pk)
-				})
-			}
-			fmt.Fprintln(os.Stderr, "wireguard-go: starting port forwards (if any)")
-			if err := fwd.StartFromPeers(result.peers); err != nil {
-				logger.Errorf("Failed to start port forwards: %v", err)
-				fmt.Fprintf(os.Stderr, "wireguard-go: port forward error: %v\n", err)
+	confPath := ""
+	if boot, err := loadAgentBootstrap(); err == nil {
+		fmt.Fprintf(os.Stderr, "wireguard-go: agent mode → %s (node %s)\n", boot.MasterURL, boot.NodeID)
+		go agentConfigLoop(dev, logger, interfaceName, &fwd, &fwdMu, boot, agentStop)
+	} else if os.Getenv("WG_LEGACY_CONF") == "1" {
+		confFile := "/etc/wireguard/" + interfaceName + ".conf"
+		if _, statErr := os.Stat(confFile); statErr == nil {
+			confPath = confFile
+			fmt.Fprintf(os.Stderr, "wireguard-go: loading legacy %s\n", confFile)
+			result, err := applyWGConf(dev, logger, interfaceName)
+			if err != nil {
+				logger.Errorf("Failed to apply wg conf: %v", err)
+				fmt.Fprintf(os.Stderr, "wireguard-go: failed to apply %s: %v\n", confFile, err)
 				os.Exit(ExitSetupFailed)
 			}
-			fwdCount = fwd.Count()
+			if result != nil {
+				if len(result.netCfg.addresses) == 0 {
+					fmt.Fprintf(os.Stderr, "wireguard-go: WARNING: no Address= in %s — interface will have no IP\n", confFile)
+				}
+				if result.nat.toNATClient {
+					fmt.Fprintln(os.Stderr, "wireguard-go: ToNAT client mode (dial [Peer] Endpoint)")
+					tcpBind.SetDialToNAT(true)
+				}
+				if result.nat.serverMode {
+					natgw = newNatGateway(logger, interfaceName, result.nat)
+					if err := natgw.Start(dev); err != nil {
+						logger.Errorf("Failed to start NAT gateway: %v", err)
+						fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway error: %v\n", err)
+						os.Exit(ExitSetupFailed)
+					}
+					dev.SetNatClientHandler(func(pk device.NoisePublicKey) {
+						natgw.RegisterClient(pk)
+					})
+				}
+				fmt.Fprintln(os.Stderr, "wireguard-go: starting port forwards (if any)")
+				if err := fwd.StartFromPeers(result.peers); err != nil {
+					logger.Errorf("Failed to start port forwards: %v", err)
+					fmt.Fprintf(os.Stderr, "wireguard-go: port forward error: %v\n", err)
+					os.Exit(ExitSetupFailed)
+				}
+				fwdCount = fwd.Count()
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "wireguard-go: no agent bootstrap and no legacy conf at %s\n", confFile)
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "wireguard-go: no config at %s (UAPI-only mode)\n", confFile)
+		fmt.Fprintf(os.Stderr, "wireguard-go: waiting for %s (or set WG_LEGACY_CONF=1 for wg0.conf)\n", agentBootstrapPath())
 	}
 
 	logger.Verbosef("Device started")
@@ -319,12 +332,17 @@ func main() {
 	case <-dev.Wait():
 	}
 
+	close(agentStop)
 	// Interrupt TCP dials / sessions first so peer.Stop cannot block on Send.
 	_ = tcpBind.Close()
 	if natgw != nil {
 		natgw.Close(dev)
 	}
-	fwd.Close()
+	fwdMu.Lock()
+	if fwd != nil {
+		fwd.Close()
+	}
+	fwdMu.Unlock()
 	_ = uapi.Close()
 	dev.Close()
 

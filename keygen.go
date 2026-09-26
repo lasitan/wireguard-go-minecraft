@@ -19,23 +19,25 @@ import (
 func printUsage() {
 	fmt.Printf(`Usage:
   %s [-f/--foreground] INTERFACE-NAME
-  %s install [INTERFACE]
-  %s uninstall [INTERFACE] [--purge]
+  %s install [INTERFACE|master]
+  %s uninstall [INTERFACE|master] [--purge]
+  %s master
   %s genkey
   %s pubkey
   %s genpsk
   %s --version
 
 Service:
-  install     Install/enable system service for INTERFACE (default: wg0)
-              Auto-elevates (sudo/pkexec on Linux; UAC on Windows) when needed
-  uninstall   Stop/disable the service; --purge also removes configs
+  install [iface]  Install agent tunnel service (default iface: wg0); needs wireguard-go-agent.json
+  install master   Install Master control-plane (locks host as master)
+  uninstall        Stop/disable the service; --purge also removes configs
+  master           Run Master HTTP API + UI (foreground)
 
 Key commands (same as wg(8)):
   genkey   Generate a private key on stdout (base64)
   pubkey   Read a private key from stdin; write public key to stdout
   genpsk   Generate a preshared key on stdout (base64)
-`, os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0])
+`, os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0])
 }
 
 // handleKeyCommand runs wg-compatible key utilities.

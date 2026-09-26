@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/windows/svc"
@@ -79,35 +80,44 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 	}
 
 	var natgw *natGateway
-	confFile := filepath.Join(wgConfDir(), m.iface+".conf")
-	if _, err := os.Stat(confFile); err == nil {
-		result, err := applyWGConf(dev, logger, m.iface)
-		if err != nil {
-			logger.Errorf("conf: %v", err)
-			_ = tcpBind.Close()
-			dev.Close()
-			return true, 1
-		}
-		if result != nil && result.nat.toNATClient {
-			tcpBind.SetDialToNAT(true)
-		}
-		if result != nil && result.nat.serverMode {
-			natgw = newNatGateway(logger, m.iface, result.nat)
-			if err := natgw.Start(dev); err != nil {
-				logger.Errorf("NAT gateway: %v", err)
+	fwd := newPortForwardManager(logger)
+	var fwdMu sync.Mutex
+	agentStop := make(chan struct{})
+	if boot, err := loadAgentBootstrap(); err == nil {
+		go agentConfigLoop(dev, logger, m.iface, &fwd, &fwdMu, boot, agentStop)
+	} else if os.Getenv("WG_LEGACY_CONF") == "1" {
+		confFile := filepath.Join(wgConfDir(), m.iface+".conf")
+		if _, err := os.Stat(confFile); err == nil {
+			result, err := applyWGConf(dev, logger, m.iface)
+			if err != nil {
+				logger.Errorf("conf: %v", err)
 				_ = tcpBind.Close()
 				dev.Close()
 				return true, 1
 			}
-			dev.SetNatClientHandler(func(pk device.NoisePublicKey) {
-				natgw.RegisterClient(pk)
-			})
+			if result != nil && result.nat.toNATClient {
+				tcpBind.SetDialToNAT(true)
+			}
+			if result != nil && result.nat.serverMode {
+				natgw = newNatGateway(logger, m.iface, result.nat)
+				if err := natgw.Start(dev); err != nil {
+					logger.Errorf("NAT gateway: %v", err)
+					_ = tcpBind.Close()
+					dev.Close()
+					return true, 1
+				}
+				dev.SetNatClientHandler(func(pk device.NoisePublicKey) {
+					natgw.RegisterClient(pk)
+				})
+			}
+			_ = fwd.StartFromPeers(result.peers)
 		}
 	}
 
 	uapi, err := ipc.UAPIListen(m.iface)
 	if err != nil {
 		logger.Errorf("UAPI: %v", err)
+		close(agentStop)
 		if natgw != nil {
 			natgw.Close(dev)
 		}
@@ -146,13 +156,18 @@ loop:
 	}
 
 	changes <- svc.Status{State: svc.StopPending}
+	close(agentStop)
 	_ = tcpBind.Close()
 	if natgw != nil {
 		natgw.Close(dev)
 	}
+	fwdMu.Lock()
+	if fwd != nil {
+		fwd.Close()
+	}
+	fwdMu.Unlock()
 	_ = uapi.Close()
 	dev.Close()
-	// Give goroutines a moment before SCM tears us down.
 	time.Sleep(200 * time.Millisecond)
 	changes <- svc.Status{State: svc.Stopped}
 	return false, 0
