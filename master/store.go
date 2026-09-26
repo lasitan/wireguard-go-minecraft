@@ -56,9 +56,12 @@ func (s *Store) PutMesh(m meshcfg.Mesh) error {
 func (s *Store) AddNode(n meshcfg.Node) (meshcfg.Node, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if n.ID == "" {
-		return n, fmt.Errorf("node id required")
+	// Agent identity is always a Master-assigned UUID; clients cannot pick the id.
+	id, err := meshcfg.GenerateNodeID()
+	if err != nil {
+		return n, err
 	}
+	n.ID = id
 	if s.mesh.FindNode(n.ID) != nil {
 		return n, fmt.Errorf("node %q already exists", n.ID)
 	}
@@ -114,6 +117,9 @@ func validateMesh(m meshcfg.Mesh) error {
 	for _, n := range m.Nodes {
 		if n.ID == "" {
 			return fmt.Errorf("node missing id")
+		}
+		if !meshcfg.ValidNodeID(n.ID) {
+			return fmt.Errorf("node id %q must be a UUID", n.ID)
 		}
 		if _, ok := ids[n.ID]; ok {
 			return fmt.Errorf("duplicate node id %q", n.ID)

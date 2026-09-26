@@ -2,7 +2,7 @@
   "revision": 0,
   "nodes": [
     {
-      "id": "server-a",
+      "id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001",
       "name": "Server A",
       "role": "server",
       "publicKey": "REPLACE",
@@ -13,7 +13,7 @@
       "token": "REPLACE"
     },
     {
-      "id": "client-a",
+      "id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002",
       "name": "Client A",
       "role": "client",
       "publicKey": "REPLACE",
@@ -23,21 +23,25 @@
     }
   ],
   "links": [
-    { "fromNodeId": "client-a", "toNodeId": "server-a", "keepalive": 5 }
+    {
+      "fromNodeId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002",
+      "toNodeId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001",
+      "keepalive": 5
+    }
   ],
   "forwards": [
     {
-      "nodeId": "server-a",
+      "nodeId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001",
       "protocol": "tcp",
       "listen": "3389",
-      "destNodeId": "client-a",
+      "destNodeId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002",
       "destPort": 3389
     },
     {
-      "nodeId": "server-a",
+      "nodeId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001",
       "protocol": "tcp",
       "listen": "45",
-      "destNodeId": "client-a",
+      "destNodeId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002",
       "destPort": 3389
     }
   ]

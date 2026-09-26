@@ -7,3 +7,4 @@ wireguard-go
 /*.dsc
 /*.build
 *.exe
+**/node_modules/

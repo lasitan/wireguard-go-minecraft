@@ -99,16 +99,15 @@ async function createNode(ev: Event) {
   ev.preventDefault();
   const fd = new FormData(ev.target as HTMLFormElement);
   const node = {
-    id: String(fd.get("id")),
     name: String(fd.get("name") || "") || undefined,
     role: String(fd.get("role")),
     address: String(fd.get("address")),
     listenPort: Number(fd.get("listenPort") || 0) || undefined,
     endpoint: String(fd.get("endpoint") || "") || undefined,
   };
-  await api("/api/nodes", { method: "POST", body: JSON.stringify(node) });
+  const created = await api<Node>("/api/nodes", { method: "POST", body: JSON.stringify(node) });
   await loadMesh();
-  setMsg(true, "节点已创建");
+  setMsg(true, "节点已创建 UUID=" + created.id);
 }
 
 function logout() {
@@ -177,24 +176,23 @@ function renderApp() {
       <div class="card">
         <h2>节点列表</h2>
         <table>
-          <thead><tr><th>ID</th><th>角色</th><th>Address</th><th>Endpoint</th><th>Token</th></tr></thead>
+          <thead><tr><th>名称</th><th>UUID</th><th>角色</th><th>Address</th><th>Endpoint</th><th>Token</th></tr></thead>
           <tbody>
             ${(m.nodes || [])
               .map(
                 (n) => `<tr>
-              <td>${n.id}</td><td>${n.role}</td><td>${n.address}</td>
+              <td>${n.name || "—"}</td><td><code>${n.id}</code></td><td>${n.role}</td><td>${n.address}</td>
               <td>${n.endpoint || ""}</td><td><code>${n.token || ""}</code></td>
             </tr>`
               )
-              .join("") || `<tr><td colspan="5" class="muted">暂无节点</td></tr>`}
+              .join("") || `<tr><td colspan="6" class="muted">暂无节点</td></tr>`}
           </tbody>
         </table>
       </div>
       <div class="card">
-        <h2>添加节点（自动生成密钥与 token）</h2>
+        <h2>添加节点（Master 分配 UUID，自动生成密钥与 token）</h2>
         <form id="node-form">
-          <label>ID</label><input name="id" required placeholder="client-a" />
-          <label>名称</label><input name="name" placeholder="可选" />
+          <label>名称</label><input name="name" placeholder="显示名（可选）" />
           <label>角色</label>
           <select name="role"><option value="client">client</option><option value="server">server</option></select>
           <label>Address</label><input name="address" required placeholder="10.10.0.7/24" />
