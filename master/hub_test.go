@@ -53,6 +53,20 @@ func readFrame(ctx context.Context, ws *websocket.Conn) (wire.Frame, error) {
 	return wire.DecodeFrame(b)
 }
 
+// readNonPing reads the next frame, answering heartbeat Pings like a real
+// agent. Slow runners can exceed hubPingInterval between two expected frames.
+func readNonPing(ctx context.Context, ws *websocket.Conn) (wire.Frame, error) {
+	for {
+		f, err := readFrame(ctx, ws)
+		if err != nil || f.Type != wire.TypePing {
+			return f, err
+		}
+		if err := ws.Write(ctx, websocket.MessageBinary, wire.EncodeFrame(wire.TypePong, f.Seq, f.Payload)); err != nil {
+			return f, err
+		}
+	}
+}
+
 func TestHubHandshakeStatsAndPush(t *testing.T) {
 	st, hub, srv := newHubFixture(t)
 	node, err := st.Enroll("a", meshcfg.RoleClient, "", 0)
@@ -184,7 +198,7 @@ func TestHubManyConnections(t *testing.T) {
 		tokens[i] = node.Token
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	conns := make([]*websocket.Conn, n)
 	var wg sync.WaitGroup
@@ -203,7 +217,7 @@ func TestHubManyConnections(t *testing.T) {
 			}
 			conns[i] = ws
 			for want := 0; want < 2; want++ { // HelloAck + ConfigPush
-				if _, err := readFrame(ctx, ws); err != nil {
+				if _, err := readNonPing(ctx, ws); err != nil {
 					errs <- err
 					return
 				}
@@ -237,7 +251,7 @@ func TestHubManyConnections(t *testing.T) {
 		got.Add(1)
 		go func(ws *websocket.Conn) {
 			defer got.Done()
-			f, err := readFrame(ctx, ws)
+			f, err := readNonPing(ctx, ws)
 			if err != nil || f.Type != wire.TypeConfigPush {
 				t.Errorf("push: %v %v", f.Type, err)
 			}
