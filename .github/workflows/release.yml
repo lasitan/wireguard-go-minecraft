@@ -245,7 +245,7 @@ jobs:
             chmod a+x "$bin_out"
           done
 
-      - name: Cross-compile Windows binaries (Windows 10+ amd64)
+      - name: Cross-compile Windows binaries (Windows 10+ amd64 / arm64)
         env:
           WG_MC_VERSION: ${{ env.TAG }}
           GO_VERSION: ${{ env.GO_VERSION }}
@@ -259,7 +259,7 @@ jobs:
             export PATH="/usr/local/go/bin:${PATH}"
           fi
           go version
-          if [[ ! -f third_party/wintun/amd64/wintun.dll ]]; then
+          if [[ ! -f third_party/wintun/amd64/wintun.dll || ! -f third_party/wintun/arm64/wintun.dll ]]; then
             apt-get update -qq
             apt-get install -y -qq --no-install-recommends unzip >/dev/null || sudo apt-get install -y -qq unzip
             chmod +x scripts/fetch-wintun.sh

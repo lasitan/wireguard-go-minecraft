@@ -1,4 +1,4 @@
-# One-line install / upgrade for wireguard-mc (Windows 10+ x64, run as Administrator):
+# One-line install / upgrade for wireguard-mc (Windows 10+ x64 / ARM64, run as Administrator):
 #   powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/scripts/install.ps1 | iex"
 # Env:
 #   WG_MC_VERSION   pin a version (e.g. 2.0.3); default = latest release
@@ -17,7 +17,14 @@ function Die($m) { Write-Host "Error: $m" -ForegroundColor Red; exit 1 }
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) { Die 'Administrator required: open PowerShell with "Run as administrator"' }
-if (-not [Environment]::Is64BitOperatingSystem) { Die 'Only Windows 10+ x64 builds are published' }
+# Machine-level value is the native CPU even when this PowerShell runs emulated (x64 on ARM64).
+$nativeArch = [Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE', 'Machine')
+if (-not $nativeArch) { $nativeArch = $env:PROCESSOR_ARCHITECTURE }
+$arch = switch ($nativeArch.ToUpper()) {
+    'AMD64' { 'amd64' }
+    'ARM64' { 'arm64' }
+    default { Die "Unsupported CPU '$nativeArch': only Windows 10+ x64 and ARM64 builds are published" }
+}
 
 $proxy = "$env:WG_MC_GH_PROXY"
 if ($proxy -and -not $proxy.EndsWith('/')) { $proxy += '/' }
@@ -40,7 +47,7 @@ $current = ''
 if ($existing) {
     $current = ((& $existing.Source --version) -replace '^wireguard-go v?', '').Trim()
 }
-Say "latest $version, installed $(if ($current) { $current } else { 'none' })"
+Say "windows/${arch}: latest $version, installed $(if ($current) { $current } else { 'none' })"
 if ($current -eq $version -and $env:WG_MC_FORCE -ne '1') {
     Say 'Already up to date (set WG_MC_FORCE=1 to reinstall)'
     exit 0
@@ -51,7 +58,7 @@ New-Item -ItemType Directory -Force -Path $dir | Out-Null
 $dest = Join-Path $dir 'wireguard-go.exe'
 $tmp = "$dest.new"
 
-$url = "${proxy}https://github.com/$repo/releases/download/v$version/wireguard-mc-windows10-amd64-$version.exe"
+$url = "${proxy}https://github.com/$repo/releases/download/v$version/wireguard-mc-windows10-$arch-$version.exe"
 Say "downloading $url"
 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $tmp
 & $tmp --version | Out-Null

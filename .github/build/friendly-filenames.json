@@ -35,5 +35,14 @@
     "runnerFamily": "windows",
     "goArchiveArch": "amd64",
     "binaryExt": ".exe"
+  },
+  "windows-arm64": {
+    "friendlyName": "windows10-arm64",
+    "goos": "windows",
+    "goarch": "arm64",
+    "minOS": "10",
+    "runnerFamily": "windows",
+    "goArchiveArch": "arm64",
+    "binaryExt": ".exe"
   }
 }

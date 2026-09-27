@@ -12,6 +12,7 @@ var friendly = map[string]string{
 	"linux/arm64":   "linux-arm64",
 	"linux/arm":     "linux-armv7",
 	"windows/amd64": "windows10-amd64",
+	"windows/arm64": "windows10-arm64",
 }
 
 var debArch = map[string]string{
@@ -21,9 +22,11 @@ var debArch = map[string]string{
 	"arm":   "armhf",
 }
 
-// BinaryAssetName is the standalone binary for this platform in a release.
+// BinaryAssetName is the standalone binary for this host in a release. It
+// follows the native CPU, so an emulated x64 build on ARM64 Windows upgrades
+// to the arm64 build.
 func BinaryAssetName(version string) (string, error) {
-	key := runtime.GOOS + "/" + runtime.GOARCH
+	key := runtime.GOOS + "/" + hostArch()
 	f, ok := friendly[key]
 	if !ok {
 		return "", fmt.Errorf("no prebuilt binary for %s", key)
