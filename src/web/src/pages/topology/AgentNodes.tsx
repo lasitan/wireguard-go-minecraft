@@ -3,6 +3,7 @@ import { state } from "../../core/state";
 import { hostOf } from "../../utils/hostOf";
 import { isOnline } from "../../utils/isOnline";
 import { shortName } from "../../utils/shortName";
+import { isMother } from "../../topology/MagnetStacks";
 import { useAgentDrag } from "./useAgentDrag";
 
 function jitterDelay(id: string): number {
@@ -28,11 +29,17 @@ export function AgentNodes({
         const conflict = conflicts.has(p.node.id);
         const disabled = !!p.node.disabled;
         const delay = jitterDelay(p.node.id);
+        const mother = isMother(p.node);
+        const attached = state.stacks.parentOf.has(p.node.id);
+        const inStack = attached || state.stacks.childrenOf.has(p.node.id);
         const wrapClass = [
           "node-wrap",
-          "is-jitter",
+          inStack ? "" : "is-jitter",
           selected ? "is-selected" : "",
           conflict ? "is-conflict" : "",
+          mother ? "is-mother" : "",
+          attached ? "is-attached" : "",
+          state.magnetTarget === p.node.id ? "magnet-hot" : "",
         ]
           .filter(Boolean)
           .join(" ");
@@ -61,6 +68,7 @@ export function AgentNodes({
           >
             <foreignObject x={-78} y={-34} width={156} height={68}>
               <div className={cardClass}>
+                {mother ? <span className="mother-badge">母卡 :{p.node.listenPort}</span> : null}
                 <span className="dot" />
                 <div className="node-text">
                   <div className="node-name">{shortName(p.node)}</div>

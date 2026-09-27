@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 
@@ -41,7 +42,22 @@ func applyUpdate(ctx context.Context, rel *update.Release, exe string) error {
 	}
 	fmt.Fprintf(os.Stderr, "wireguard-go: 已替换 %s\n", exe)
 	startServices(m, running)
+	syncInstallerVersion(update.Normalize(rel.Version))
 	return nil
+}
+
+// uninstallKey is written by deploy/windows/installer.nsi.
+const uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\wireguard-mc`
+
+// syncInstallerVersion keeps "Apps & features" in step after a self-update;
+// it is a no-op for script / portable installs that have no uninstall entry.
+func syncInstallerVersion(version string) {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, uninstallKey, registry.SET_VALUE|registry.WOW64_64KEY)
+	if err != nil {
+		return
+	}
+	defer k.Close()
+	_ = k.SetStringValue("DisplayVersion", version)
 }
 
 // stopOwnServices stops every running wireguard-go-* service and returns their names.

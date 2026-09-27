@@ -22,6 +22,18 @@ export type NodePatch = {
   address?: string;
   enabled?: boolean;
   routes?: string[];
+  /** > 0 makes the node a magnet mother card; 0 clears it. */
+  listenPort?: number;
+  /** Dial address override ("" = public IPv4 + listenPort). */
+  endpoint?: string;
+  /** Attach under a mother card; "" detaches. */
+  parentId?: string;
+};
+
+/** Mother card id → attached child ids (in attach order), and the reverse. */
+export type MagnetStacks = {
+  parentOf: Map<string, string>;
+  childrenOf: Map<string, string[]>;
 };
 
 export type LivePeer = {

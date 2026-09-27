@@ -1,6 +1,9 @@
 import { VIEW } from "../core/constants";
-import type { Node, PlacedNode } from "../core/models";
+import type { Mesh, PlacedNode } from "../core/models";
 import { state } from "../core/state";
+import { slotPos, stackChildren } from "./MagnetLayout";
+import { buildMagnetStacks } from "./MagnetStacks";
+import { forgetTween, tweenPos } from "./PositionTween";
 
 /** Default ring layout for a node index. */
 export function defaultNodePos(index: number, total: number): { x: number; y: number } {
@@ -11,23 +14,42 @@ export function defaultNodePos(index: number, total: number): { x: number; y: nu
   };
 }
 
-/**
- * Build placed nodes, preserving user drag positions in `state.nodePositions`.
- * New nodes get a ring slot; removed ids are pruned.
- */
-export function syncPlacedNodes(nodes: Node[]): PlacedNode[] {
-  const live = new Set(nodes.map((n) => n.id));
+function prune(live: Set<string>) {
   for (const id of Object.keys(state.nodePositions)) {
     if (!live.has(id)) delete state.nodePositions[id];
   }
+  for (const id of Object.keys(state.displayPos)) {
+    if (!live.has(id)) {
+      delete state.displayPos[id];
+      forgetTween(id);
+    }
+  }
+}
+
+/**
+ * Build placed nodes. Free cards keep their user-dragged spot; attached cards
+ * sit in slots under their mother card. Any target change glides (PositionTween).
+ */
+export function syncPlacedNodes(mesh: Mesh): PlacedNode[] {
+  const nodes = mesh.nodes || [];
+  prune(new Set(nodes.map((n) => n.id)));
+  state.stacks = buildMagnetStacks(mesh);
 
   const n = nodes.length;
-  const placed = nodes.map((node, i) => {
-    let pos = state.nodePositions[node.id];
-    if (!pos) {
-      pos = defaultNodePos(i, n);
-      state.nodePositions[node.id] = { ...pos };
+  nodes.forEach((node, i) => {
+    if (!state.nodePositions[node.id]) state.nodePositions[node.id] = defaultNodePos(i, n);
+  });
+
+  const dragging = state.draggingId;
+  const placed = nodes.map((node) => {
+    let target = state.nodePositions[node.id];
+    const parent = state.stacks.parentOf.get(node.id);
+    if (parent && node.id !== dragging && state.nodePositions[parent]) {
+      const idx = stackChildren(parent, dragging).indexOf(node.id);
+      target = slotPos(state.nodePositions[parent], idx);
     }
+    const pos = tweenPos(node.id, target, state.displayPos[node.id], node.id === dragging);
+    state.displayPos[node.id] = pos;
     return { node, x: pos.x, y: pos.y };
   });
   state.placed = placed;

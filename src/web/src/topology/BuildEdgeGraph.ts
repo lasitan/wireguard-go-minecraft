@@ -3,6 +3,7 @@ import type {
   EdgeKind,
   EdgeStatus,
   IpConflictMap,
+  MagnetStacks,
   Mesh,
   PlacedNode,
   TopologyEdge,
@@ -55,7 +56,14 @@ export function BuildEdgeGraph(
   mesh: Mesh,
   placed: PlacedNode[],
   conflicts: IpConflictMap,
+  stacks: MagnetStacks,
 ): TopologyEdge[] {
+  // Cards in one magnet stack are drawn touching (MagnetRails); no lines between them.
+  const stackOf = (id: string) => stacks.parentOf.get(id) || (stacks.childrenOf.has(id) ? id : "");
+  const sameStack = (a: string, b: string) => {
+    const s = stackOf(a);
+    return s !== "" && s === stackOf(b);
+  };
   const byId = new Map(placed.map((p) => [p.node.id, p]));
   const online = new Map(placed.map((p) => [p.node.id, isOnline(p.node)]));
   const disabled = new Set(placed.filter((p) => p.node.disabled).map((p) => p.node.id));
@@ -124,16 +132,18 @@ export function BuildEdgeGraph(
 
   for (const key of solidPairs) {
     const [a, b] = key.split("|");
-    pushPair(a, b, "solid");
+    if (!sameStack(a, b)) pushPair(a, b, "solid");
   }
   for (const key of indirectPairs) {
     if (solidPairs.has(key)) continue;
     const [a, b] = key.split("|");
-    pushPair(a, b, "dashed");
+    if (!sameStack(a, b)) pushPair(a, b, "dashed");
   }
 
   // Control-plane spokes: agent ↔ Master (always dashed; solid never applies to Master).
+  // Attached cards share their mother's spoke.
   for (const p of placed) {
+    if (stacks.parentOf.has(p.node.id)) continue;
     const o = orientTowardMaster(p.x, p.y, VIEW.cx, VIEW.cy);
     const nodeOnline = !!online.get(p.node.id);
     const conflict = !!conflicts.get(p.node.id);

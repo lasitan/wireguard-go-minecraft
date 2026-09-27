@@ -43,6 +43,7 @@ type shellExecuteInfoW struct {
 const (
 	seeMaskNoCloseProcess = 0x00000040
 	swHide                = 0
+	swShowNormal          = 1
 )
 
 // ensureElevated re-launches this process with a UAC "runas" prompt when not
@@ -56,7 +57,7 @@ func ensureElevated() error {
 	if elevated {
 		return nil
 	}
-	code, err := reexecElevatedWindows()
+	code, err := reexecElevated(swHide, true)
 	if err != nil {
 		return fmt.Errorf("need Administrator to manage the system service: %w", err)
 	}
@@ -74,7 +75,9 @@ func currentlyElevated() (bool, error) {
 	return token.IsElevated(), nil
 }
 
-func reexecElevatedWindows() (int, error) {
+// reexecElevated relaunches this exe with os.Args via a UAC "runas" prompt.
+// With wait it returns the child's exit code, otherwise 0 once it started.
+func reexecElevated(show int32, wait bool) (int, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return 1, err
@@ -124,7 +127,7 @@ func reexecElevatedWindows() (int, error) {
 		LpFile:       file,
 		LpParameters: params,
 		LpDirectory:  dir,
-		NShow:        swHide,
+		NShow:        show,
 	}
 	r1, _, callErr := procShellExecuteExW.Call(uintptr(unsafe.Pointer(&sei)))
 	if r1 == 0 {
@@ -137,6 +140,9 @@ func reexecElevatedWindows() (int, error) {
 		return 1, fmt.Errorf("elevation canceled or failed")
 	}
 	defer windows.CloseHandle(sei.HProcess)
+	if !wait {
+		return 0, nil
+	}
 
 	event, err := windows.WaitForSingleObject(sei.HProcess, windows.INFINITE)
 	if err != nil {

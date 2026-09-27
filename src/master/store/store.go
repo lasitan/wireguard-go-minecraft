@@ -335,7 +335,7 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 		m.Nodes = append(m.Nodes, n)
 	}
 
-	lrows, err := s.db.Query(`SELECT from_node_id, to_node_id, allowed_ips, keepalive FROM links`)
+	lrows, err := s.db.Query(`SELECT from_node_id, to_node_id, allowed_ips, keepalive FROM links ORDER BY rowid`)
 	if err != nil {
 		return m, err
 	}
@@ -501,22 +501,28 @@ func (s *Store) Enroll(name, role, endpoint string, listenPort uint16) (core.Nod
 		AddressChangedAt: time.Now().UTC(),
 	}
 	if role == core.RoleServer && n.ListenPort == 0 {
-		n.ListenPort = 25590
+		n.ListenPort = DefaultServerListenPort
 	}
 	m.Nodes = append(m.Nodes, n)
-	if role == core.RoleClient {
+	// Auto-attach: a new card joins the first mother; a new mother adopts
+	// every card that is not attached anywhere yet.
+	if n.IsMagnetParent() {
+		attached := map[string]bool{}
+		for _, l := range m.Links {
+			attached[l.FromNodeID] = true
+		}
 		for _, peer := range m.Nodes {
-			if peer.ID == n.ID || peer.Role != core.RoleServer {
+			if peer.ID == n.ID || peer.IsMagnetParent() || attached[peer.ID] {
 				continue
 			}
-			m.Links = append(m.Links, core.Link{FromNodeID: n.ID, ToNodeID: peer.ID, Keepalive: 5})
+			m.Links = append(m.Links, core.Link{FromNodeID: peer.ID, ToNodeID: n.ID, Keepalive: magnetKeepalive})
 		}
 	} else {
 		for _, peer := range m.Nodes {
-			if peer.ID == n.ID || peer.Role != core.RoleClient {
-				continue
+			if peer.ID != n.ID && peer.IsMagnetParent() {
+				m.Links = append(m.Links, core.Link{FromNodeID: n.ID, ToNodeID: peer.ID, Keepalive: magnetKeepalive})
+				break
 			}
-			m.Links = append(m.Links, core.Link{FromNodeID: peer.ID, ToNodeID: n.ID, Keepalive: 5})
 		}
 	}
 	m.Revision++

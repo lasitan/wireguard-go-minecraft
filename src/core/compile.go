@@ -178,7 +178,7 @@ func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*Desir
 		if err != nil {
 			return nil, err
 		}
-		ep := to.Endpoint
+		ep := to.DialEndpoint()
 		ka := link.Keepalive
 		if ka == 0 && n.Role == RoleClient {
 			ka = 5

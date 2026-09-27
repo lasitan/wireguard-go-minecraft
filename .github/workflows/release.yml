@@ -281,6 +281,15 @@ jobs:
           done
           ls -la dist/release/bin/
 
+      - name: Build Windows installer (x64 + ARM64 setup.exe)
+        run: |
+          set -euo pipefail
+          bash deploy/scripts/build-windows-installer.sh "${DEB_UPSTREAM}" \
+            "dist/release/bin/wireguard-mc-windows10-amd64-${DEB_UPSTREAM}.exe" \
+            "dist/release/bin/wireguard-mc-windows10-arm64-${DEB_UPSTREAM}.exe" \
+            "dist/release/bin/wireguard-mc-windows10-setup-${DEB_UPSTREAM}.exe"
+          ls -la dist/release/bin/
+
       - name: Keep only files matching this version
         run: |
           set -euo pipefail

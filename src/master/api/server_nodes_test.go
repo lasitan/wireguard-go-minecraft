@@ -152,3 +152,32 @@ func TestLegacyHTTPAgentStillServed(t *testing.T) {
 		t.Fatalf("legacy config %d %+v", code, d)
 	}
 }
+
+func TestEnrollServerFillsEndpointAndLinksClients(t *testing.T) {
+	s, c := newAPIFixture(t)
+	cli, _ := s.store.Enroll("cli", core.RoleClient, "", 0)
+
+	anon := &apiClient{t: t, base: c.base}
+	var created struct {
+		NodeID string `json:"nodeId"`
+		Role   string `json:"role"`
+	}
+	body := map[string]any{"enrollToken": storetest.EnrollToken, "role": core.RoleServer}
+	if code := anon.do(http.MethodPost, "/api/agent/enroll", body, &created); code != 201 || created.Role != core.RoleServer {
+		t.Fatalf("server enroll: %d %+v", code, created)
+	}
+	m := s.store.Snapshot()
+	srv := m.FindNode(created.NodeID)
+	if srv == nil || srv.Endpoint != "127.0.0.1:25590" || srv.ListenPort != store.DefaultServerListenPort {
+		t.Fatalf("server node: %+v", srv)
+	}
+	linked := false
+	for _, l := range m.Links {
+		if l.FromNodeID == cli.ID && l.ToNodeID == srv.ID {
+			linked = true
+		}
+	}
+	if !linked {
+		t.Fatalf("existing client not linked to new server: %+v", m.Links)
+	}
+}

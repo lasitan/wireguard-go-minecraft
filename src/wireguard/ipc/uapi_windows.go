@@ -6,6 +6,7 @@
 package ipc
 
 import (
+	"errors"
 	"net"
 
 	"golang.org/x/sys/windows"
@@ -49,7 +50,12 @@ func (l *UAPIListener) Addr() net.Addr {
 	return l.listener.Addr()
 }
 
-var UAPISecurityDescriptor *windows.SECURITY_DESCRIPTOR
+var (
+	UAPISecurityDescriptor *windows.SECURITY_DESCRIPTOR
+	// Only LocalSystem may assign itself as owner; elevated admins
+	// (foreground runs outside the service) fall back to this one.
+	uapiAdminSecurityDescriptor *windows.SECURITY_DESCRIPTOR
+)
 
 func init() {
 	var err error
@@ -57,12 +63,22 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
+	uapiAdminSecurityDescriptor, err = windows.SecurityDescriptorFromString("O:BAD:P(A;;GA;;;SY)(A;;GA;;;BA)S:(ML;;NWNRNX;;;HI)")
+	if err != nil {
+		panic(err)
+	}
 }
 
 func UAPIListen(name string) (net.Listener, error) {
+	path := `\\.\pipe\ProtectedPrefix\Administrators\WireGuard\` + name
 	listener, err := (&namedpipe.ListenConfig{
 		SecurityDescriptor: UAPISecurityDescriptor,
-	}).Listen(`\\.\pipe\ProtectedPrefix\Administrators\WireGuard\` + name)
+	}).Listen(path)
+	if errors.Is(err, windows.ERROR_INVALID_OWNER) {
+		listener, err = (&namedpipe.ListenConfig{
+			SecurityDescriptor: uapiAdminSecurityDescriptor,
+		}).Listen(path)
+	}
 	if err != nil {
 		return nil, err
 	}

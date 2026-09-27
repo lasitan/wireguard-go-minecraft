@@ -4,8 +4,13 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,8 +43,13 @@ func NewServer(cfg config.MasterConfig) (*Server, error) {
 	if cfg.Listen == "" {
 		cfg.Listen = ":8443"
 	}
-	if cfg.DataDir == "" {
+	switch {
+	case cfg.DataDir == "" && runtime.GOOS == "windows":
+		cfg.DataDir = filepath.Join(config.ConfDir(), "master-data")
+	case cfg.DataDir == "":
 		cfg.DataDir = "/var/lib/wireguard-mc"
+	case !filepath.IsAbs(cfg.DataDir):
+		cfg.DataDir = filepath.Join(config.ConfDir(), cfg.DataDir)
 	}
 	if cfg.AdminPassword == "" {
 		return nil, fmt.Errorf("adminPassword is required in %s", config.MasterFileName)
@@ -260,6 +270,15 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid enrollToken"})
 		return
 	}
+	if body.Role == core.RoleServer && body.Endpoint == "" {
+		if host := enrollSourceHost(r); host != "" {
+			port := body.ListenPort
+			if port == 0 {
+				port = store.DefaultServerListenPort
+			}
+			body.Endpoint = net.JoinHostPort(host, strconv.Itoa(int(port)))
+		}
+	}
 	created, err := s.store.Enroll(body.Name, body.Role, body.Endpoint, body.ListenPort)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -273,6 +292,28 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
 		"address":   created.Address,
 		"name":      created.Name,
 	})
+}
+
+// enrollSourceHost is the agent's public IP as seen by Master. X-Forwarded-For
+// is only trusted when the direct peer is a loopback/private reverse proxy.
+func enrollSourceHost(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return ""
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return ""
+	}
+	if ip.IsLoopback() || ip.IsPrivate() {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			first := strings.TrimSpace(strings.Split(xff, ",")[0])
+			if fip, err := netip.ParseAddr(first); err == nil {
+				return fip.Unmap().String()
+			}
+		}
+	}
+	return ip.Unmap().String()
 }
 
 // mustEnroll returns the current enroll token, or a value no agent can send on error.

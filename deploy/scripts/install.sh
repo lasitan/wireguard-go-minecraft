@@ -99,6 +99,7 @@ if [[ -z "$CURRENT" ]]; then
 下一步：
   Master： 编辑 /etc/wireguard/wireguard-go-master.json 后执行  sudo wireguard-go install master
   Agent：  编辑 /etc/wireguard/wireguard-go-agent.json（masterUrl + key）后执行  sudo wireguard-go install
+          作为服务端（其他客户端都连本机）再加 "role": "server"，可选 "endpoint": "公网IP:25590"
 以后升级： sudo wireguard-go update
 EOF
 fi

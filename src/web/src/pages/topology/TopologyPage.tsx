@@ -8,12 +8,15 @@ import { syncPlacedNodes } from "../../topology/SyncPlacedNodes";
 import { AgentNodes } from "./AgentNodes";
 import { EdgeLegend } from "./EdgeLegend";
 import { HubNode } from "./HubNode";
+import { MagnetGhost } from "./MagnetGhost";
+import { MagnetRails } from "./MagnetRails";
 import { MeshEdges } from "./MeshEdges";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { UpdatePill } from "./UpdatePill";
 import { useCameraGestures } from "./useCameraGestures";
 import "./topology.css";
 import "./drawer.css";
+import "./magnet.css";
 
 export function TopologyPage() {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -21,10 +24,10 @@ export function TopologyPage() {
 
   const m = state.mesh || { revision: 0, nodes: [], links: [], forwards: [] };
   const nodes = m.nodes || [];
-  const placed = syncPlacedNodes(nodes);
+  const placed = syncPlacedNodes(m);
 
   const conflicts = ResolveIpConflicts(m);
-  const edges = BuildEdgeGraph(m, placed, conflicts);
+  const edges = BuildEdgeGraph(m, placed, conflicts, state.stacks);
   const vb = camToAttr(state.camera);
 
   const stageClass = [
@@ -55,6 +58,8 @@ export function TopologyPage() {
         />
         <MeshEdges edges={edges} />
         <HubNode />
+        <MagnetRails placed={placed} />
+        <MagnetGhost />
         <AgentNodes placed={placed} conflicts={conflicts} />
       </svg>
 

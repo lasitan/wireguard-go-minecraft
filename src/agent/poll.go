@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -74,10 +75,16 @@ func ensureEnrolled(b *config.AgentBootstrap) error {
 
 func enrollWithKey(b *config.AgentBootstrap) error {
 	hostname, _ := os.Hostname()
-	payload, _ := json.Marshal(map[string]string{
+	role := strings.ToLower(strings.TrimSpace(b.Role))
+	if role == "" {
+		role = core.RoleClient
+	}
+	payload, _ := json.Marshal(map[string]any{
 		"enrollToken": b.Key,
 		"name":        hostname,
-		"role":        core.RoleClient,
+		"role":        role,
+		"endpoint":    strings.TrimSpace(b.Endpoint),
+		"listenPort":  b.ListenPort,
 	})
 	url := stringsTrimSlash(b.MasterURL) + "/api/agent/enroll"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
@@ -99,6 +106,7 @@ func enrollWithKey(b *config.AgentBootstrap) error {
 		NodeID    string `json:"nodeId"`
 		NodeToken string `json:"nodeToken"`
 		Address   string `json:"address"`
+		Role      string `json:"role"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
 		return fmt.Errorf("enroll json: %w", err)
@@ -110,7 +118,7 @@ func enrollWithKey(b *config.AgentBootstrap) error {
 	if err := config.SaveJSON(BootstrapPath(), b.Normalized(), 0600); err != nil {
 		return fmt.Errorf("persist bootstrap: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "wireguard-go: enrolled as node %s (%s)\n", out.NodeID, out.Address)
+	fmt.Fprintf(os.Stderr, "wireguard-go: enrolled as %s node %s (%s)\n", out.Role, out.NodeID, out.Address)
 	return nil
 }
 

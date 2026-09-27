@@ -11,6 +11,9 @@ import (
 // DefaultVPNSubnet is the first-run pool that enroll allocates node addresses from.
 const DefaultVPNSubnet = "10.10.0.0/24"
 
+// DefaultServerListenPort is the TCP port a server node listens on when enroll omits one.
+const DefaultServerListenPort uint16 = 25590
+
 // SettingsPatch updates Master-wide settings edited from the web UI.
 // Nil fields are left unchanged.
 type SettingsPatch struct {

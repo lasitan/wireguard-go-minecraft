@@ -91,6 +91,7 @@ if (-not $current) {
 Next steps:
   Master: wireguard-go install master, then edit $env:ProgramData\wireguard\wireguard-go-master.json
   Agent:  wireguard-go install, then set masterUrl + key in $env:ProgramData\wireguard\wireguard-go-agent.json
+          (server node: also add "role": "server", optionally "endpoint": "PUBLIC_IP:25590")
 Upgrade later: wireguard-go update
 "@
 }

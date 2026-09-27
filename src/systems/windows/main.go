@@ -47,6 +47,10 @@ func Main() {
 	if HandleCommand() {
 		return
 	}
+	if len(os.Args) == 1 && (ownsConsole() || config.HasConfig(config.ConfDir())) {
+		autoRun()
+		return
+	}
 
 	var foreground bool
 	var interfaceName string

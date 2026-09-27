@@ -22,6 +22,12 @@ type NodePatch struct {
 	Address *string   `json:"address,omitempty"`
 	Enabled *bool     `json:"enabled,omitempty"`
 	Routes  *[]string `json:"routes,omitempty"`
+	// ListenPort > 0 makes the node a magnet "mother"; 0 clears it.
+	ListenPort *uint16 `json:"listenPort,omitempty"`
+	// Endpoint overrides the auto (public IPv4 + ListenPort) dial address.
+	Endpoint *string `json:"endpoint,omitempty"`
+	// ParentID attaches the node under a mother; "" detaches.
+	ParentID *string `json:"parentId,omitempty"`
 }
 
 func normalizeAddress(s string) (string, error) {
@@ -105,6 +111,21 @@ func (s *Store) PatchNode(id string, p NodePatch) (core.Node, error) {
 			return core.Node{}, err
 		}
 		n.Routes = routes
+	}
+	if p.Endpoint != nil {
+		ep, err := normalizeEndpoint(*p.Endpoint)
+		if err != nil {
+			return core.Node{}, err
+		}
+		n.Endpoint = ep
+	}
+	if p.ListenPort != nil {
+		setListenPort(&m, n, *p.ListenPort)
+	}
+	if p.ParentID != nil {
+		if err := attachTo(&m, id, strings.TrimSpace(*p.ParentID)); err != nil {
+			return core.Node{}, err
+		}
 	}
 	out := *n
 	m.Revision++

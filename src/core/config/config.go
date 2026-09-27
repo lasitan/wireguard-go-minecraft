@@ -22,6 +22,13 @@ type AgentBootstrap struct {
 	MasterURL string `json:"masterUrl"`
 	Key       string `json:"key"`
 
+	// Enroll-time hints; Master owns these once the node exists.
+	// role "server" makes every client link to this node; endpoint is the
+	// public host:port clients dial (Master uses the enroll source IP if empty).
+	Role       string `json:"role,omitempty"`
+	Endpoint   string `json:"endpoint,omitempty"`
+	ListenPort uint16 `json:"listenPort,omitempty"`
+
 	// Deprecated local fields (ignored if present; migrated away on enroll).
 	EnrollToken  string `json:"enrollToken,omitempty"`
 	NodeToken    string `json:"nodeToken,omitempty"`
@@ -87,7 +94,13 @@ func (a AgentBootstrap) IfaceName() string {
 	return "wg0"
 }
 
-// Normalized returns a bootstrap with only masterUrl + key for persistence.
+// Normalized drops the deprecated fields for persistence.
 func (a AgentBootstrap) Normalized() AgentBootstrap {
-	return AgentBootstrap{MasterURL: a.MasterURL, Key: a.APIKey()}
+	return AgentBootstrap{
+		MasterURL:  a.MasterURL,
+		Key:        a.APIKey(),
+		Role:       a.Role,
+		Endpoint:   a.Endpoint,
+		ListenPort: a.ListenPort,
+	}
 }

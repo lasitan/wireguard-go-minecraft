@@ -5,6 +5,7 @@ import { PutNodeForwards } from "../api/PutNodeForwards";
 import { demoNodeStats, demoTraffic } from "../core/demoStats";
 import type { Forward, NodePatch, NodeStats, TrafficRange, TrafficSeries } from "../core/models";
 import { notify, state } from "../core/state";
+import { applyMagnetPatch } from "../topology/MagnetMesh";
 
 /** Mirrors Master's route normalization closely enough for demo mode. */
 function demoApplyPatch(id: string, patch: NodePatch) {
@@ -22,7 +23,33 @@ function demoApplyPatch(id: string, patch: NodePatch) {
     if (patch.routes !== undefined) next.routes = [...new Set(patch.routes.map((r) => r.trim()).filter(Boolean))];
     return next;
   });
-  state.mesh = { ...mesh, revision: mesh.revision + 1, nodes };
+  const magnet = applyMagnetPatch({ ...mesh, nodes }, id, patch);
+  state.mesh = { ...magnet, revision: mesh.revision + 1 };
+}
+
+/**
+ * Snap a card under a mother ("" = detach). The local mesh changes first so
+ * the card glides into its slot immediately; Master's reply then wins, and a
+ * failure restores the previous mesh.
+ */
+export async function attachNode(id: string, parentId: string): Promise<void> {
+  const before = state.mesh;
+  if (!before) return;
+  if (state.demo) {
+    demoApplyPatch(id, { parentId });
+    notify();
+    return;
+  }
+  state.mesh = applyMagnetPatch(before, id, { parentId });
+  notify();
+  try {
+    state.mesh = await PatchNode(id, { parentId });
+  } catch (e) {
+    state.mesh = before;
+    throw e;
+  } finally {
+    notify();
+  }
 }
 
 export async function patchNode(id: string, patch: NodePatch): Promise<void> {

@@ -41,8 +41,9 @@ export function demoMesh(): Mesh {
       {
         id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002",
         name: "db-replica",
-        role: "client",
+        role: "server",
         address: "100.96.0.2/24",
+        listenPort: 25591,
         token: "demo-token-db",
         lastSeen: now,
         addressChangedAt: daysAgo(20),
@@ -100,11 +101,9 @@ export function demoMesh(): Mesh {
       },
     ],
     links: [
-      { fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002", toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001", keepalive: 5 },
       { fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0003", toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001", keepalive: 5 },
-      { fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0004", toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001", keepalive: 5 },
       { fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0005", toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001", keepalive: 5 },
-      { fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0006", toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001", keepalive: 5 },
+      { fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0006", toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002", keepalive: 5 },
     ],
     forwards: [
       {

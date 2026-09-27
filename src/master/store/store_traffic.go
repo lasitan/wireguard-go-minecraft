@@ -233,11 +233,28 @@ func (s *Store) TouchLastSeen(nodeID string, t time.Time) error {
 	return err
 }
 
-func (s *Store) SetPublicIPs(nodeID, v4, v6 string) error {
+// SetPublicIPs records observed addresses. It bumps the mesh revision (and
+// reports true) when the node is a mother whose auto dial address changed,
+// so attached children get re-pushed.
+func (s *Store) SetPublicIPs(nodeID, v4, v6 string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec(`UPDATE nodes SET public_v4 = ?, public_v6 = ? WHERE id = ?`, v4, v6, nodeID)
-	return err
+	var listenPort int
+	var endpoint, oldV4 string
+	if err := s.db.QueryRow(`SELECT listen_port, endpoint, public_v4 FROM nodes WHERE id = ?`, nodeID).
+		Scan(&listenPort, &endpoint, &oldV4); err != nil {
+		return false, err
+	}
+	if _, err := s.db.Exec(`UPDATE nodes SET public_v4 = ?, public_v6 = ? WHERE id = ?`, v4, v6, nodeID); err != nil {
+		return false, err
+	}
+	if listenPort == 0 || endpoint != "" || oldV4 == v4 {
+		return false, nil
+	}
+	if _, err := s.db.Exec(`UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = ?`, metaRevision); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *Store) SetNodeGeo(nodeID, country, code string, t time.Time) error {

@@ -343,7 +343,9 @@ func (h *Hub) RecordPublicIPs(node core.Node, hello wire.Hello, remote string) {
 		return
 	}
 	if v4 != node.PublicV4 || v6 != node.PublicV6 {
-		_ = h.store.SetPublicIPs(node.ID, v4, v6)
+		if bumped, _ := h.store.SetPublicIPs(node.ID, v4, v6); bumped {
+			go h.PushAll()
+		}
 	}
 	if h.OnPublicIPs != nil {
 		go h.OnPublicIPs(node.ID, v4, v6)

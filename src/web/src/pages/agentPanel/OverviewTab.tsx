@@ -11,6 +11,7 @@ import { isNewerVersion } from "../../utils/compareVersion";
 import { isOnline } from "../../utils/isOnline";
 import { validateNodeAddress } from "../../utils/validateCidr";
 import { AnimatedNumber } from "./AnimatedNumber";
+import { MagnetSection } from "./MagnetSection";
 import { Toggle } from "./Toggle";
 
 export function OverviewTab({
@@ -65,6 +66,7 @@ export function OverviewTab({
         </div>
       </div>
       <AddressEditor node={node} busy={busy} run={run} />
+      <MagnetSection node={node} onError={onError} />
 
       <div className="speed-grid">
         <div className="speed-card up">
