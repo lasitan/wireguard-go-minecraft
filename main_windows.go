@@ -21,6 +21,7 @@ import (
 	"golang.zx2c4.com/wireguard/internal/agent"
 	"golang.zx2c4.com/wireguard/internal/service"
 	"golang.zx2c4.com/wireguard/internal/tunnel"
+	"golang.zx2c4.com/wireguard/internal/update"
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/meshcfg"
 	"golang.zx2c4.com/wireguard/tun"
@@ -32,8 +33,10 @@ const (
 )
 
 func main() {
+	update.SetCurrent(Version)
+	update.CleanupOld()
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
-		fmt.Printf("wireguard-go v%s\n", Version)
+		fmt.Printf("wireguard-go v%s\n", update.Current())
 		return
 	}
 	if runAsWindowsServiceIfRequested() {

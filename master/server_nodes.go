@@ -95,6 +95,7 @@ type nodeStatsView struct {
 	LastSeen       time.Time       `json:"lastSeen,omitempty"`
 	ConnectedAt    time.Time       `json:"connectedAt,omitempty"`
 	RTTMillis      float64         `json:"rttMs,omitempty"`
+	AgentVersion   string          `json:"agentVersion,omitempty"`
 	PublicV4       string          `json:"publicV4,omitempty"`
 	PublicV6       string          `json:"publicV6,omitempty"`
 	GeoCountry     string          `json:"geoCountry,omitempty"`
@@ -160,10 +161,10 @@ func (s *Server) handleNodeStats(w http.ResponseWriter, r *http.Request) {
 		Forwards:       live.Forwards,
 		IPs:            []ipTrafficView{},
 	}
-	switch {
-	case s.hub.IsConnected(id):
+	if ver, ok := s.hub.AgentVersion(id); ok {
 		v.Link = "ws"
-	case !n.LastSeen.IsZero() && time.Since(n.LastSeen) < httpOnlineWindow:
+		v.AgentVersion = ver
+	} else if !n.LastSeen.IsZero() && time.Since(n.LastSeen) < httpOnlineWindow {
 		v.Link = "http"
 	}
 	if v.Forwards == nil {

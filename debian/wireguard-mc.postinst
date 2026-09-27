@@ -44,6 +44,16 @@ restart_wireguard_go_instances() {
 			echo "wireguard-mc: restarted $unit"
 		fi
 	done
+
+	master="wireguard-go-master.service"
+	if systemctl is-active --quiet "$master" 2>/dev/null; then
+		if command -v deb-systemd-invoke >/dev/null 2>&1; then
+			deb-systemd-invoke try-restart "$master" >/dev/null 2>&1 || true
+		else
+			systemctl try-restart "$master" >/dev/null 2>&1 || true
+		fi
+		echo "wireguard-mc: restarted $master"
+	fi
 }
 
 case "$1" in

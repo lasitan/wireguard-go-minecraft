@@ -8,6 +8,7 @@ import { MASTER_ID, TOKEN_KEY } from "../core/constants";
 import { demoMesh, demoMeta, touchDemoHeartbeats } from "../core/demoData";
 import { notify, state } from "../core/state";
 import { goHome } from "./FocusNav";
+import { startVersionPoll, stopVersionPoll } from "./VersionCheck";
 
 export async function login(password: string) {
   const token = await LoginApi(password);
@@ -60,6 +61,7 @@ export function logout() {
     clearInterval(state.pollTimer);
     state.pollTimer = null;
   }
+  stopVersionPoll();
   state.token = "";
   localStorage.removeItem(TOKEN_KEY);
   state.mesh = null;
@@ -73,6 +75,7 @@ export function logout() {
 
 export function startPoll() {
   if (state.pollTimer != null) clearInterval(state.pollTimer);
+  startVersionPoll();
   if (state.demo) {
     // Keep demo agents online and re-evaluate edge status as time passes.
     state.pollTimer = window.setInterval(() => {

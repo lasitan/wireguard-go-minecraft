@@ -1,12 +1,13 @@
 import { demoMesh, demoMeta } from "./demoData";
 import { homeCam } from "../camera/CameraMath";
 import { isDevPreview, TOKEN_KEY } from "./constants";
-import type { Cam, Mesh, Meta, PlacedNode } from "./models";
+import type { Cam, Mesh, Meta, PlacedNode, VersionInfo } from "./models";
 
 export type AppState = {
   token: string;
   mesh: Mesh | null;
   meta: Meta | null;
+  version: VersionInfo | null;
   selectedId: string | null;
   drawerOpen: boolean;
   contentSwap: boolean;
@@ -24,6 +25,7 @@ export const state: AppState = {
   token: isDevPreview ? "dev-preview" : localStorage.getItem(TOKEN_KEY) || "",
   mesh: isDevPreview ? demoMesh() : null,
   meta: isDevPreview ? demoMeta() : null,
+  version: null,
   selectedId: null,
   drawerOpen: false,
   contentSwap: false,

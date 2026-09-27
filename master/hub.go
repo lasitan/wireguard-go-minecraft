@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"golang.zx2c4.com/wireguard/internal/update"
 	"golang.zx2c4.com/wireguard/meshcfg"
 	"golang.zx2c4.com/wireguard/meshcfg/wire"
 )
@@ -49,8 +50,9 @@ type hubShard struct {
 }
 
 type agentConn struct {
-	nodeID string
-	ws     *websocket.Conn
+	nodeID  string
+	version string // build version from Hello
+	ws      *websocket.Conn
 	send   chan []byte
 	cfg    atomic.Pointer[meshcfg.DesiredConfig]
 	cfgSig chan struct{}
@@ -94,6 +96,32 @@ func (h *Hub) IsConnected(nodeID string) bool {
 	defer s.mu.RUnlock()
 	_, ok := s.conns[nodeID]
 	return ok
+}
+
+// AgentVersion returns the build version a connected agent reported.
+func (h *Hub) AgentVersion(nodeID string) (string, bool) {
+	s := h.shard(nodeID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, ok := s.conns[nodeID]
+	if !ok {
+		return "", false
+	}
+	return c.version, true
+}
+
+// AgentVersions snapshots nodeID -> reported version for every connection.
+func (h *Hub) AgentVersions() map[string]string {
+	out := make(map[string]string)
+	for i := range h.shards {
+		s := &h.shards[i]
+		s.mu.RLock()
+		for id, c := range s.conns {
+			out[id] = c.version
+		}
+		s.mu.RUnlock()
+	}
+	return out
 }
 
 func (h *Hub) register(c *agentConn) {
@@ -217,8 +245,9 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &agentConn{
-		nodeID: node.ID,
-		ws:     ws,
+		nodeID:  node.ID,
+		version: update.Valid(hello.Version),
+		ws:      ws,
 		send:   make(chan []byte, hubSendQueue),
 		cfgSig: make(chan struct{}, 1),
 		ctx:    ctx,

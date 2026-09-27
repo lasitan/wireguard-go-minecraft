@@ -135,6 +135,8 @@ type MasterConfig struct {
 	GeoIPDB string `json:"geoipDb,omitempty"`
 	// DisableGeoIPOnline turns off the ip-api.com fallback.
 	DisableGeoIPOnline bool `json:"disableGeoipOnline,omitempty"`
+	// DisableUpdateCheck stops polling GitHub Releases for new versions.
+	DisableUpdateCheck bool `json:"disableUpdateCheck,omitempty"`
 }
 
 // DesiredConfig is what an agent applies (fully Master-authored).

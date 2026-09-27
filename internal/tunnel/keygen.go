@@ -24,6 +24,7 @@ func PrintUsage() {
   %s install [INTERFACE|master]
   %s uninstall [INTERFACE|master] [--purge]
   %s master
+  %s update [--check] [--force]
   %s genkey
   %s pubkey
   %s genpsk
@@ -34,12 +35,14 @@ Service:
   install master   Install Master control-plane (locks host as master)
   uninstall        Stop/disable the service; --purge also removes configs
   master           Run Master HTTP API + UI (foreground)
+  update           Upgrade from GitHub Releases and restart running services
+                   (--check only reports; env WG_MC_GH_PROXY sets a download mirror)
 
 Key commands (same as wg(8)):
   genkey   Generate a private key on stdout (base64)
   pubkey   Read a private key from stdin; write public key to stdout
   genpsk   Generate a preshared key on stdout (base64)
-`, os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0])
+`, os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0], os.Args[0])
 }
 
 // handleKeyCommand runs wg-compatible key utilities.

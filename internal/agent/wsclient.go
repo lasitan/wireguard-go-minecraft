@@ -16,12 +16,12 @@ import (
 
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/internal/tunnel"
+	"golang.zx2c4.com/wireguard/internal/update"
 	"golang.zx2c4.com/wireguard/meshcfg"
 	"golang.zx2c4.com/wireguard/meshcfg/wire"
 )
 
 const (
-	agentVersion       = "wg-mc-agent/2"
 	wsDialTimeout      = 10 * time.Second
 	wsWriteTimeout     = 10 * time.Second
 	wsReadTimeout      = 45 * time.Second
@@ -84,7 +84,7 @@ func (c *wsClient) run(ctx context.Context) (connected bool, err error) {
 	defer ws.CloseNow()
 	ws.SetReadLimit(wire.MaxFrameBytes)
 
-	if err := c.write(ctx, ws, wire.TypeHello, wire.Hello{Token: c.boot.Key, Version: agentVersion, PublicV4: v4, PublicV6: v6}.Marshal()); err != nil {
+	if err := c.write(ctx, ws, wire.TypeHello, wire.Hello{Token: c.boot.Key, Version: update.Current(), PublicV4: v4, PublicV6: v6}.Marshal()); err != nil {
 		return false, err
 	}
 	hctx, hcancel := context.WithTimeout(ctx, wsDialTimeout)

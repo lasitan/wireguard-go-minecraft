@@ -82,6 +82,13 @@ func HandleCommand() bool {
 		}
 		return true
 
+	case "update":
+		if err := runUpdate(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "update: %v\n", err)
+			os.Exit(ExitSetupFailed)
+		}
+		return true
+
 	default:
 		return false
 	}

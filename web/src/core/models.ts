@@ -60,6 +60,8 @@ export type NodeStats = {
   lastSeen?: string;
   connectedAt?: string;
   rttMs?: number;
+  /** Build version from the WS Hello; absent for HTTP / pre-2.0.3 agents. */
+  agentVersion?: string;
   publicV4?: string;
   publicV6?: string;
   geoCountry?: string;
@@ -112,6 +114,41 @@ export type Meta = {
   listen: string;
   defaultIface?: string;
   defaultPoll?: string;
+};
+
+export type UpdateCommands = {
+  linux: string;
+  linuxCn: string;
+  installed: string;
+  windows: string;
+};
+
+export type ReleaseInfo = {
+  tag: string;
+  version: string;
+  url: string;
+  notes: string;
+  publishedAt: string;
+};
+
+export type OutdatedAgent = {
+  nodeId: string;
+  name: string;
+  /** "" = agent too old to report its build version. */
+  version: string;
+};
+
+export type VersionInfo = {
+  current: string;
+  latest?: string;
+  hasUpdate: boolean;
+  release?: ReleaseInfo;
+  checkedAt?: string;
+  error?: string;
+  disabled?: boolean;
+  releasesUrl: string;
+  commands: UpdateCommands;
+  outdatedAgents: OutdatedAgent[];
 };
 
 export type Cam = { x: number; y: number; w: number; h: number };

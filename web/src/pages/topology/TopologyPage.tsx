@@ -10,6 +10,7 @@ import { EdgeLegend } from "./EdgeLegend";
 import { HubNode } from "./HubNode";
 import { MeshEdges } from "./MeshEdges";
 import { SettingsDrawer } from "./SettingsDrawer";
+import { UpdatePill } from "./UpdatePill";
 import { useCameraGestures } from "./useCameraGestures";
 import "./topology.css";
 import "./drawer.css";
@@ -58,6 +59,7 @@ export function TopologyPage() {
       </svg>
 
       <EdgeLegend />
+      <UpdatePill />
 
       {nodes.length === 0 ? <div className="topo-empty">等待 Agent 持 key 入网…</div> : null}
       {state.demo ? <div className="dev-chip">DEV</div> : null}

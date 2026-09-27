@@ -9,7 +9,9 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
+	"golang.zx2c4.com/wireguard/internal/update"
 	"golang.zx2c4.com/wireguard/meshcfg"
 )
 
@@ -24,6 +26,7 @@ type Server struct {
 	stats    *StatsService
 	hub      *Hub
 	geo      *GeoIP
+	updates  *update.Checker
 
 	httpGeoAt sync.Map // nodeID -> time.Time of last legacy-agent IP observation
 }
@@ -53,6 +56,7 @@ func NewServer(cfg meshcfg.MasterConfig) (*Server, error) {
 		stats:    stats,
 		hub:      hub,
 		geo:      geo,
+		updates:  update.NewChecker(6*time.Hour, cfg.DisableUpdateCheck),
 	}, nil
 }
 
@@ -70,6 +74,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/agent/whoami", s.handleAgentWhoami)
 	mux.HandleFunc("/api/agent/ws", s.hub.ServeWS)
 	mux.HandleFunc("/api/meta", s.handleMeta)
+	mux.HandleFunc("/api/version", s.handleVersion)
 
 	sub, err := fs.Sub(uiFS, "ui")
 	if err != nil {
@@ -100,6 +105,7 @@ func (s *Server) ListenAndServe() error {
 	stop := make(chan struct{})
 	defer close(stop)
 	go s.stats.Run(stop)
+	go s.updates.Run(stop)
 	fmt.Fprintf(os.Stderr, "wireguard-go master: listening on %s (data %s)\n", s.cfg.Listen, s.cfg.DataDir)
 	if s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
 		return http.ListenAndServeTLS(s.cfg.Listen, s.cfg.TLSCert, s.cfg.TLSKey, h)

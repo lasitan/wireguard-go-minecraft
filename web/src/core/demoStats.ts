@@ -1,4 +1,5 @@
-import type { Mesh, NodeStats, TrafficRange, TrafficSeries } from "./models";
+import type { LinkKind, Mesh, Node, NodeStats, TrafficRange, TrafficSeries } from "./models";
+import { demoAgentVersion } from "./demoVersion";
 import { hostKey, hostOf } from "../utils/hostOf";
 import { isOnline } from "../utils/isOnline";
 import { ResolveIpConflicts } from "../topology/ResolveIpConflicts";
@@ -30,6 +31,12 @@ function waveRate(id: string, role: string, t: number, phase: number): number {
   const fast = Math.sin(t / 5_300 + phase * 2) * 0.15;
   const noise = (Math.random() - 0.5) * 0.25;
   return Math.max(0, base * (1 + slow + fast + noise));
+}
+
+/** Control link a demo node would use: some clients stay on legacy HTTP polling. */
+export function demoLink(n: Node): LinkKind {
+  if (!isOnline(n) || n.disabled) return "offline";
+  return n.role === "server" || hash(n.id) % 4 !== 0 ? "ws" : "http";
 }
 
 type Acc = { at: number; rx: number; tx: number; ips: Map<string, [number, number]>; fwd: Map<string, [number, number]> };
@@ -109,9 +116,11 @@ export function demoNodeStats(mesh: Mesh, id: string): NodeStats {
       return { protocol: f.protocol, listen: f.listen, rx: Math.round(a[0]), tx: Math.round(a[1]) };
     });
 
+  const link = demoLink(n);
   return {
     nodeId: id,
-    link: !live ? "offline" : n.role === "server" ? "ws" : hash(id) % 4 === 0 ? "http" : "ws",
+    link,
+    agentVersion: link === "ws" ? demoAgentVersion(id) : undefined,
     lastSeen: n.lastSeen,
     connectedAt: live ? new Date(now - (hash(id) % 86_400) * 1000).toISOString() : undefined,
     rttMs: live ? 18 + (hash(id) % 60) + Math.random() * 4 : undefined,
