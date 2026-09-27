@@ -41,7 +41,7 @@ type storeSettings struct {
 	TransportJSON json.RawMessage
 }
 
-func OpenStore(dataDir string, seedEnroll, seedSubnet string) (*Store, error) {
+func OpenStore(dataDir string) (*Store, error) {
 	if err := os.MkdirAll(dataDir, 0750); err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func OpenStore(dataDir string, seedEnroll, seedSubnet string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	if err := s.ensureSeeds(seedEnroll, seedSubnet); err != nil {
+	if err := s.ensureSeeds(); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -177,17 +177,17 @@ func parseTime(s string) time.Time {
 	return t
 }
 
-func (s *Store) ensureSeeds(seedEnroll, seedSubnet string) error {
-	if seedEnroll == "" {
-		seedEnroll = "change-me-enroll"
-	}
-	if seedSubnet == "" {
-		seedSubnet = "10.10.0.0/24"
+// ensureSeeds fills first-run defaults. Enroll token and address pool are
+// edited from the web UI afterwards; existing values are never overwritten.
+func (s *Store) ensureSeeds() error {
+	enroll, err := NewEnrollToken()
+	if err != nil {
+		return err
 	}
 	defaults := map[string]string{
 		metaRevision:     "0",
-		metaEnrollToken:  seedEnroll,
-		metaVPNSubnet:    seedSubnet,
+		metaEnrollToken:  enroll,
+		metaVPNSubnet:    DefaultVPNSubnet,
 		metaDefaultIface: "wg0",
 		metaDefaultPoll:  "10s",
 		metaTransportJSON: `{
@@ -646,7 +646,7 @@ func (s *Store) DesiredForNodes(ids []string) (map[string]*meshcfg.DesiredConfig
 
 func nextAddress(subnet string, nodes []meshcfg.Node) (string, error) {
 	if subnet == "" {
-		subnet = "10.10.0.0/24"
+		subnet = DefaultVPNSubnet
 	}
 	prefix, err := netip.ParsePrefix(subnet)
 	if err != nil {

@@ -168,15 +168,13 @@ func serviceInstallMaster() error {
 		example := `{
   "listen": ":8443",
   "adminPassword": "change-me",
-  "enrollToken": "change-me-enroll",
-  "vpnSubnet": "10.10.0.0/24",
   "dataDir": "/var/lib/wireguard-mc"
 }
 `
 		if err := os.WriteFile(masterCfg, []byte(example), 0600); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword/enrollToken before use\n", masterCfg)
+		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword before use; enroll key is managed in the web UI\n", masterCfg)
 	}
 	_ = os.MkdirAll("/var/lib/wireguard-mc", 0750)
 

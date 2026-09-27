@@ -116,6 +116,11 @@ export type Meta = {
   defaultPoll?: string;
 };
 
+export type MetaPatch = {
+  enrollToken?: string;
+  vpnSubnet?: string;
+};
+
 export type UpdateCommands = {
   linux: string;
   linuxCn: string;

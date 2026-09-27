@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # wireguard-mc runtime image (WireGuard over TCP + optional Minecraft camouflage).
 # Requires at run time: --cap-add=NET_ADMIN --device=/dev/net/tun
-# Config: mount /etc/wireguard (agent/master/transport JSON or legacy conf)
+# Config: mount /etc/wireguard with wireguard-go-agent.json or wireguard-go-master.json
 ARG GO_VERSION=1.23.1
 ARG NODE_VERSION=22
 
@@ -35,10 +35,8 @@ RUN apt-get update -qq \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /out/wireguard-go /usr/bin/wireguard-go
-COPY wireguard-go-transport.json.example /etc/wireguard/wireguard-go-transport.json
 COPY wireguard-go-agent.json.example /etc/wireguard/wireguard-go-agent.json.example
 COPY wireguard-go-master.json.example /etc/wireguard/wireguard-go-master.json.example
-COPY debian/wg0.conf.example /etc/wireguard/wg0.conf.example
 
 VOLUME ["/etc/wireguard"]
 ENV LOG_LEVEL=error

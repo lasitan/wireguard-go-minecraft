@@ -15,5 +15,6 @@ Description: WireGuard userspace daemon with TCP + Minecraft camouflage
  with optional Minecraft protocol camouflage. Not compatible with kernel
  WireGuard or the stock UDP wireguard-go binary.
  .
- Installs the wireguard-go binary and example configs under /etc/wireguard.
- On upgrade, enabled wireguard-go@*.service instances are restarted automatically.
+ Installs the wireguard-go binary plus Master / Agent JSON examples under
+ /etc/wireguard; everything else is managed from the Master web UI.
+ On upgrade, running tunnels and the Master are restarted automatically.

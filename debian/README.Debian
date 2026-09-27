@@ -5,173 +5,72 @@ This package provides a customized wireguard-go that speaks WireGuard over
 TCP with optional Minecraft protocol camouflage. Both tunnel ends must use
 this binary (not kernel WireGuard / stock UDP wireguard-go).
 
-Key generation (same as wg)
----------------------------
+The package only ships two local config examples:
 
-  umask 077
-  wireguard-go genkey | tee private.key | wireguard-go pubkey > public.key
-  wireguard-go genpsk > psk.key
+  /etc/wireguard/wireguard-go-master.json.example   Master (control plane)
+  /etc/wireguard/wireguard-go-agent.json.example    Agent (tunnel node)
 
-Quick start — Master (control plane)
-------------------------------------
+Everything else - VPN addresses, links, routes, port forwards, transport /
+MC camouflage settings - is managed in the Master web UI and pushed to
+agents over the control connection.
 
-Master owns the mesh table and pushes desired config to agents. A host
-installed as master cannot also run an agent tunnel.
-
-1. sudo wireguard-go install master
-2. Edit /etc/wireguard/wireguard-go-master.json (adminPassword, listen, dataDir)
-3. systemctl restart wireguard-go-master
-4. Open http://HOST:8443/ — login, create nodes/links/forwards
-
-Agent nodes only need:
-
-  /etc/wireguard/wireguard-go-agent.json
-  {
-    "masterUrl": "http://MASTER:8443",
-    "key": "<enrollToken or node API key>"
-  }
-
-Agent local file only stores masterUrl + key. All other settings (interface,
-poll interval, transport/MC camouflage, peers, forwards) are pushed by Master
-via /api/agent/config and stored in Master's SQLite database (mesh.db).
-After first enroll, key is replaced with the node token automatically.
-
-Then: sudo wireguard-go install
-
-Transport (MC camouflage) remains local:
-  /etc/wireguard/wireguard-go-transport.json
-
-Legacy wg0.conf is disabled by default. Set WG_LEGACY_CONF=1 to load it.
-
-Quick start — legacy wg0.conf (optional)
-----------------------------------------
-
-1. Edit /etc/wireguard/wireguard-go-transport.json
-   (loginPluginSecret must match on both ends).
-2. Copy and edit the interface config:
-     cp /etc/wireguard/wg0.conf.example /etc/wireguard/wg0.conf
-     chmod 600 /etc/wireguard/wg0.conf
-3. Enable and start with WG_LEGACY_CONF=1, or keep using conf only when
-   wireguard-go-agent.json is absent and env is set on the unit.
-4. Status / logs:
-     systemctl status wireguard-go@wg0
-     journalctl -u wireguard-go@wg0 -f
-
-After apt upgrade, all enabled/active wireguard-go@ instances are restarted
-automatically so the new binary is picked up.
-
-Stop and remove the service unit instance:
-     sudo wireguard-go uninstall
-     sudo wireguard-go uninstall --purge   # also delete configs
-     sudo wireguard-go uninstall master [--purge]
-
-install / uninstall auto-elevate when not root: try `sudo -n` (silent if
-credentials are cached), then `pkexec` (desktop prompt), then interactive
-`sudo`. On Windows, `install`/`uninstall` trigger a UAC elevation (runas)
-and register a LocalSystem service named wireguard-go-<iface>.
-
-Foreground (debug):
-     sudo LOG_LEVEL=verbose /usr/bin/wireguard-go -f wg0
-     sudo /usr/bin/wireguard-go master
-
-Binary path: /usr/bin/wireguard-go
-Config dir:  /etc/wireguard/
-Unit files:  /lib/systemd/system/wireguard-go@.service
-             /lib/systemd/system/wireguard-go-master.service
-
-Docker
+Master
 ------
 
-Release workflow can build/push a multi-arch image (amd64+arm64) to GHCR when
-workflow_dispatch input "build_docker" is checked, or when repository Variable
-ENABLE_DOCKER_RELEASE=true. Optional Variable DOCKER_IMAGE overrides the image
-name (default ghcr.io/<owner>/<repo>).
+A host installed as master cannot also run an agent tunnel.
 
-Builds publish binaries/.deb directly to the GitHub Release (and Docker tags to
-GHCR). Actions Artifacts are not used, so artifact storage quota does not apply.
+1. sudo wireguard-go install master
+   (creates /etc/wireguard/wireguard-go-master.json from the example)
+2. Edit /etc/wireguard/wireguard-go-master.json:
+     listen, adminPassword, dataDir
+3. sudo systemctl restart wireguard-go-master
+4. Open http://HOST:8443/ and log in with adminPassword
+5. The enroll key (a random one is generated on first start) and the
+   address pool for new nodes are shown and edited in the web UI.
 
-Local build:
+Agent
+-----
 
-  bash scripts/package-docker.sh
-  # IMAGE=ghcr.io/OWNER/REPO bash scripts/package-docker.sh --push
+1. sudo wireguard-go install
+   (creates /etc/wireguard/wireguard-go-agent.json from the example)
+2. Edit /etc/wireguard/wireguard-go-agent.json:
+     {
+       "masterUrl": "http://MASTER:8443",
+       "key": "<enroll key from the Master web UI>"
+     }
+   After the first enroll the key is replaced with the node token.
+3. sudo systemctl restart wireguard-go@wg0
 
-Run (host network + TUN):
+Upgrade
+-------
 
-  mkdir -p config
-  cp /path/to/wg0.conf config/wg0.conf
-  cp /path/to/wireguard-go-transport.json config/
-  docker compose up -d
+  sudo wireguard-go update          # check GitHub Releases and upgrade
+  sudo wireguard-go update --check  # only report
 
-Or:
+apt / dpkg upgrades restart running wireguard-go@* instances and the Master.
 
-  docker run --rm --network host --cap-add=NET_ADMIN --cap-add=NET_RAW \
-    --device=/dev/net/tun \
-    -v "$PWD/config:/etc/wireguard" \
-    ghcr.io/OWNER/REPO:TAG
+Service management
+------------------
 
-Dual-server / TO NAT
---------------------
+  systemctl status wireguard-go@wg0        journalctl -u wireguard-go@wg0 -f
+  systemctl status wireguard-go-master     journalctl -u wireguard-go-master -f
 
-Three-node overlay on one VPN subnet (example 10.0.0.0/24):
+  sudo wireguard-go uninstall [--purge]            # agent
+  sudo wireguard-go uninstall master [--purge]     # master
 
-  C (internal-only) --ToNAT--> B (can egress) --Endpoint--> A (public)
+install / uninstall / update auto-elevate when not root (sudo -n, pkexec,
+then interactive sudo).
 
-  A = 10.0.0.1   B = 10.0.0.2   C = 10.0.0.3
+Foreground (debug):
 
-Example configs (installed under /etc/wireguard/):
+  sudo LOG_LEVEL=verbose /usr/bin/wireguard-go -f wg0
+  sudo /usr/bin/wireguard-go master
 
-  wg-nat-a.conf.example   public node
-  wg-nat-b.conf.example   NAT gateway / dual-server
-  wg-nat-c.conf.example   TO NAT client
+Paths
+-----
 
-Key options:
-
-  [Interface] ToNAT = true
-      C-side mode flag. [Peer] is a normal WireGuard peer to B
-      (PublicKey, Endpoint, AllowedIPs, …). Announces ToNAT on the wire
-      so B auto-marks the peer as NatClient.
-
-  B-side: no NatClient= / NatUpstream= needed.
-      Upstream is the peer that has Endpoint. When a ToNAT client connects,
-      B auto-registers it (SNAT + nested-block). Add one [Peer] per client
-      (PublicKey + AllowedIPs /32) for multi-client.
-
-  Optional overrides: NatUpstream=, NatClient=true|false
-
-AllowedIPs rules of thumb:
-
-  - On A: Peer B AllowedIPs must include B and C (e.g. 10.0.0.2/32, 10.0.0.3/32).
-  - On B: Peer A AllowedIPs = only A's VPN IP (e.g. 10.0.0.1/32).
-    Do not put 0.0.0.0/0 on A, or C's default route would enter A
-    instead of SNAT egress on B.
-  - On C: Peer B AllowedIPs = 0.0.0.0/0 (and optionally ::/0).
-
-C must not configure Endpoint to A's public address; B rejects nested
-reconnects to that public ListenPort.
-
-Windows (Windows 10+ amd64)
----------------------------
-
-Release binaries are named wireguard-mc-windows10-amd64-<version>.exe.
-
-The exe embeds the official signed wintun.dll and releases it beside itself
-on first tunnel start (no manual copy needed). The process needs write
-access to the directory containing the .exe.
-
-On first start it also releases wireguard-go-transport.json into the config
-directory when missing (same example as the Debian package). Edit
-loginPluginSecret so both peers match.
-
-Config directory (override with WG_CONF_DIR):
-
-  %ProgramData%\wireguard\<iface>.conf
-  %ProgramData%\wireguard\wireguard-go-transport.json
-
-When NatClient / NatUpstream is enabled on Windows, the NAT gateway enables
-IP forwarding (Linux ip_forward equivalent) via:
-
-  1. HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\IPEnableRouter=1
-  2. Set-NetIPInterface -Forwarding Enabled on interfaces
-
-Run elevated (Administrator). Nested reconnects are still dropped in userspace;
-WinNAT / firewall rules are best-effort extras.
+  Binary:  /usr/bin/wireguard-go
+  Config:  /etc/wireguard/
+  Data:    /var/lib/wireguard-mc/  (Master SQLite mesh.db)
+  Units:   /lib/systemd/system/wireguard-go@.service
+           /lib/systemd/system/wireguard-go-master.service

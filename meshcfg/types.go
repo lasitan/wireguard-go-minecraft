@@ -27,9 +27,9 @@ const (
 
 // Mesh is the authoritative configuration table stored on the Master.
 type Mesh struct {
-	Revision int      `json:"revision"`
-	Nodes    []Node   `json:"nodes"`
-	Links    []Link   `json:"links"`
+	Revision int       `json:"revision"`
+	Nodes    []Node    `json:"nodes"`
+	Links    []Link    `json:"links"`
 	Forwards []Forward `json:"forwards"`
 }
 
@@ -120,16 +120,14 @@ type AgentBootstrap struct {
 }
 
 // MasterConfig is the minimal process bootstrap for Master (path to SQLite + listen/auth).
-// Mesh/enroll/transport and all agent settings live in SQLite under DataDir.
+// Enroll token, address pool, mesh, transport and all agent settings live in
+// SQLite under DataDir and are edited from the web UI.
 type MasterConfig struct {
 	Listen        string `json:"listen"`
 	AdminPassword string `json:"adminPassword"`
 	DataDir       string `json:"dataDir"` // SQLite mesh.db lives here
 	TLSCert       string `json:"tlsCert,omitempty"`
 	TLSKey        string `json:"tlsKey,omitempty"`
-	// Seeded into SQLite on first run when meta is empty:
-	EnrollToken string `json:"enrollToken,omitempty"`
-	VPNSubnet   string `json:"vpnSubnet,omitempty"`
 	// GeoIPDB is an offline country mmdb (GeoLite2-Country / DB-IP Lite).
 	// Defaults to <dataDir>/GeoLite2-Country.mmdb or dbip-country-lite.mmdb.
 	GeoIPDB string `json:"geoipDb,omitempty"`

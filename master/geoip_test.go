@@ -12,11 +12,7 @@ import (
 )
 
 func TestGeoIPOnlineFallbackAndCache(t *testing.T) {
-	st, err := OpenStore(t.TempDir(), "enroll", "10.10.0.0/24")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
+	st := openTestStore(t, "10.10.0.0/24")
 
 	var hits atomic.Int32
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

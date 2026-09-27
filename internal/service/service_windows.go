@@ -186,8 +186,6 @@ func serviceInstallMaster() error {
 		example := fmt.Sprintf(`{
   "listen": ":8443",
   "adminPassword": "change-me",
-  "enrollToken": "change-me-enroll",
-  "vpnSubnet": "10.10.0.0/24",
   "dataDir": %q
 }
 `, dataDir)
@@ -195,7 +193,7 @@ func serviceInstallMaster() error {
 			return err
 		}
 		_ = os.MkdirAll(dataDir, 0750)
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword/enrollToken\n", masterCfg)
+		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword; enroll key is managed in the web UI\n", masterCfg)
 	}
 	if err := writeRoleLock(meshcfg.RoleMaster); err != nil {
 		return err

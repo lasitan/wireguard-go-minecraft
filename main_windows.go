@@ -78,11 +78,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "wireguard-go: wintun.dll: %v\n", err)
 		os.Exit(ExitSetupFailed)
 	}
-	if err := service.EnsureTransportConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go: transport config: %v\n", err)
-		os.Exit(ExitSetupFailed)
-	}
-
 	logLevel := device.LogLevelError
 	switch os.Getenv("LOG_LEVEL") {
 	case "verbose", "debug":

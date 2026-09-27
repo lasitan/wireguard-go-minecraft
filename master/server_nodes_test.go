@@ -44,11 +44,12 @@ func (c *apiClient) do(method, path string, body any, out any) int {
 
 func newAPIFixture(t *testing.T) (*Server, *apiClient) {
 	t.Helper()
-	s, err := NewServer(meshcfg.MasterConfig{AdminPassword: "pw", DataDir: t.TempDir(), EnrollToken: "enroll", VPNSubnet: "10.10.0.0/24", DisableGeoIPOnline: true})
+	s, err := NewServer(meshcfg.MasterConfig{AdminPassword: "pw", DataDir: t.TempDir(), DisableGeoIPOnline: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.store.Close() })
+	setTestSettings(t, s.store, "10.10.0.0/24")
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
 	c := &apiClient{t: t, base: srv.URL}

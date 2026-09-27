@@ -41,7 +41,7 @@ func NewServer(cfg meshcfg.MasterConfig) (*Server, error) {
 	if cfg.AdminPassword == "" {
 		return nil, fmt.Errorf("adminPassword is required in %s", meshcfg.MasterFileName)
 	}
-	st, err := OpenStore(cfg.DataDir, cfg.EnrollToken, cfg.VPNSubnet)
+	st, err := OpenStore(cfg.DataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -122,12 +122,23 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodPatch {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if !s.requireAdmin(w, r) {
 		return
+	}
+	if r.Method == http.MethodPatch {
+		var p SettingsPatch
+		if err := readJSON(r, &p); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+			return
+		}
+		if err := s.store.UpdateSettings(p); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
 	}
 	settings, err := s.store.Settings()
 	if err != nil {
@@ -135,9 +146,9 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enrollToken": settings.EnrollToken,
-		"vpnSubnet":   settings.VPNSubnet,
-		"listen":      s.cfg.Listen,
+		"enrollToken":  settings.EnrollToken,
+		"vpnSubnet":    settings.VPNSubnet,
+		"listen":       s.cfg.Listen,
 		"defaultIface": settings.DefaultIface,
 		"defaultPoll":  settings.DefaultPoll,
 	})
@@ -264,15 +275,13 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// mustEnroll returns the current enroll token, or a value no agent can send on error.
 func mustEnroll(s *Server) string {
 	settings, err := s.store.Settings()
-	if err != nil {
-		return s.cfg.EnrollToken
+	if err != nil || settings.EnrollToken == "" {
+		return "\x00"
 	}
-	if settings.EnrollToken != "" {
-		return settings.EnrollToken
-	}
-	return s.cfg.EnrollToken
+	return settings.EnrollToken
 }
 
 func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {

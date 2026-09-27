@@ -46,20 +46,10 @@ override_dh_auto_install:
 	install -d debian/wireguard-mc/usr/bin
 	install -m 0755 wireguard-go debian/wireguard-mc/usr/bin/wireguard-go
 	install -d debian/wireguard-mc/etc/wireguard
-	if [ -f wireguard-go-transport.json ]; then \
-		install -m 0644 wireguard-go-transport.json debian/wireguard-mc/etc/wireguard/wireguard-go-transport.json; \
-	else \
-		install -m 0644 wireguard-go-transport.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-transport.json; \
-	fi
-	install -m 0644 wireguard-go-agent.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-agent.json.example
 	install -m 0644 wireguard-go-master.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-master.json.example
-	install -m 0600 debian/wg0.conf.example debian/wireguard-mc/etc/wireguard/wg0.conf.example
-	install -m 0600 debian/wg-nat-a.conf.example debian/wireguard-mc/etc/wireguard/wg-nat-a.conf.example
-	install -m 0600 debian/wg-nat-b.conf.example debian/wireguard-mc/etc/wireguard/wg-nat-b.conf.example
-	install -m 0600 debian/wg-nat-c.conf.example debian/wireguard-mc/etc/wireguard/wg-nat-c.conf.example
+	install -m 0644 wireguard-go-agent.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-agent.json.example
 	install -d debian/wireguard-mc/usr/share/doc/wireguard-mc
 	install -m 0644 debian/README.Debian debian/wireguard-mc/usr/share/doc/wireguard-mc/README.Debian
-	install -D -m 0644 debian/mesh.example.json debian/wireguard-mc/usr/share/doc/wireguard-mc/mesh.example.json
 	install -d debian/wireguard-mc/lib/systemd/system
 	install -m 0644 debian/wireguard-go@.service debian/wireguard-mc/lib/systemd/system/wireguard-go@.service
 	install -m 0644 debian/wireguard-go-master.service debian/wireguard-mc/lib/systemd/system/wireguard-go-master.service

@@ -147,6 +147,82 @@
 }
 .cmd-hint { margin: 0.35rem 0 0; animation: update-in 0.22s ease; }
 
+/* —— Editable settings (enroll key / address pool) —— */
+.setting {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.6rem 0.75rem 0.5rem;
+  margin-top: 0.9rem;
+  background: #fff;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, background-color 0.25s ease;
+}
+.setting.editing {
+  border-color: #ffd2a1;
+  box-shadow: 0 6px 18px rgba(243, 128, 32, 0.08);
+}
+.setting.saved { animation: setting-saved 0.9s ease; }
+@keyframes setting-saved {
+  0% { background-color: #e7f8ef; border-color: #9ddfbd; }
+  100% { background-color: #fff; border-color: var(--border); }
+}
+.setting-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.6rem;
+}
+.setting-label { font-size: 0.8rem; font-weight: 650; }
+.setting-tools { display: inline-flex; gap: 0.3rem; animation: update-in 0.2s ease; }
+.setting-btn {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  background: #f1f4f7;
+  color: var(--text);
+  font-weight: 500;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+.setting-btn:hover { background: #e6ebf1; }
+.setting-btn.done { background: var(--ok); color: #fff; animation: copy-pop 0.3s ease; }
+.setting-value {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.82rem;
+  word-break: break-all;
+  user-select: all;
+  animation: update-in 0.25s ease;
+}
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.setting-edit { margin-top: 0.35rem; animation: setting-open 0.22s cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes setting-open {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.setting-edit input { width: 100%; margin-bottom: 0.4rem; font-size: 0.82rem; }
+.setting-actions { display: flex; gap: 0.4rem; }
+.setting-actions .push { margin-left: auto; }
+.setting-save, .setting-ghost {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  transition: opacity 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+.setting-save:disabled { opacity: 0.5; cursor: not-allowed; }
+.setting-ghost { background: #fff; color: var(--text); border: 1px solid var(--border); }
+.setting-ghost:hover { background: #f6f8fa; border-color: #cfd6de; }
+.setting-err {
+  font-size: 0.74rem;
+  color: var(--danger);
+  min-height: 1.1em;
+  margin-top: 0.3rem;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.setting-err.show { opacity: 1; transform: translateY(0); }
+.setting-hint { margin: 0.3rem 0 0; }
+
 /* —— Outdated agents —— */
 .outdated-head { font-size: 0.8rem; font-weight: 650; color: var(--warn); margin: 0.7rem 0 0.35rem; }
 .outdated-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; }

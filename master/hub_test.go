@@ -19,11 +19,7 @@ import (
 
 func newHubFixture(t *testing.T) (*Store, *Hub, *httptest.Server) {
 	t.Helper()
-	st, err := OpenStore(t.TempDir(), "enroll", "10.10.0.0/16")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
+	st := openTestStore(t, "10.10.0.0/16")
 	hub := NewHub(st, NewStatsService(st))
 	srv := httptest.NewServer(http.HandlerFunc(hub.ServeWS))
 	t.Cleanup(srv.Close)
