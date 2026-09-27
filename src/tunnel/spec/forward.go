@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package tunnel
+package spec
 
 import (
 	"net"
@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	protoTCP = "tcp"
-	protoUDP = "udp"
+	ProtoTCP = "tcp"
+	ProtoUDP = "udp"
 )
 
 type PortForwardSpec struct {

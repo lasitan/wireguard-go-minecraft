@@ -5,24 +5,29 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package windows
 
 import (
 	"fmt"
-	"golang.zx2c4.com/wireguard/meshcfg"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"golang.zx2c4.com/wireguard/src/core"
+
+	"golang.zx2c4.com/wireguard/src/core/config"
+
 	"golang.org/x/sys/windows/svc"
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/internal/agent"
-	"golang.zx2c4.com/wireguard/internal/service"
-	"golang.zx2c4.com/wireguard/internal/tunnel"
-	"golang.zx2c4.com/wireguard/ipc"
-	"golang.zx2c4.com/wireguard/tun"
+
+	"golang.zx2c4.com/wireguard/src/agent"
+	tunconf "golang.zx2c4.com/wireguard/src/tunnel/config"
+	"golang.zx2c4.com/wireguard/src/tunnel/natgw"
+	"golang.zx2c4.com/wireguard/src/tunnel/portfwd"
+	"golang.zx2c4.com/wireguard/src/wireguard/conn"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
+	"golang.zx2c4.com/wireguard/src/wireguard/ipc"
+	"golang.zx2c4.com/wireguard/src/wireguard/tun"
 )
 
 // runAsWindowsServiceIfRequested handles SCM startup:
@@ -33,9 +38,9 @@ import (
 func runAsWindowsServiceIfRequested() bool {
 	if len(os.Args) >= 3 && os.Args[1] == "-service" {
 		iface := os.Args[2]
-		if err := svc.Run(service.WindowsServiceName(iface), &wgWindowsService{iface: iface}); err != nil {
+		if err := svc.Run(WindowsServiceName(iface), &wgWindowsService{iface: iface}); err != nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: service error: %v\n", err)
-			os.Exit(ExitSetupFailed)
+			os.Exit(core.ExitSetupFailed)
 		}
 		return true
 	}
@@ -78,16 +83,16 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 		return true, 1
 	}
 
-	var natgw *tunnel.NatGateway
-	fwd := tunnel.NewPortForwardManager(logger)
+	var gateway *natgw.NatGateway
+	fwd := portfwd.NewPortForwardManager(logger)
 	var fwdMu sync.Mutex
 	agentStop := make(chan struct{})
 	if boot, err := agent.LoadBootstrap(); err == nil {
 		go agent.ConfigLoop(dev, logger, m.iface, &fwd, &fwdMu, boot, agentStop)
 	} else if os.Getenv("WG_LEGACY_CONF") == "1" {
-		confFile := filepath.Join(meshcfg.ConfDir(), m.iface+".conf")
+		confFile := filepath.Join(config.ConfDir(), m.iface+".conf")
 		if _, err := os.Stat(confFile); err == nil {
-			result, err := tunnel.ApplyWGConf(dev, logger, m.iface)
+			result, err := tunconf.ApplyWGConf(dev, logger, m.iface)
 			if err != nil {
 				logger.Errorf("conf: %v", err)
 				_ = tcpBind.Close()
@@ -98,15 +103,15 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 				tcpBind.SetDialToNAT(true)
 			}
 			if result != nil && result.Nat.ServerMode {
-				natgw = tunnel.NewNatGateway(logger, m.iface, result.Nat)
-				if err := natgw.Start(dev); err != nil {
+				gateway = natgw.NewNatGateway(logger, m.iface, result.Nat)
+				if err := gateway.Start(dev); err != nil {
 					logger.Errorf("NAT gateway: %v", err)
 					_ = tcpBind.Close()
 					dev.Close()
 					return true, 1
 				}
 				dev.SetNatClientHandler(func(pk device.NoisePublicKey) {
-					natgw.RegisterClient(pk)
+					gateway.RegisterClient(pk)
 				})
 			}
 			_ = fwd.StartFromPeers(result.Peers)
@@ -117,8 +122,8 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 	if err != nil {
 		logger.Errorf("UAPI: %v", err)
 		close(agentStop)
-		if natgw != nil {
-			natgw.Close(dev)
+		if gateway != nil {
+			gateway.Close(dev)
 		}
 		_ = tcpBind.Close()
 		dev.Close()
@@ -157,8 +162,8 @@ loop:
 	changes <- svc.Status{State: svc.StopPending}
 	close(agentStop)
 	_ = tcpBind.Close()
-	if natgw != nil {
-		natgw.Close(dev)
+	if gateway != nil {
+		gateway.Close(dev)
 	}
 	fwdMu.Lock()
 	if fwd != nil {

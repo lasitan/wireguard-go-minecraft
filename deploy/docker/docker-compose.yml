@@ -1,14 +1,14 @@
 # Example: edit configs under ./config then:
 #   docker compose up -d
 #
-# Image: set WG_MC_IMAGE or build locally with scripts/package-docker.sh
+# Image: set WG_MC_IMAGE or build locally with deploy/scripts/package-docker.sh
 services:
   wireguard:
     image: ${WG_MC_IMAGE:-ghcr.io/lasitan/wireguard-go-minecraft:latest}
     build:
-      context: .
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
       args:
-        VERSION: ${WG_MC_VERSION:-dev}
         GO_VERSION: ${GO_VERSION:-1.23.1}
     container_name: wireguard-mc
     restart: unless-stopped

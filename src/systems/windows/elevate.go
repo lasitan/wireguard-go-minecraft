@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package service
+package windows
 
 import (
 	"fmt"
@@ -17,8 +17,8 @@ import (
 )
 
 var (
-	shell32              = windows.NewLazySystemDLL("shell32.dll")
-	procShellExecuteExW  = shell32.NewProc("ShellExecuteExW")
+	shell32             = windows.NewLazySystemDLL("shell32.dll")
+	procShellExecuteExW = shell32.NewProc("ShellExecuteExW")
 )
 
 // SHELLEXECUTEINFOW

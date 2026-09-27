@@ -67,7 +67,7 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Ensure GitHub CLI
-        run: bash scripts/ensure-gh.sh
+        run: bash deploy/scripts/ensure-gh.sh
 
       - name: Create and push version tag
         env:
@@ -140,15 +140,15 @@ jobs:
           fi
 
       - name: Sync Debian changelog
-        run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
+        run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" deploy/debian/changelog
 
-      - name: Build Master UI (go:embed master/ui)
+      - name: Build Master UI (go:embed src/master/ui/dist)
         env:
           NODE_IMAGE: ${{ vars.NODE_BUILD_IMAGE }}
         run: |
           set -euo pipefail
-          chmod +x scripts/build-master-ui.sh
-          NODE_IMAGE="${NODE_IMAGE:-node:22-bookworm}" bash scripts/build-master-ui.sh
+          chmod +x deploy/scripts/build-master-ui.sh
+          NODE_IMAGE="${NODE_IMAGE:-node:22-bookworm}" bash deploy/scripts/build-master-ui.sh
 
       - name: Verify Go modules and packages
         env:
@@ -161,7 +161,7 @@ jobs:
             export PATH="/usr/local/go/bin:${PATH}"
           fi
           go version
-          go test ./meshcfg/... ./internal/... ./master/... ./conn/...
+          go test ./src/...
 
       - name: Clean stale dist and root debs
         run: |
@@ -213,26 +213,27 @@ jobs:
                   | tar -C /usr/local -xz
                 export PATH="/usr/local/go/bin:${PATH}"
                 go version
-                chmod +x debian/rules
+                chmod +x deploy/debian/rules
                 BUILD_ROOT=/tmp/wireguard-mc-build
                 rm -rf "${BUILD_ROOT}"
                 mkdir -p "${BUILD_ROOT}/wireguard-mc"
                 tar -C /src \
                   --exclude=./dist \
                   --exclude=./.git \
-                  --exclude=./web/node_modules \
+                  --exclude=./src/web/node_modules \
                   --exclude=./.github/workflows \
                   -cf - . \
                   | tar -C "${BUILD_ROOT}/wireguard-mc" -xf -
                 cd "${BUILD_ROOT}/wireguard-mc"
-                test -f master/ui/index.html
+                test -f src/master/ui/dist/index.html
+                cp -r deploy/debian debian
                 sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
                 fakeroot dpkg-buildpackage -us -uc -b
                 deb_name="wireguard-mc_${DEB_UPSTREAM}-1_$(dpkg-architecture -qDEB_HOST_ARCH).deb"
                 cp "${BUILD_ROOT}/${deb_name}" /src/
                 install -m 0755 wireguard-go "/src/dist/release/bin/.build-${deb_name%.deb}"
                 if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ]; then
-                  chown -R "${HOST_UID}:${HOST_GID}" /src/dist /src/debian 2>/dev/null || true
+                  chown -R "${HOST_UID}:${HOST_GID}" /src/dist /src/deploy/debian 2>/dev/null || true
                   find /src -maxdepth 1 -name "wireguard-mc*.deb" -exec chown "${HOST_UID}:${HOST_GID}" {} + 2>/dev/null || true
                 fi
               '
@@ -259,11 +260,11 @@ jobs:
             export PATH="/usr/local/go/bin:${PATH}"
           fi
           go version
-          if [[ ! -f third_party/wintun/amd64/wintun.dll || ! -f third_party/wintun/arm64/wintun.dll ]]; then
+          if [[ ! -f src/systems/windows/wintun/amd64/wintun.dll || ! -f src/systems/windows/wintun/arm64/wintun.dll ]]; then
             apt-get update -qq
             apt-get install -y -qq --no-install-recommends unzip >/dev/null || sudo apt-get install -y -qq unzip
-            chmod +x scripts/fetch-wintun.sh
-            ./scripts/fetch-wintun.sh
+            chmod +x deploy/scripts/fetch-wintun.sh
+            ./deploy/scripts/fetch-wintun.sh
           fi
           for key in $(jq -r 'to_entries[] | select(.value.goos=="windows") | .key' "$json_file" | sort); do
             friendly="$(jq -r --arg k "$key" '.[$k].friendlyName' "$json_file")"
@@ -274,8 +275,8 @@ jobs:
             out="dist/release/bin/wireguard-mc-${friendly}-${DEB_UPSTREAM}${ext}"
             echo "Building ${key} (GOOS=${goos} GOARCH=${goarch}, minOS=${minos:-any}) → ${out}"
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
-              -ldflags "-s -w -X main.Version=${WG_MC_VERSION}" \
-              -o "$out" .
+              -ldflags "-s -w -X golang.zx2c4.com/wireguard/src/core/version.Version=${DEB_UPSTREAM}" \
+              -o "$out" ./src
             chmod a+x "$out" || true
           done
           ls -la dist/release/bin/
@@ -295,7 +296,7 @@ jobs:
           done
 
       - name: Ensure GitHub CLI
-        run: bash scripts/ensure-gh.sh
+        run: bash deploy/scripts/ensure-gh.sh
 
       - name: Upload x86 assets to GitHub Release
         run: |
@@ -321,10 +322,9 @@ jobs:
           remote="${IMAGE}:${DEB_UPSTREAM}-amd64"
           docker build \
             --platform linux/amd64 \
-            --build-arg "VERSION=${WG_MC_VERSION}" \
             --build-arg "GO_VERSION=${GO_VERSION}" \
             -t "${remote}" \
-            -f Dockerfile \
+            -f deploy/docker/Dockerfile \
             .
           docker push "${remote}"
           echo "Pushed ${remote}"
@@ -362,15 +362,15 @@ jobs:
           fi
 
       - name: Sync Debian changelog
-        run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
+        run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" deploy/debian/changelog
 
-      - name: Build Master UI (go:embed master/ui)
+      - name: Build Master UI (go:embed src/master/ui/dist)
         env:
           NODE_IMAGE: ${{ vars.NODE_BUILD_IMAGE }}
         run: |
           set -euo pipefail
-          chmod +x scripts/build-master-ui.sh
-          NODE_IMAGE="${NODE_IMAGE:-node:22-bookworm}" bash scripts/build-master-ui.sh
+          chmod +x deploy/scripts/build-master-ui.sh
+          NODE_IMAGE="${NODE_IMAGE:-node:22-bookworm}" bash deploy/scripts/build-master-ui.sh
 
       - name: Clean stale dist and root debs
         run: |
@@ -422,26 +422,27 @@ jobs:
                   | tar -C /usr/local -xz
                 export PATH="/usr/local/go/bin:${PATH}"
                 go version
-                chmod +x debian/rules
+                chmod +x deploy/debian/rules
                 BUILD_ROOT=/tmp/wireguard-mc-build
                 rm -rf "${BUILD_ROOT}"
                 mkdir -p "${BUILD_ROOT}/wireguard-mc"
                 tar -C /src \
                   --exclude=./dist \
                   --exclude=./.git \
-                  --exclude=./web/node_modules \
+                  --exclude=./src/web/node_modules \
                   --exclude=./.github/workflows \
                   -cf - . \
                   | tar -C "${BUILD_ROOT}/wireguard-mc" -xf -
                 cd "${BUILD_ROOT}/wireguard-mc"
-                test -f master/ui/index.html
+                test -f src/master/ui/dist/index.html
+                cp -r deploy/debian debian
                 sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
                 fakeroot dpkg-buildpackage -us -uc -b
                 deb_name="wireguard-mc_${DEB_UPSTREAM}-1_$(dpkg-architecture -qDEB_HOST_ARCH).deb"
                 cp "${BUILD_ROOT}/${deb_name}" /src/
                 install -m 0755 wireguard-go "/src/dist/release/bin/.build-${deb_name%.deb}"
                 if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ]; then
-                  chown -R "${HOST_UID}:${HOST_GID}" /src/dist /src/debian 2>/dev/null || true
+                  chown -R "${HOST_UID}:${HOST_GID}" /src/dist /src/deploy/debian 2>/dev/null || true
                   find /src -maxdepth 1 -name "wireguard-mc*.deb" -exec chown "${HOST_UID}:${HOST_GID}" {} + 2>/dev/null || true
                 fi
               '
@@ -469,7 +470,7 @@ jobs:
           done
 
       - name: Ensure GitHub CLI
-        run: bash scripts/ensure-gh.sh
+        run: bash deploy/scripts/ensure-gh.sh
 
       - name: Upload ARM assets to GitHub Release
         run: |
@@ -495,10 +496,9 @@ jobs:
           remote="${IMAGE}:${DEB_UPSTREAM}-arm64"
           docker build \
             --platform linux/arm64 \
-            --build-arg "VERSION=${WG_MC_VERSION}" \
             --build-arg "GO_VERSION=${GO_VERSION}" \
             -t "${remote}" \
-            -f Dockerfile \
+            -f deploy/docker/Dockerfile \
             .
           docker push "${remote}"
           echo "Pushed ${remote}"
@@ -527,7 +527,7 @@ jobs:
           path: checkout
 
       - name: Ensure GitHub CLI
-        run: bash scripts/ensure-gh.sh
+        run: bash deploy/scripts/ensure-gh.sh
 
       - name: Publish multi-arch Docker manifest
         if: ${{ env.BUILD_DOCKER == 'true' }}

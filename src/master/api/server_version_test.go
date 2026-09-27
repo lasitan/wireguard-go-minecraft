@@ -1,4 +1,4 @@
-package master
+package api
 
 import (
 	"context"
@@ -9,9 +9,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"golang.zx2c4.com/wireguard/internal/update"
-	"golang.zx2c4.com/wireguard/meshcfg"
-	"golang.zx2c4.com/wireguard/meshcfg/wire"
+	"golang.zx2c4.com/wireguard/src/core"
+	"golang.zx2c4.com/wireguard/src/core/wire"
+	"golang.zx2c4.com/wireguard/src/update"
 )
 
 func TestVersionAPI(t *testing.T) {
@@ -22,8 +22,8 @@ func TestVersionAPI(t *testing.T) {
 	}
 	s.updates.CheckNow()
 
-	oldAgent, _ := s.store.Enroll("old", meshcfg.RoleClient, "", 0)
-	newAgent, _ := s.store.Enroll("new", meshcfg.RoleClient, "", 0)
+	oldAgent, _ := s.store.Enroll("old", core.RoleClient, "", 0)
+	newAgent, _ := s.store.Enroll("new", core.RoleClient, "", 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, a := range []struct{ token, ver string }{{oldAgent.Token, "wg-mc-agent/2"}, {newAgent.Token, "2.0.3"}} {

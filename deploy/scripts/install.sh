@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-line install / upgrade for wireguard-mc (Linux):
-#   curl -fsSL https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/scripts/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/deploy/scripts/install.sh | sudo bash
 # Env:
 #   WG_MC_VERSION   pin a version (e.g. 2.0.3); default = latest release
 #   WG_MC_GH_PROXY  download mirror prefix (e.g. https://ghfast.top/)

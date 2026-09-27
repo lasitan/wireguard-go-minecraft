@@ -3,26 +3,25 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package tunnel
+package config
 
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net"
 	"net/netip"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/meshcfg"
+	"golang.zx2c4.com/wireguard/src/tunnel/spec"
+
+	"golang.zx2c4.com/wireguard/src/core/config"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 type IfaceNetConfig struct {
@@ -30,41 +29,10 @@ type IfaceNetConfig struct {
 	mtu       int
 }
 
-// PeerHookConfig holds per-peer extras that are not part of WireGuard UAPI.
-type PeerHookConfig struct {
-	label         string // truncated public key for logs
-	publicKeyB64  string // original base64 public key
-	publicKeyHex  string
-	endpoint      string // Endpoint= from conf (empty if unset)
-	allowedIP     string // first usable host from AllowedIPs (for ForwardTCP/UDP shorthand)
-	allowedHosts  []string
-	hasAllowedIPs bool
-	hasKeepalive  bool
-	natClient     bool // effective NatClient (after auto-detect)
-	natClientSet  bool // NatClient= was present in conf
-	forwards      []PortForwardSpec
-	onUp          []string
-	onDown        []string
-}
-
-// NatGatewayResult is populated when dual-server / TO NAT is configured.
-type NatGatewayResult struct {
-	ToNATClient    bool // C-side Interface ToNAT=true
-	ServerMode     bool // B-side: ListenPort + upstream — ready for ToNAT clients
-	NatUpstreamB64 string
-	ListenPort     uint16
-	ClientHosts    []string // explicit NatClient=true hosts (optional seed)
-	ClientKeyHex   []string // explicit NatClient=true keys
-	UpstreamAddr   netip.AddrPort
-	VPNPrefixes    []netip.Prefix
-	// PeersByKeyHex maps peer public key hex → AllowedIPs hosts (for runtime ToNAT)
-	PeersByKeyHex map[string][]string
-}
-
 type ConfApplyResult struct {
 	NetCfg IfaceNetConfig
-	Peers  []PeerHookConfig
-	Nat    NatGatewayResult
+	Peers  []spec.PeerHookConfig
+	Nat    spec.NatGatewayResult
 }
 
 func (c IfaceNetConfig) Addresses() []string { return c.addresses }
@@ -73,7 +41,7 @@ func (c IfaceNetConfig) MTU() int            { return c.mtu }
 // applyWGConf reads /etc/wireguard/<iface>.conf, applies UAPI settings,
 // configures Address/MTU, starts ForwardTCP proxies, and runs peer OnUp scripts.
 func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*ConfApplyResult, error) {
-	confPath := filepath.Join(meshcfg.ConfDir(), iface+".conf")
+	confPath := filepath.Join(config.ConfDir(), iface+".conf")
 	f, err := os.Open(confPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -87,8 +55,8 @@ func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*Conf
 	w := &buf
 	expectedPeers := 0
 	var netCfg IfaceNetConfig
-	var peers []PeerHookConfig
-	var cur *PeerHookConfig
+	var peers []spec.PeerHookConfig
+	var cur *spec.PeerHookConfig
 	var toNATClient bool
 	var natUpstreamB64 string
 	var listenPort uint16
@@ -115,7 +83,7 @@ func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*Conf
 			case "[peer]":
 				flushPeer()
 				inInterface, inPeer = false, true
-				cur = &PeerHookConfig{}
+				cur = &spec.PeerHookConfig{}
 			default:
 				flushPeer()
 				inInterface, inPeer = false, false
@@ -190,12 +158,12 @@ func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*Conf
 				}
 				fmt.Fprintf(w, "public_key=%s\n", hexKey)
 				expectedPeers++
-				cur.publicKeyB64 = val
-				cur.publicKeyHex = hexKey
+				cur.PublicKeyB64 = val
+				cur.PublicKeyHex = hexKey
 				if len(val) > 8 {
-					cur.label = val[:4] + "…" + val[len(val)-4:]
+					cur.Label = val[:4] + "…" + val[len(val)-4:]
 				} else {
-					cur.label = val
+					cur.Label = val
 				}
 			case "presharedkey":
 				hexKey, err := base64ToHex(val)
@@ -204,7 +172,7 @@ func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*Conf
 				}
 				fmt.Fprintf(w, "preshared_key=%s\n", hexKey)
 			case "endpoint":
-				cur.endpoint = val
+				cur.Endpoint = val
 				fmt.Fprintf(w, "endpoint=%s\n", val)
 			case "allowedips":
 				for _, cidr := range strings.Split(val, ",") {
@@ -213,50 +181,50 @@ func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*Conf
 						continue
 					}
 					fmt.Fprintf(w, "allowed_ip=%s\n", cidr)
-					cur.hasAllowedIPs = true
+					cur.HasAllowedIPs = true
 					if host, err := firstHostFromCIDR(cidr); err == nil {
-						if cur.allowedIP == "" {
-							cur.allowedIP = host
+						if cur.AllowedIP == "" {
+							cur.AllowedIP = host
 						}
-						cur.allowedHosts = append(cur.allowedHosts, host)
+						cur.AllowedHosts = append(cur.AllowedHosts, host)
 					}
 				}
 			case "persistentkeepalive":
 				fmt.Fprintf(w, "persistent_keepalive_interval=%s\n", val)
-				cur.hasKeepalive = true
+				cur.HasKeepalive = true
 			case "natclient":
 				v := strings.ToLower(val)
 				switch v {
 				case "true", "yes", "1", "on":
-					cur.natClient = true
-					cur.natClientSet = true
+					cur.NatClient = true
+					cur.NatClientSet = true
 				case "false", "no", "0", "off":
-					cur.natClient = false
-					cur.natClientSet = true
+					cur.NatClient = false
+					cur.NatClientSet = true
 				case "":
 					// ignore
 				default:
 					return nil, fmt.Errorf("invalid NatClient %q", val)
 				}
 			case "forwardtcp":
-				specs, err := parseForwardList(val, cur.allowedIP, protoTCP)
+				specs, err := parseForwardList(val, cur.AllowedIP, spec.ProtoTCP)
 				if err != nil {
 					return nil, fmt.Errorf("ForwardTCP: %w", err)
 				}
-				cur.forwards = append(cur.forwards, specs...)
+				cur.Forwards = append(cur.Forwards, specs...)
 			case "forwardudp":
-				specs, err := parseForwardList(val, cur.allowedIP, protoUDP)
+				specs, err := parseForwardList(val, cur.AllowedIP, spec.ProtoUDP)
 				if err != nil {
 					return nil, fmt.Errorf("ForwardUDP: %w", err)
 				}
-				cur.forwards = append(cur.forwards, specs...)
+				cur.Forwards = append(cur.Forwards, specs...)
 			case "onup", "postup":
 				if val != "" {
-					cur.onUp = append(cur.onUp, val)
+					cur.OnUp = append(cur.OnUp, val)
 				}
 			case "ondown", "predown":
 				if val != "" {
-					cur.onDown = append(cur.onDown, val)
+					cur.OnDown = append(cur.OnDown, val)
 				}
 			}
 			continue
@@ -272,22 +240,22 @@ func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*Conf
 	seenListen := make(map[string]string) // "tcp/0.0.0.0:25565" -> peer label
 	for i := range peers {
 		p := &peers[i]
-		resolved := make([]PortForwardSpec, 0, len(p.forwards))
-		for _, fw := range p.forwards {
+		resolved := make([]spec.PortForwardSpec, 0, len(p.Forwards))
+		for _, fw := range p.Forwards {
 			if fw.DestHost == "" {
-				if p.allowedIP == "" {
-					return nil, fmt.Errorf("peer %s: Forward%s needs AllowedIPs host or explicit dest IP", p.label, strings.ToUpper(fw.Proto))
+				if p.AllowedIP == "" {
+					return nil, fmt.Errorf("peer %s: Forward%s needs AllowedIPs host or explicit dest IP", p.Label, strings.ToUpper(fw.Proto))
 				}
-				fw.DestHost = p.allowedIP
+				fw.DestHost = p.AllowedIP
 			}
 			key := fw.Proto + "/" + fw.ListenAddr()
 			if prev, ok := seenListen[key]; ok {
-				return nil, fmt.Errorf("duplicate Forward%s listen %s (peer %s and %s)", strings.ToUpper(fw.Proto), fw.ListenAddr(), prev, p.label)
+				return nil, fmt.Errorf("duplicate Forward%s listen %s (peer %s and %s)", strings.ToUpper(fw.Proto), fw.ListenAddr(), prev, p.Label)
 			}
-			seenListen[key] = p.label
+			seenListen[key] = p.Label
 			resolved = append(resolved, fw)
 		}
-		p.forwards = resolved
+		p.Forwards = resolved
 	}
 
 	nat, peers, err := buildNatGatewayResult(toNATClient, natUpstreamB64, listenPort, netCfg, peers)
@@ -325,8 +293,8 @@ func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*Conf
 	return &ConfApplyResult{NetCfg: netCfg, Peers: peers, Nat: nat}, nil
 }
 
-func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort uint16, netCfg IfaceNetConfig, peers []PeerHookConfig) (NatGatewayResult, []PeerHookConfig, error) {
-	var nat NatGatewayResult
+func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort uint16, netCfg IfaceNetConfig, peers []spec.PeerHookConfig) (spec.NatGatewayResult, []spec.PeerHookConfig, error) {
+	var nat spec.NatGatewayResult
 	nat.ToNATClient = toNATClient
 	nat.NatUpstreamB64 = natUpstreamB64
 	nat.ListenPort = listenPort
@@ -353,25 +321,25 @@ func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort u
 			return nat, peers, fmt.Errorf("ToNAT=true requires exactly one [Peer] (the NAT gateway), got %d", len(peers))
 		}
 		p := &peers[0]
-		if p.publicKeyHex == "" {
+		if p.PublicKeyHex == "" {
 			return nat, peers, fmt.Errorf("ToNAT=true requires [Peer] PublicKey of the NAT gateway")
 		}
-		if p.endpoint == "" {
+		if p.Endpoint == "" {
 			return nat, peers, fmt.Errorf("ToNAT=true requires [Peer] Endpoint of the NAT gateway (e.g. 10.0.0.2:25565)")
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: ToNAT client via peer %s Endpoint %s\n", p.label, p.endpoint)
+		fmt.Fprintf(os.Stderr, "wireguard-go: ToNAT client via peer %s Endpoint %s\n", p.Label, p.Endpoint)
 	}
 
 	// Resolve upstream: explicit NatUpstream, else the unique peer that has Endpoint
 	// while this node also listens (dual-server B).
-	var up *PeerHookConfig
+	var up *spec.PeerHookConfig
 	if natUpstreamB64 != "" {
 		upHex, err := base64ToHex(natUpstreamB64)
 		if err != nil {
 			return nat, peers, fmt.Errorf("NatUpstream: %w", err)
 		}
 		for i := range peers {
-			if peers[i].publicKeyHex == upHex || peers[i].publicKeyB64 == natUpstreamB64 {
+			if peers[i].PublicKeyHex == upHex || peers[i].PublicKeyB64 == natUpstreamB64 {
 				up = &peers[i]
 				break
 			}
@@ -380,24 +348,24 @@ func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort u
 			return nat, peers, fmt.Errorf("NatUpstream %s does not match any [Peer] PublicKey", truncateKey(natUpstreamB64))
 		}
 	} else if listenPort != 0 {
-		var endpointPeers []*PeerHookConfig
+		var endpointPeers []*spec.PeerHookConfig
 		for i := range peers {
-			if peers[i].endpoint != "" {
+			if peers[i].Endpoint != "" {
 				endpointPeers = append(endpointPeers, &peers[i])
 			}
 		}
 		if len(endpointPeers) == 1 {
 			up = endpointPeers[0]
-			nat.NatUpstreamB64 = up.publicKeyB64
+			nat.NatUpstreamB64 = up.PublicKeyB64
 		}
 	}
 	if up != nil {
-		if up.endpoint == "" {
-			return nat, peers, fmt.Errorf("upstream peer %s must have Endpoint", up.label)
+		if up.Endpoint == "" {
+			return nat, peers, fmt.Errorf("upstream peer %s must have Endpoint", up.Label)
 		}
-		addrPort, err := resolveEndpointAddrPort(up.endpoint)
+		addrPort, err := resolveEndpointAddrPort(up.Endpoint)
 		if err != nil {
-			return nat, peers, fmt.Errorf("upstream Endpoint %q: %w", up.endpoint, err)
+			return nat, peers, fmt.Errorf("upstream Endpoint %q: %w", up.Endpoint, err)
 		}
 		nat.UpstreamAddr = addrPort
 	}
@@ -406,21 +374,21 @@ func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort u
 	// runtime when an inbound ToNAT session completes WG handshake.
 	for i := range peers {
 		p := &peers[i]
-		if up != nil && (p.publicKeyHex == up.publicKeyHex || p.publicKeyB64 == up.publicKeyB64) {
-			if p.natClientSet && p.natClient {
-				return nat, peers, fmt.Errorf("upstream peer %s cannot be NatClient", p.label)
+		if up != nil && (p.PublicKeyHex == up.PublicKeyHex || p.PublicKeyB64 == up.PublicKeyB64) {
+			if p.NatClientSet && p.NatClient {
+				return nat, peers, fmt.Errorf("upstream peer %s cannot be NatClient", p.Label)
 			}
 			continue
 		}
-		if p.natClientSet && p.natClient {
-			if p.publicKeyHex == "" {
-				return nat, peers, fmt.Errorf("peer %s: NatClient requires PublicKey", p.label)
+		if p.NatClientSet && p.NatClient {
+			if p.PublicKeyHex == "" {
+				return nat, peers, fmt.Errorf("peer %s: NatClient requires PublicKey", p.Label)
 			}
-			if len(p.allowedHosts) == 0 {
-				return nat, peers, fmt.Errorf("peer %s: NatClient requires single-host AllowedIPs (/32 or /128)", p.label)
+			if len(p.AllowedHosts) == 0 {
+				return nat, peers, fmt.Errorf("peer %s: NatClient requires single-host AllowedIPs (/32 or /128)", p.Label)
 			}
-			nat.ClientHosts = append(nat.ClientHosts, p.allowedHosts...)
-			nat.ClientKeyHex = append(nat.ClientKeyHex, p.publicKeyHex)
+			nat.ClientHosts = append(nat.ClientHosts, p.AllowedHosts...)
+			nat.ClientKeyHex = append(nat.ClientKeyHex, p.PublicKeyHex)
 		}
 	}
 
@@ -429,11 +397,11 @@ func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort u
 		nat.PeersByKeyHex = make(map[string][]string)
 		for i := range peers {
 			p := &peers[i]
-			if up != nil && p.publicKeyHex == up.publicKeyHex {
+			if up != nil && p.PublicKeyHex == up.PublicKeyHex {
 				continue
 			}
-			if p.publicKeyHex != "" && len(p.allowedHosts) > 0 {
-				nat.PeersByKeyHex[p.publicKeyHex] = append([]string{}, p.allowedHosts...)
+			if p.PublicKeyHex != "" && len(p.AllowedHosts) > 0 {
+				nat.PeersByKeyHex[p.PublicKeyHex] = append([]string{}, p.AllowedHosts...)
 			}
 		}
 	}
@@ -492,22 +460,22 @@ func firstHostFromCIDR(cidr string) (string, error) {
 	return "", fmt.Errorf("%s is not a single-host prefix (use /32 or /128, or explicit ForwardTCP dest)", cidr)
 }
 
-func parseForwardList(val, defaultHost, proto string) ([]PortForwardSpec, error) {
+func parseForwardList(val, defaultHost, proto string) ([]spec.PortForwardSpec, error) {
 	// Allow multiple entries separated by comma or semicolon, e.g.
 	//   ForwardTCP = 25565, 8080:80, 8443:10.0.0.3:443
 	//   ForwardUDP = 19132; 25565
 	val = strings.ReplaceAll(val, ";", ",")
-	var out []PortForwardSpec
+	var out []spec.PortForwardSpec
 	for _, part := range strings.Split(val, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
-		spec, err := parseForwardSpec(part, defaultHost, proto)
+		fwSpec, err := parseForwardSpec(part, defaultHost, proto)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, spec)
+		out = append(out, fwSpec)
 	}
 	return out, nil
 }
@@ -518,12 +486,12 @@ func parseForwardList(val, defaultHost, proto string) ([]PortForwardSpec, error)
 //	25565:25566            → 0.0.0.0:25565 -> <host>:25566
 //	25565:10.0.0.3:25565   → 0.0.0.0:25565 -> 10.0.0.3:25565
 //	0.0.0.0:25565:10.0.0.3:25565
-func parseForwardSpec(spec, defaultHost, proto string) (PortForwardSpec, error) {
+func parseForwardSpec(raw, defaultHost, proto string) (spec.PortForwardSpec, error) {
 	label := "ForwardTCP"
-	if proto == protoUDP {
+	if proto == spec.ProtoUDP {
 		label = "ForwardUDP"
 	}
-	parts := strings.Split(spec, ":")
+	parts := strings.Split(raw, ":")
 	var listenHost string
 	var listenPort, destHost string
 	var destPort int
@@ -537,7 +505,7 @@ func parseForwardSpec(spec, defaultHost, proto string) (PortForwardSpec, error) 
 		destPort, err = strconv.Atoi(parts[0])
 	case 2:
 		if net.ParseIP(parts[1]) != nil {
-			return PortForwardSpec{}, fmt.Errorf("ambiguous %s %q; use listenPort:destHost:destPort", label, spec)
+			return spec.PortForwardSpec{}, fmt.Errorf("ambiguous %s %q; use listenPort:destHost:destPort", label, raw)
 		}
 		listenHost = "0.0.0.0"
 		listenPort = parts[0]
@@ -554,42 +522,22 @@ func parseForwardSpec(spec, defaultHost, proto string) (PortForwardSpec, error) 
 		destHost = parts[2]
 		destPort, err = strconv.Atoi(parts[3])
 	default:
-		return PortForwardSpec{}, fmt.Errorf("invalid %s %q", label, spec)
+		return spec.PortForwardSpec{}, fmt.Errorf("invalid %s %q", label, raw)
 	}
 	if err != nil {
-		return PortForwardSpec{}, fmt.Errorf("invalid %s port in %q: %w", label, spec, err)
+		return spec.PortForwardSpec{}, fmt.Errorf("invalid %s port in %q: %w", label, raw, err)
 	}
 	lp, err := strconv.Atoi(listenPort)
 	if err != nil || lp <= 0 || lp > 65535 || destPort <= 0 || destPort > 65535 {
-		return PortForwardSpec{}, fmt.Errorf("invalid %s ports in %q", label, spec)
+		return spec.PortForwardSpec{}, fmt.Errorf("invalid %s ports in %q", label, raw)
 	}
-	return PortForwardSpec{
+	return spec.PortForwardSpec{
 		Proto:      proto,
 		ListenHost: listenHost,
 		ListenPort: lp,
 		DestHost:   destHost,
 		DestPort:   destPort,
 	}, nil
-}
-
-func runPeerHooks(hooks []string, env map[string]string, logger *device.Logger, phase string) error {
-	for _, cmd := range hooks {
-		logger.Verbosef("Peer %s: %s", phase, cmd)
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		c := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
-		c.Env = os.Environ()
-		for k, v := range env {
-			c.Env = append(c.Env, k+"="+v)
-		}
-		c.Stdout = os.Stderr
-		c.Stderr = os.Stderr
-		err := c.Run()
-		cancel()
-		if err != nil {
-			return fmt.Errorf("%s %q: %w", phase, cmd, err)
-		}
-	}
-	return nil
 }
 
 func countConfiguredPeers(dev *device.Device) int {

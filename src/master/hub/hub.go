@@ -1,4 +1,4 @@
-package master
+package hub
 
 import (
 	"context"
@@ -14,11 +14,15 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.zx2c4.com/wireguard/src/master/stats"
+	"golang.zx2c4.com/wireguard/src/master/store"
+	"golang.zx2c4.com/wireguard/src/utils/netaddr"
+
 	"github.com/coder/websocket"
 
-	"golang.zx2c4.com/wireguard/internal/update"
-	"golang.zx2c4.com/wireguard/meshcfg"
-	"golang.zx2c4.com/wireguard/meshcfg/wire"
+	"golang.zx2c4.com/wireguard/src/core"
+	"golang.zx2c4.com/wireguard/src/core/wire"
+	"golang.zx2c4.com/wireguard/src/update"
 )
 
 const (
@@ -35,8 +39,8 @@ const (
 // Hub holds one long-lived WebSocket per agent. Connections are spread over
 // shards so registration and broadcast do not contend on a single lock.
 type Hub struct {
-	store  *Store
-	stats  *StatsService
+	store  *store.Store
+	stats  *stats.StatsService
 	shards [hubShards]hubShard
 
 	// OnPublicIPs is called (in its own goroutine) when an agent reports
@@ -53,19 +57,19 @@ type agentConn struct {
 	nodeID  string
 	version string // build version from Hello
 	ws      *websocket.Conn
-	send   chan []byte
-	cfg    atomic.Pointer[meshcfg.DesiredConfig]
-	cfgSig chan struct{}
-	ctx    context.Context
-	cancel context.CancelFunc
-	seq    atomic.Uint32
+	send    chan []byte
+	cfg     atomic.Pointer[core.DesiredConfig]
+	cfgSig  chan struct{}
+	ctx     context.Context
+	cancel  context.CancelFunc
+	seq     atomic.Uint32
 
 	lastTouch time.Time
 	ackedRev  atomic.Uint32
 }
 
-func NewHub(store *Store, stats *StatsService) *Hub {
-	h := &Hub{store: store, stats: stats}
+func NewHub(st *store.Store, statsSvc *stats.StatsService) *Hub {
+	h := &Hub{store: st, stats: statsSvc}
 	for i := range h.shards {
 		h.shards[i].conns = make(map[string]*agentConn)
 	}
@@ -197,7 +201,7 @@ func (h *Hub) PushAll() {
 	}
 }
 
-func (c *agentConn) queueConfig(d *meshcfg.DesiredConfig) {
+func (c *agentConn) queueConfig(d *core.DesiredConfig) {
 	c.cfg.Store(d)
 	select {
 	case c.cfgSig <- struct{}{}:
@@ -233,7 +237,7 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	cancelHello()
 	if err != nil {
 		code := wire.ErrCodeProtocol
-		if errors.Is(err, errUnauthorized) {
+		if errors.Is(err, store.ErrUnauthorized) {
 			code = wire.ErrCodeAuth
 		}
 		wctx, wc := context.WithTimeout(context.Background(), hubWriteTimeout)
@@ -248,17 +252,17 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		nodeID:  node.ID,
 		version: update.Valid(hello.Version),
 		ws:      ws,
-		send:   make(chan []byte, hubSendQueue),
-		cfgSig: make(chan struct{}, 1),
-		ctx:    ctx,
-		cancel: cancel,
+		send:    make(chan []byte, hubSendQueue),
+		cfgSig:  make(chan struct{}, 1),
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 	now := time.Now()
 	h.register(c)
 	h.stats.MarkConnected(node.ID, now)
 	_ = h.store.TouchLastSeen(node.ID, now)
 	c.lastTouch = now
-	h.recordPublicIPs(node, hello, r.RemoteAddr)
+	h.RecordPublicIPs(node, hello, r.RemoteAddr)
 
 	ackCtx, ackCancel := context.WithTimeout(ctx, hubWriteTimeout)
 	err = ws.Write(ackCtx, websocket.MessageBinary, c.frame(wire.TypeHelloAck, wire.HelloAck{NodeID: node.ID, StatsIntervalMs: hubStatsIntervalMs}.Marshal()))
@@ -284,38 +288,38 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	ws.Close(websocket.StatusNormalClosure, "")
 }
 
-func (h *Hub) readHello(ctx context.Context, ws *websocket.Conn) (meshcfg.Node, wire.Hello, error) {
+func (h *Hub) readHello(ctx context.Context, ws *websocket.Conn) (core.Node, wire.Hello, error) {
 	var hello wire.Hello
 	typ, b, err := ws.Read(ctx)
 	if err != nil {
-		return meshcfg.Node{}, hello, err
+		return core.Node{}, hello, err
 	}
 	if typ != websocket.MessageBinary {
-		return meshcfg.Node{}, hello, fmt.Errorf("expected binary frame")
+		return core.Node{}, hello, fmt.Errorf("expected binary frame")
 	}
 	f, err := wire.DecodeFrame(b)
 	if err != nil {
-		return meshcfg.Node{}, hello, err
+		return core.Node{}, hello, err
 	}
 	if f.Type != wire.TypeHello {
-		return meshcfg.Node{}, hello, fmt.Errorf("expected hello, got type %d", f.Type)
+		return core.Node{}, hello, fmt.Errorf("expected hello, got type %d", f.Type)
 	}
 	if err := hello.Unmarshal(f.Payload); err != nil {
-		return meshcfg.Node{}, hello, err
+		return core.Node{}, hello, err
 	}
 	if hello.Token == "" {
-		return meshcfg.Node{}, hello, errUnauthorized
+		return core.Node{}, hello, store.ErrUnauthorized
 	}
 	node, err := h.store.NodeByToken(hello.Token)
 	if err != nil {
-		return meshcfg.Node{}, hello, err
+		return core.Node{}, hello, err
 	}
 	return node, hello, nil
 }
 
-// recordPublicIPs stores agent-reported public IPs, falling back to the
+// RecordPublicIPs stores agent-reported public IPs, falling back to the
 // connection's remote address when it is a public address.
-func (h *Hub) recordPublicIPs(node meshcfg.Node, hello wire.Hello, remote string) {
+func (h *Hub) RecordPublicIPs(node core.Node, hello wire.Hello, remote string) {
 	v4, v6 := "", ""
 	if hello.PublicV4.IsValid() {
 		v4 = hello.PublicV4.Unmap().String()
@@ -325,7 +329,7 @@ func (h *Hub) recordPublicIPs(node meshcfg.Node, hello wire.Hello, remote string
 	}
 	if v4 == "" && v6 == "" {
 		if host, _, err := net.SplitHostPort(remote); err == nil {
-			if a, err := netip.ParseAddr(host); err == nil && isPublicAddr(a) {
+			if a, err := netip.ParseAddr(host); err == nil && netaddr.IsPublicAddr(a) {
 				a = a.Unmap()
 				if a.Is4() {
 					v4 = a.String()
@@ -344,11 +348,6 @@ func (h *Hub) recordPublicIPs(node meshcfg.Node, hello wire.Hello, remote string
 	if h.OnPublicIPs != nil {
 		go h.OnPublicIPs(node.ID, v4, v6)
 	}
-}
-
-func isPublicAddr(a netip.Addr) bool {
-	a = a.Unmap()
-	return a.IsValid() && a.IsGlobalUnicast() && !a.IsPrivate() && !a.IsLoopback() && !a.IsLinkLocalUnicast()
 }
 
 func (h *Hub) readLoop(c *agentConn) {

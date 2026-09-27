@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package tunnel
+package natgw
 
 import (
 	"context"
@@ -18,7 +18,10 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows/registry"
-	"golang.zx2c4.com/wireguard/device"
+
+	"golang.zx2c4.com/wireguard/src/tunnel/spec"
+	"golang.zx2c4.com/wireguard/src/utils/pwsh"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 // NatGateway manages IP forwarding (IPEnableRouter / NetIPInterface.Forwarding),
@@ -26,7 +29,7 @@ import (
 type NatGateway struct {
 	logger  *device.Logger
 	iface   string
-	cfg     NatGatewayResult
+	cfg     spec.NatGatewayResult
 	runtime *natRuntime
 
 	mu                 sync.Mutex
@@ -38,7 +41,7 @@ type NatGateway struct {
 	fwRuleNames        []string
 }
 
-func NewNatGateway(logger *device.Logger, iface string, cfg NatGatewayResult) *NatGateway {
+func NewNatGateway(logger *device.Logger, iface string, cfg spec.NatGatewayResult) *NatGateway {
 	return &NatGateway{
 		logger:         logger,
 		iface:          iface,
@@ -200,7 +203,7 @@ Get-NetIPInterface | ForEach-Object {
 	for _, family := range []string{"IPv4", "IPv6"} {
 		script := fmt.Sprintf(
 			`Get-NetIPInterface -InterfaceAlias '%s' -AddressFamily %s -ErrorAction SilentlyContinue | Set-NetIPInterface -Forwarding Enabled -ErrorAction SilentlyContinue`,
-			psQuote(g.iface), family,
+			pwsh.Quote(g.iface), family,
 		)
 		_, _ = g.runPS(script)
 	}
@@ -246,7 +249,7 @@ $name = '%s'
 $prefix = '%s'
 Get-NetNat -Name $name -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue
 New-NetNat -Name $name -InternalIPInterfaceAddressPrefix $prefix -ErrorAction Stop | Out-Null
-`, psQuote(g.natName), pfx.String())
+`, pwsh.Quote(g.natName), pfx.String())
 		if _, err := g.runPS(script); err != nil {
 			lastErr = err
 			g.logger.Verbosef("NAT gateway: New-NetNat %s: %v", pfx, err)
@@ -265,7 +268,7 @@ New-NetNat -Name $name -InternalIPInterfaceAddressPrefix $prefix -ErrorAction St
 $rule = '%s'
 Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
 New-NetFirewallRule -DisplayName $rule -Direction Outbound -Action Block -RemoteAddress '%s' -Protocol %s -RemotePort %d -Profile Any -ErrorAction Stop | Out-Null
-`, psQuote(rule), upIP, proto, upPort)
+`, pwsh.Quote(rule), upIP, proto, upPort)
 		if _, err := g.runPS(script); err != nil {
 			g.logger.Verbosef("NAT gateway: firewall rule %s: %v", rule, err)
 			if lastErr == nil {
@@ -282,14 +285,14 @@ func (g *NatGateway) removeFirewall() {
 	if g.natName != "" {
 		script := fmt.Sprintf(
 			`Get-NetNat -Name '%s' -ErrorAction SilentlyContinue | Remove-NetNat -Confirm:$false -ErrorAction SilentlyContinue`,
-			psQuote(g.natName),
+			pwsh.Quote(g.natName),
 		)
 		_, _ = g.runPS(script)
 	}
 	for _, rule := range g.fwRuleNames {
 		script := fmt.Sprintf(
 			`Get-NetFirewallRule -DisplayName '%s' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue`,
-			psQuote(rule),
+			pwsh.Quote(rule),
 		)
 		_, _ = g.runPS(script)
 	}

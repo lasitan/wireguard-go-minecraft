@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"golang.zx2c4.com/wireguard/src/wireguard/conn"
+	"golang.zx2c4.com/wireguard/src/wireguard/tun"
 	"golang.zx2c4.com/wireguard/src/wireguard/utils/ratelimiter"
 	"golang.zx2c4.com/wireguard/src/wireguard/utils/rwcancel"
-	"golang.zx2c4.com/wireguard/src/wireguard/tun"
 )
 
 type Device struct {

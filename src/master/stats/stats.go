@@ -1,4 +1,4 @@
-package master
+package stats
 
 import (
 	"encoding/base64"
@@ -7,7 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"golang.zx2c4.com/wireguard/meshcfg/wire"
+	"golang.zx2c4.com/wireguard/src/master/store"
+
+	"golang.zx2c4.com/wireguard/src/core/wire"
 )
 
 const (
@@ -24,10 +26,10 @@ type LiveStats struct {
 	Forwards    []LiveForward   `json:"forwards"`
 	ConnectedAt time.Time       `json:"connectedAt"`
 	RTTMillis   float64         `json:"rttMs,omitempty"`
-	IPRates     map[string]rate `json:"-"`
+	IPRates     map[string]Rate `json:"-"`
 }
 
-type rate struct{ Rx, Tx float64 }
+type Rate struct{ Rx, Tx float64 }
 
 type LivePeer struct {
 	PublicKey     string    `json:"publicKey"`
@@ -52,20 +54,20 @@ type nodeCounters struct {
 
 // StatsService turns cumulative agent counters into deltas, rates, and batched writes.
 type StatsService struct {
-	store *Store
+	store *store.Store
 
 	mu        sync.Mutex
 	last      map[string]*nodeCounters
-	pending   map[string]*TrafficDelta
+	pending   map[string]*store.TrafficDelta
 	connected map[string]time.Time
 	rtt       map[string]time.Duration
 }
 
-func NewStatsService(store *Store) *StatsService {
+func NewStatsService(st *store.Store) *StatsService {
 	return &StatsService{
-		store:     store,
+		store:     st,
 		last:      make(map[string]*nodeCounters),
-		pending:   make(map[string]*TrafficDelta),
+		pending:   make(map[string]*store.TrafficDelta),
 		connected: make(map[string]time.Time),
 		rtt:       make(map[string]time.Duration),
 	}
@@ -91,7 +93,7 @@ func (s *StatsService) Ingest(nodeID string, st *wire.Stats, now time.Time) {
 			cur.ips[ip.IP.Unmap().String()] = [2]uint64{ip.RxBytes, ip.TxBytes}
 		}
 	}
-	cur.live = LiveStats{SampleAt: now, IPRates: map[string]rate{}}
+	cur.live = LiveStats{SampleAt: now, IPRates: map[string]Rate{}}
 	for _, p := range st.Peers {
 		lp := LivePeer{
 			PublicKey: base64.StdEncoding.EncodeToString(p.PublicKey[:]),
@@ -123,7 +125,7 @@ func (s *StatsService) Ingest(nodeID string, st *wire.Stats, now time.Time) {
 
 	d := s.pending[nodeID]
 	if d == nil {
-		d = &TrafficDelta{Minutes: map[int64][2]uint64{}, IPs: map[string][2]uint64{}}
+		d = &store.TrafficDelta{Minutes: map[int64][2]uint64{}, IPs: map[string][2]uint64{}}
 		s.pending[nodeID] = d
 	}
 	d.Rx += drx
@@ -140,7 +142,7 @@ func (s *StatsService) Ingest(nodeID string, st *wire.Stats, now time.Time) {
 		acc := d.IPs[ip]
 		d.IPs[ip] = [2]uint64{acc[0] + irx, acc[1] + itx}
 		if dt > 0 {
-			cur.live.IPRates[ip] = rate{Rx: float64(irx) / dt, Tx: float64(itx) / dt}
+			cur.live.IPRates[ip] = Rate{Rx: float64(irx) / dt, Tx: float64(itx) / dt}
 		}
 	}
 	s.last[nodeID] = cur
@@ -162,7 +164,7 @@ func (s *StatsService) MarkDisconnected(nodeID string) {
 	delete(s.rtt, nodeID)
 	if c := s.last[nodeID]; c != nil {
 		c.live.RxRate, c.live.TxRate = 0, 0
-		c.live.IPRates = map[string]rate{}
+		c.live.IPRates = map[string]Rate{}
 	}
 }
 
@@ -173,14 +175,14 @@ func (s *StatsService) SetRTT(nodeID string, rtt time.Duration) {
 }
 
 // Live returns a copy of the current live stats (zero value if none).
-func (s *StatsService) Live(nodeID string) (LiveStats, map[string]rate) {
+func (s *StatsService) Live(nodeID string) (LiveStats, map[string]Rate) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out LiveStats
-	var ir map[string]rate
+	var ir map[string]Rate
 	if c := s.last[nodeID]; c != nil {
 		out = c.live
-		ir = make(map[string]rate, len(c.live.IPRates))
+		ir = make(map[string]Rate, len(c.live.IPRates))
 		for k, v := range c.live.IPRates {
 			ir[k] = v
 		}
@@ -214,14 +216,14 @@ func (s *StatsService) Forget(nodeID string) {
 	delete(s.rtt, nodeID)
 }
 
-func (s *StatsService) takePending() map[string]*TrafficDelta {
+func (s *StatsService) takePending() map[string]*store.TrafficDelta {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.pending) == 0 {
 		return nil
 	}
 	p := s.pending
-	s.pending = make(map[string]*TrafficDelta)
+	s.pending = make(map[string]*store.TrafficDelta)
 	return p
 }
 
@@ -237,10 +239,10 @@ func (s *StatsService) Run(stop <-chan struct{}) {
 	for {
 		select {
 		case <-stop:
-			s.flushNow()
+			s.FlushNow()
 			return
 		case <-flush.C:
-			s.flushNow()
+			s.FlushNow()
 		case <-rollup.C:
 			if err := s.store.RollupAndPrune(time.Now()); err != nil {
 				fmt.Fprintf(os.Stderr, "wireguard-go master: traffic rollup: %v\n", err)
@@ -249,7 +251,7 @@ func (s *StatsService) Run(stop <-chan struct{}) {
 	}
 }
 
-func (s *StatsService) flushNow() {
+func (s *StatsService) FlushNow() {
 	p := s.takePending()
 	if p == nil {
 		return

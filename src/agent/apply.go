@@ -6,10 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/internal/tunnel"
-	"golang.zx2c4.com/wireguard/meshcfg"
+	"golang.zx2c4.com/wireguard/src/core"
+	tunconf "golang.zx2c4.com/wireguard/src/tunnel/config"
+	"golang.zx2c4.com/wireguard/src/tunnel/portfwd"
+	"golang.zx2c4.com/wireguard/src/wireguard/conn"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 // applier applies DesiredConfig revisions; shared by the WS and HTTP paths.
@@ -17,7 +18,7 @@ type applier struct {
 	dev    *device.Device
 	logger *device.Logger
 	iface  string
-	fwdPtr **tunnel.PortForwardManager
+	fwdPtr **portfwd.PortForwardManager
 	fwdMu  *sync.Mutex
 
 	mu         sync.Mutex
@@ -25,7 +26,7 @@ type applier struct {
 	pollEvery  time.Duration
 }
 
-func newApplier(dev *device.Device, logger *device.Logger, iface string, fwdPtr **tunnel.PortForwardManager, fwdMu *sync.Mutex) *applier {
+func newApplier(dev *device.Device, logger *device.Logger, iface string, fwdPtr **portfwd.PortForwardManager, fwdMu *sync.Mutex) *applier {
 	return &applier{dev: dev, logger: logger, iface: iface, fwdPtr: fwdPtr, fwdMu: fwdMu, appliedRev: -1, pollEvery: 10 * time.Second}
 }
 
@@ -42,7 +43,7 @@ func (a *applier) pollInterval() time.Duration {
 }
 
 // apply is a no-op for an already applied revision.
-func (a *applier) apply(desired *meshcfg.DesiredConfig) error {
+func (a *applier) apply(desired *core.DesiredConfig) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if desired.Revision == a.appliedRev {
@@ -61,8 +62,8 @@ func (a *applier) apply(desired *meshcfg.DesiredConfig) error {
 		}
 	}
 
-	newFwd := tunnel.NewPortForwardManager(a.logger)
-	result, err := tunnel.ApplyDesiredConfig(a.dev, a.logger, applyIface, desired)
+	newFwd := portfwd.NewPortForwardManager(a.logger)
+	result, err := tunconf.ApplyDesiredConfig(a.dev, a.logger, applyIface, desired)
 	if err != nil {
 		a.logger.Errorf("apply desired: %v", err)
 		return fmt.Errorf("apply desired rev=%d: %w", desired.Revision, err)

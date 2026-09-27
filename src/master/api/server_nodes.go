@@ -1,4 +1,4 @@
-package master
+package api
 
 import (
 	"net"
@@ -7,8 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"golang.zx2c4.com/wireguard/meshcfg"
-	"golang.zx2c4.com/wireguard/meshcfg/wire"
+	"golang.zx2c4.com/wireguard/src/master/stats"
+	"golang.zx2c4.com/wireguard/src/master/store"
+
+	"golang.zx2c4.com/wireguard/src/core"
+	"golang.zx2c4.com/wireguard/src/core/wire"
 )
 
 func nodeIDParam(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -25,7 +28,7 @@ func (s *Server) handlePatchNode(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var p NodePatch
+	var p store.NodePatch
 	if err := readJSON(r, &p); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 		return
@@ -55,7 +58,7 @@ func (s *Server) handleNodeForwards(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, fwds)
 	case http.MethodPut:
-		var fwds []meshcfg.Forward
+		var fwds []core.Forward
 		if err := readJSON(r, &fwds); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 			return
@@ -84,29 +87,29 @@ type ipTrafficView struct {
 }
 
 type peerView struct {
-	LivePeer
+	stats.LivePeer
 	NodeID string `json:"nodeId,omitempty"`
 	Name   string `json:"name,omitempty"`
 }
 
 type nodeStatsView struct {
-	NodeID         string          `json:"nodeId"`
-	Link           string          `json:"link"` // ws | http | offline
-	LastSeen       time.Time       `json:"lastSeen,omitempty"`
-	ConnectedAt    time.Time       `json:"connectedAt,omitempty"`
-	RTTMillis      float64         `json:"rttMs,omitempty"`
-	AgentVersion   string          `json:"agentVersion,omitempty"`
-	PublicV4       string          `json:"publicV4,omitempty"`
-	PublicV6       string          `json:"publicV6,omitempty"`
-	GeoCountry     string          `json:"geoCountry,omitempty"`
-	GeoCountryCode string          `json:"geoCountryCode,omitempty"`
-	RxRate         float64         `json:"rxRate"`
-	TxRate         float64         `json:"txRate"`
-	SampleAt       time.Time       `json:"sampleAt,omitempty"`
-	Totals         TrafficTotals   `json:"totals"`
-	Peers          []peerView      `json:"peers"`
-	Forwards       []LiveForward   `json:"forwards"`
-	IPs            []ipTrafficView `json:"ips"`
+	NodeID         string              `json:"nodeId"`
+	Link           string              `json:"link"` // ws | http | offline
+	LastSeen       time.Time           `json:"lastSeen,omitempty"`
+	ConnectedAt    time.Time           `json:"connectedAt,omitempty"`
+	RTTMillis      float64             `json:"rttMs,omitempty"`
+	AgentVersion   string              `json:"agentVersion,omitempty"`
+	PublicV4       string              `json:"publicV4,omitempty"`
+	PublicV6       string              `json:"publicV6,omitempty"`
+	GeoCountry     string              `json:"geoCountry,omitempty"`
+	GeoCountryCode string              `json:"geoCountryCode,omitempty"`
+	RxRate         float64             `json:"rxRate"`
+	TxRate         float64             `json:"txRate"`
+	SampleAt       time.Time           `json:"sampleAt,omitempty"`
+	Totals         store.TrafficTotals `json:"totals"`
+	Peers          []peerView          `json:"peers"`
+	Forwards       []stats.LiveForward `json:"forwards"`
+	IPs            []ipTrafficView     `json:"ips"`
 }
 
 const httpOnlineWindow = 45 * time.Second
@@ -133,8 +136,8 @@ func (s *Server) handleNodeStats(w http.ResponseWriter, r *http.Request) {
 	totals, _ := s.store.TrafficTotal(id)
 	persisted, _ := s.store.PeerIPTraffic(id)
 
-	byHost := map[string]*meshcfg.Node{}
-	byKey := map[string]*meshcfg.Node{}
+	byHost := map[string]*core.Node{}
+	byKey := map[string]*core.Node{}
 	for i := range m.Nodes {
 		nn := &m.Nodes[i]
 		if host, _, ok := strings.Cut(nn.Address, "/"); ok {
@@ -168,7 +171,7 @@ func (s *Server) handleNodeStats(w http.ResponseWriter, r *http.Request) {
 		v.Link = "http"
 	}
 	if v.Forwards == nil {
-		v.Forwards = []LiveForward{}
+		v.Forwards = []stats.LiveForward{}
 	}
 	for _, p := range live.Peers {
 		pv := peerView{LivePeer: p}
@@ -257,7 +260,7 @@ func (s *Server) observeHTTPAgent(token, remote string) {
 		return
 	}
 	s.httpGeoAt.Store(node.ID, now)
-	s.hub.recordPublicIPs(node, wire.Hello{}, remote)
+	s.hub.RecordPublicIPs(node, wire.Hello{}, remote)
 }
 
 // handleAgentWhoami echoes the caller's source address for public IP discovery.

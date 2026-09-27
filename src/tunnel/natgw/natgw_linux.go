@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package tunnel
+package natgw
 
 import (
 	"context"
@@ -18,14 +18,15 @@ import (
 	"sync"
 	"time"
 
-	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/src/tunnel/spec"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 // NatGateway manages IP forwarding, MASQUERADE, and nested-WG hard block on B.
 type NatGateway struct {
-	logger *device.Logger
-	iface  string
-	cfg    NatGatewayResult
+	logger  *device.Logger
+	iface   string
+	cfg     spec.NatGatewayResult
 	runtime *natRuntime
 
 	mu       sync.Mutex
@@ -41,7 +42,7 @@ type NatGateway struct {
 	changedIPv6     bool
 }
 
-func NewNatGateway(logger *device.Logger, iface string, cfg NatGatewayResult) *NatGateway {
+func NewNatGateway(logger *device.Logger, iface string, cfg spec.NatGatewayResult) *NatGateway {
 	return &NatGateway{
 		logger:   logger,
 		iface:    iface,

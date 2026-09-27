@@ -1,13 +1,13 @@
 //go:build !windows
 
-package tunnel
+package config
 
 import (
 	"fmt"
 	"os"
 	"strings"
 
-	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 func EnableIPForward(logger *device.Logger) error {

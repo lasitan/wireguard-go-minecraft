@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package tunnel
+package portfwd
 
 import (
 	"fmt"
@@ -13,7 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/src/tunnel/spec"
+
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 const (
@@ -43,24 +45,24 @@ func NewPortForwardManager(logger *device.Logger) *PortForwardManager {
 	}
 }
 
-func (m *PortForwardManager) StartFromPeers(peers []PeerHookConfig) error {
+func (m *PortForwardManager) StartFromPeers(peers []spec.PeerHookConfig) error {
 	tcpN, udpN := 0, 0
 	for _, p := range peers {
 		env := map[string]string{
-			"WG_PEER":       p.label,
-			"WG_PEER_HOST":  p.allowedIP,
-			"WG_ALLOWED_IP": p.allowedIP,
+			"WG_PEER":       p.Label,
+			"WG_PEER_HOST":  p.AllowedIP,
+			"WG_ALLOWED_IP": p.AllowedIP,
 		}
-		for _, fw := range p.forwards {
+		for _, fw := range p.Forwards {
 			var err error
 			switch fw.Proto {
-			case protoTCP:
-				err = m.startTCPForward(fw, p.label)
+			case spec.ProtoTCP:
+				err = m.startTCPForward(fw, p.Label)
 				if err == nil {
 					tcpN++
 				}
-			case protoUDP:
-				err = m.startUDPForward(fw, p.label)
+			case spec.ProtoUDP:
+				err = m.startUDPForward(fw, p.Label)
 				if err == nil {
 					udpN++
 				}
@@ -72,17 +74,17 @@ func (m *PortForwardManager) StartFromPeers(peers []PeerHookConfig) error {
 				return err
 			}
 		}
-		if err := runPeerHooks(p.onUp, env, m.logger, "OnUp("+p.label+")"); err != nil {
+		if err := spec.RunPeerHooks(p.OnUp, env, m.logger, "OnUp("+p.Label+")"); err != nil {
 			m.Close()
 			return err
 		}
-		if len(p.onDown) > 0 {
+		if len(p.OnDown) > 0 {
 			m.mu.Lock()
 			m.onDown = append(m.onDown, struct {
 				label string
 				cmds  []string
 				env   map[string]string
-			}{label: p.label, cmds: append([]string{}, p.onDown...), env: env})
+			}{label: p.Label, cmds: append([]string{}, p.OnDown...), env: env})
 			m.mu.Unlock()
 		}
 	}
@@ -114,7 +116,7 @@ func (m *PortForwardManager) untrack(c net.Conn) {
 	m.mu.Unlock()
 }
 
-func (m *PortForwardManager) startTCPForward(spec PortForwardSpec, peerLabel string) error {
+func (m *PortForwardManager) startTCPForward(spec spec.PortForwardSpec, peerLabel string) error {
 	ln, err := net.Listen("tcp", spec.ListenAddr())
 	if err != nil {
 		return fmt.Errorf("ForwardTCP listen %s: %w", spec.ListenAddr(), err)
@@ -149,7 +151,7 @@ func (m *PortForwardManager) startTCPForward(spec PortForwardSpec, peerLabel str
 	return nil
 }
 
-func (m *PortForwardManager) proxyTCP(client net.Conn, spec PortForwardSpec) {
+func (m *PortForwardManager) proxyTCP(client net.Conn, spec spec.PortForwardSpec) {
 	m.track(client)
 	defer func() {
 		_ = client.Close()
@@ -197,7 +199,7 @@ type udpSession struct {
 	lastActive time.Time
 }
 
-func (m *PortForwardManager) startUDPForward(spec PortForwardSpec, peerLabel string) error {
+func (m *PortForwardManager) startUDPForward(spec spec.PortForwardSpec, peerLabel string) error {
 	listenAddr, err := net.ResolveUDPAddr("udp", spec.ListenAddr())
 	if err != nil {
 		return fmt.Errorf("ForwardUDP resolve listen %s: %w", spec.ListenAddr(), err)
@@ -377,6 +379,6 @@ func (m *PortForwardManager) Close() {
 
 	for i := len(downs) - 1; i >= 0; i-- {
 		d := downs[i]
-		_ = runPeerHooks(d.cmds, d.env, m.logger, "OnDown("+d.label+")")
+		_ = spec.RunPeerHooks(d.cmds, d.env, m.logger, "OnDown("+d.label+")")
 	}
 }

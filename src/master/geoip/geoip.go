@@ -1,4 +1,4 @@
-package master
+package geoip
 
 import (
 	"context"
@@ -13,6 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"golang.zx2c4.com/wireguard/src/master/store"
+	"golang.zx2c4.com/wireguard/src/utils/netaddr"
+
 	"github.com/oschwald/maxminddb-golang"
 )
 
@@ -26,7 +29,7 @@ const (
 // GeoIP resolves public IPs to a country: offline mmdb first, then the
 // rate-limited ip-api.com fallback, with results cached in SQLite.
 type GeoIP struct {
-	store  *Store
+	store  *store.Store
 	db     *maxminddb.Reader
 	online bool
 	client *http.Client
@@ -50,9 +53,9 @@ type GeoResult struct {
 	CountryCode string
 }
 
-func NewGeoIP(store *Store, dataDir, dbPath string, online bool) *GeoIP {
+func NewGeoIP(st *store.Store, dataDir, dbPath string, online bool) *GeoIP {
 	g := &GeoIP{
-		store:     store,
+		store:     st,
 		online:    online,
 		client:    &http.Client{Timeout: geoOnlineTimeout},
 		lookupURL: geoOnlineURL,
@@ -168,7 +171,7 @@ func (g *GeoIP) Lookup(ctx context.Context, ipStr string) (GeoResult, error) {
 		return GeoResult{}, err
 	}
 	a = a.Unmap()
-	if !isPublicAddr(a) {
+	if !netaddr.IsPublicAddr(a) {
 		return GeoResult{}, fmt.Errorf("not a public address")
 	}
 	ip := a.String()

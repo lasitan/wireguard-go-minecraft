@@ -1,13 +1,7 @@
-// Package version exposes the release version embedded from version.txt,
-// the single source of truth that CI also reads to tag releases.
+// Package version exposes the release version. The single source of truth is
+// .github/build/version.txt (CI tags releases from it); builds inject it with
+//
+//	-ldflags "-X golang.zx2c4.com/wireguard/src/core/version.Version=$(cat .github/build/version.txt)"
 package version
 
-import (
-	_ "embed"
-	"strings"
-)
-
-//go:embed version.txt
-var versionFile string
-
-var Version = strings.TrimSpace(versionFile)
+var Version = "dev"

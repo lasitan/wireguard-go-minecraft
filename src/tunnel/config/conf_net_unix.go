@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package tunnel
+package config
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 func applyIfaceNetConfig(iface string, cfg IfaceNetConfig, logger *device.Logger) error {

@@ -1,8 +1,8 @@
 //go:build windows
 
-package tunnel
+package config
 
-import "golang.zx2c4.com/wireguard/device"
+import "golang.zx2c4.com/wireguard/src/wireguard/device"
 
 func EnableIPForward(logger *device.Logger) error {
 	// Windows IP forwarding is handled by nat gateway path when needed;

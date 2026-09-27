@@ -33,13 +33,13 @@ const (
 	mcIDPingRequest    = 0x01
 	mcIDPongResponse   = 0x01
 
-	mcIDLoginStart           = 0x00
-	mcIDEncryptionResponse   = 0x01
-	mcIDLoginPluginResponse  = 0x02
-	mcIDDisconnect           = 0x00
-	mcIDEncryptionRequest    = 0x01
-	mcIDLoginSuccess         = 0x02
-	mcIDLoginPluginRequest   = 0x04
+	mcIDLoginStart          = 0x00
+	mcIDEncryptionResponse  = 0x01
+	mcIDLoginPluginResponse = 0x02
+	mcIDDisconnect          = 0x00
+	mcIDEncryptionRequest   = 0x01
+	mcIDLoginSuccess        = 0x02
+	mcIDLoginPluginRequest  = 0x04
 
 	defaultLoginUsername       = "Steve"
 	defaultLoginPluginChannel  = "minecraft:register"
@@ -81,7 +81,7 @@ func randomMCStatusJSON() string {
 	}
 	nouns := []string{
 		"Steve", "Alex", "Notch", "Creep", "Ender", "Blaze",
-		"Arrow", "Stone", "Sand",  "Gold",  "Iron",  "Frost",
+		"Arrow", "Stone", "Sand", "Gold", "Iron", "Frost",
 	}
 
 	maxPlayers := 20

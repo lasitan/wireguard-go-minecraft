@@ -1,4 +1,4 @@
-package tunnel
+package portfwd
 
 import (
 	"io"
@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+
+	"golang.zx2c4.com/wireguard/src/tunnel/spec"
 )
 
 // ForwardCounter counts bytes through one forward. Rx = from the connecting
@@ -22,14 +24,14 @@ func (c *ForwardCounter) Bytes() (rx, tx uint64) { return c.rx.Load(), c.tx.Load
 // monotonic across config reloads.
 var forwardCounters sync.Map // "proto listen" -> *ForwardCounter
 
-func forwardListenLabel(spec PortForwardSpec) string {
+func forwardListenLabel(spec spec.PortForwardSpec) string {
 	if spec.ListenHost == "" || spec.ListenHost == "0.0.0.0" {
 		return strconv.Itoa(spec.ListenPort)
 	}
 	return spec.ListenAddr()
 }
 
-func forwardCounterFor(spec PortForwardSpec) *ForwardCounter {
+func forwardCounterFor(spec spec.PortForwardSpec) *ForwardCounter {
 	listen := forwardListenLabel(spec)
 	key := spec.Proto + " " + listen
 	if v, ok := forwardCounters.Load(key); ok {

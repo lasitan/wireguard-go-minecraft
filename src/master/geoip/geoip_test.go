@@ -1,4 +1,4 @@
-package master
+package geoip
 
 import (
 	"context"
@@ -9,10 +9,12 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.zx2c4.com/wireguard/src/master/storetest"
 )
 
 func TestGeoIPOnlineFallbackAndCache(t *testing.T) {
-	st := openTestStore(t, "10.10.0.0/24")
+	st := storetest.Open(t, "10.10.0.0/24")
 
 	var hits atomic.Int32
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

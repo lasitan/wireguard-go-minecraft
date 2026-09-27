@@ -1,15 +1,17 @@
-package master
+package stats
 
 import (
 	"net/netip"
 	"testing"
 	"time"
 
-	"golang.zx2c4.com/wireguard/meshcfg/wire"
+	"golang.zx2c4.com/wireguard/src/master/storetest"
+
+	"golang.zx2c4.com/wireguard/src/core/wire"
 )
 
 func TestStatsIngestDeltaAndRestart(t *testing.T) {
-	st := openTestStore(t, "10.10.0.0/24")
+	st := storetest.Open(t, "10.10.0.0/24")
 	svc := NewStatsService(st)
 	ip := netip.MustParseAddr("10.10.0.2")
 	t0 := time.Unix(1_700_000_000, 0)

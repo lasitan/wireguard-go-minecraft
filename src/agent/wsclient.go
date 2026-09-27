@@ -14,11 +14,13 @@ import (
 
 	"github.com/coder/websocket"
 
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/internal/tunnel"
-	"golang.zx2c4.com/wireguard/internal/update"
-	"golang.zx2c4.com/wireguard/meshcfg"
-	"golang.zx2c4.com/wireguard/meshcfg/wire"
+	"golang.zx2c4.com/wireguard/src/core"
+	"golang.zx2c4.com/wireguard/src/core/config"
+	"golang.zx2c4.com/wireguard/src/core/wire"
+	"golang.zx2c4.com/wireguard/src/tunnel/ipcounter"
+	"golang.zx2c4.com/wireguard/src/tunnel/portfwd"
+	"golang.zx2c4.com/wireguard/src/update"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 const (
@@ -30,9 +32,9 @@ const (
 )
 
 type wsClient struct {
-	boot    *meshcfg.AgentBootstrap
+	boot    *config.AgentBootstrap
 	dev     *device.Device
-	counter *tunnel.IPCounter
+	counter *ipcounter.IPCounter
 	ap      *applier
 
 	seq atomic.Uint32
@@ -129,7 +131,7 @@ func (c *wsClient) run(ctx context.Context) (connected bool, err error) {
 				return true, err
 			}
 		case wire.TypeConfigPush:
-			var desired meshcfg.DesiredConfig
+			var desired core.DesiredConfig
 			ack := wire.ConfigAck{OK: true}
 			if err := json.Unmarshal(f.Payload, &desired); err != nil {
 				ack.OK, ack.Error = false, err.Error()
@@ -192,7 +194,7 @@ func (c *wsClient) collect() wire.Stats {
 	for _, s := range ips {
 		st.IPs = append(st.IPs, wire.IPStat{IP: s.IP, RxBytes: s.Rx, TxBytes: s.Tx})
 	}
-	for _, f := range tunnel.ForwardCounters() {
+	for _, f := range portfwd.ForwardCounters() {
 		frx, ftx := f.Bytes()
 		st.Forwards = append(st.Forwards, wire.ForwardStat{Protocol: f.Protocol, Listen: f.Listen, RxBytes: frx, TxBytes: ftx})
 	}

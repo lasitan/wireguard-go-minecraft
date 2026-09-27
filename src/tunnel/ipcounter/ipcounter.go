@@ -1,4 +1,4 @@
-package tunnel
+package ipcounter
 
 import (
 	"net/netip"

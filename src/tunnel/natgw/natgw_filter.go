@@ -3,7 +3,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package tunnel
+package natgw
 
 import (
 	"encoding/binary"
@@ -13,7 +13,7 @@ import (
 	"os"
 	"sync"
 
-	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 // natRuntime holds dynamically discovered ToNAT clients (shared by filter + MASQUERADE).

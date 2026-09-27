@@ -1,9 +1,9 @@
-package master
+package api
 
 import (
 	"net/http"
 
-	"golang.zx2c4.com/wireguard/internal/update"
+	"golang.zx2c4.com/wireguard/src/update"
 )
 
 type updateCommands struct {

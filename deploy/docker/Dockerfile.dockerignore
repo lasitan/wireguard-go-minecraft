@@ -1,5 +1,4 @@
 .git
-# Keep version.txt for go:embed in version.go; exclude the rest of .github
 .github/**
 !.github/build/
 !.github/build/version.txt
@@ -7,18 +6,11 @@ dist
 **/*.deb
 **/*.tar.gz
 **/*.exe
-third_party/wintun
-tests
+**/node_modules
+src/systems/windows/wintun
+src/master/ui/dist
 agent-transcripts
-web/node_modules
 *.md
-!debian/README.Debian
-.dockerignore
-Dockerfile
-docker-compose*.yml
-deploy
-scripts/package-linux-amd64.sh
-scripts/fetch-wintun.sh
-scripts/package-docker.sh
-scripts/ensure-gh.sh
-scripts/build-master-ui.sh
+deploy/debian
+deploy/docker
+deploy/scripts

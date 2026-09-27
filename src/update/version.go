@@ -10,7 +10,7 @@ import (
 
 var current atomic.Value
 
-// SetCurrent records the version this binary was built as (from main.Version).
+// SetCurrent records the version this binary was built as (from core/version.Version).
 func SetCurrent(v string) { current.Store(Normalize(v)) }
 
 // Current returns the normalized build version, or "" when unknown.

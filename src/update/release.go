@@ -16,8 +16,8 @@ const (
 	rawBase     = "https://raw.githubusercontent.com/" + Repo + "/main"
 
 	// InstallScriptURL / InstallPS1URL back the one-line install/update commands.
-	InstallScriptURL = rawBase + "/scripts/install.sh"
-	InstallPS1URL    = rawBase + "/scripts/install.ps1"
+	InstallScriptURL = rawBase + "/deploy/scripts/install.sh"
+	InstallPS1URL    = rawBase + "/deploy/scripts/install.ps1"
 
 	// ProxyEnv prefixes GitHub download URLs (e.g. https://ghfast.top/) for
 	// hosts that cannot reach github.com directly.

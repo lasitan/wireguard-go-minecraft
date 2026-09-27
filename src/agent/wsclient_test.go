@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"golang.zx2c4.com/wireguard/meshcfg"
+	"golang.zx2c4.com/wireguard/src/core/config"
 )
 
 func TestWSURL(t *testing.T) {
@@ -31,7 +31,7 @@ func TestWSClientOldMasterFallsBack(t *testing.T) {
 	}))
 	defer old.Close()
 
-	c := &wsClient{boot: &meshcfg.AgentBootstrap{MasterURL: old.URL, Key: "tok"}}
+	c := &wsClient{boot: &config.AgentBootstrap{MasterURL: old.URL, Key: "tok"}}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	connected, err := c.run(ctx)

@@ -1,6 +1,6 @@
 //go:build !windows
 
-package tunnel
+package natgw
 
 import (
 	"encoding/binary"

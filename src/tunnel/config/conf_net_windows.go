@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package tunnel
+package config
 
 import (
 	"context"
@@ -16,7 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/src/utils/pwsh"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 func applyIfaceNetConfig(iface string, cfg IfaceNetConfig, logger *device.Logger) error {
@@ -39,7 +40,7 @@ func applyIfaceNetConfig(iface string, cfg IfaceNetConfig, logger *device.Logger
 	// Bring interface up (Wintun is usually up after CreateTUN).
 	if _, err := runPS(fmt.Sprintf(
 		`Get-NetAdapter -Name '%s' -ErrorAction SilentlyContinue | Enable-NetAdapter -Confirm:$false -ErrorAction SilentlyContinue`,
-		psQuote(iface),
+		pwsh.Quote(iface),
 	)); err != nil {
 		logger.Verbosef("Enable-NetAdapter %s: %v", iface, err)
 	}
@@ -47,7 +48,7 @@ func applyIfaceNetConfig(iface string, cfg IfaceNetConfig, logger *device.Logger
 	if cfg.mtu > 0 {
 		script := fmt.Sprintf(
 			`Get-NetIPInterface -InterfaceAlias '%s' -ErrorAction Stop | ForEach-Object { Set-NetIPInterface -InterfaceIndex $_.InterfaceIndex -NlMtuBytes %d -ErrorAction Stop }`,
-			psQuote(iface), cfg.mtu,
+			pwsh.Quote(iface), cfg.mtu,
 		)
 		if _, err := runPS(script); err != nil {
 			return fmt.Errorf("set mtu %d on %s: %w", cfg.mtu, iface, err)
@@ -81,7 +82,7 @@ Get-NetIPAddress -InterfaceAlias $ifAlias -AddressFamily %s -ErrorAction Silentl
   Where-Object { $_.IPAddress -eq $ip } |
   Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
 New-NetIPAddress -InterfaceAlias $ifAlias -IPAddress $ip -PrefixLength $prefix -AddressFamily %s -PolicyStore ActiveStore -ErrorAction Stop | Out-Null
-`, psQuote(iface), prefix.Addr().String(), prefix.Bits(), family, family)
+`, pwsh.Quote(iface), prefix.Addr().String(), prefix.Bits(), family, family)
 		if _, err := runPS(script); err != nil {
 			return fmt.Errorf("addr %s on %s: %w", addr, iface, err)
 		}
@@ -89,8 +90,4 @@ New-NetIPAddress -InterfaceAlias $ifAlias -IPAddress $ip -PrefixLength $prefix -
 		fmt.Fprintf(os.Stderr, "wireguard-go: assigned %s to %s\n", addr, iface)
 	}
 	return nil
-}
-
-func psQuote(s string) string {
-	return strings.ReplaceAll(s, "'", "''")
 }

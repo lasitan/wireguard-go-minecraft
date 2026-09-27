@@ -1,4 +1,4 @@
-package master
+package store
 
 import (
 	"database/sql"
@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"golang.zx2c4.com/wireguard/meshcfg"
+	"golang.zx2c4.com/wireguard/src/core"
 
 	_ "modernc.org/sqlite"
 )
@@ -33,7 +33,7 @@ type Store struct {
 	path string
 }
 
-type storeSettings struct {
+type Settings struct {
 	EnrollToken   string
 	VPNSubnet     string
 	DefaultIface  string
@@ -236,7 +236,7 @@ func (s *Store) importLegacyJSON(path string) error {
 		}
 		return err
 	}
-	var m meshcfg.Mesh
+	var m core.Mesh
 	if err := json.Unmarshal(data, &m); err != nil {
 		return err
 	}
@@ -257,14 +257,14 @@ func (s *Store) metaSet(key, value string) error {
 	return err
 }
 
-func (s *Store) Settings() (storeSettings, error) {
+func (s *Store) Settings() (Settings, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.settingsLocked()
 }
 
-func (s *Store) settingsLocked() (storeSettings, error) {
-	out := storeSettings{}
+func (s *Store) settingsLocked() (Settings, error) {
+	out := Settings{}
 	var err error
 	out.EnrollToken, err = s.metaGet(metaEnrollToken)
 	if err != nil {
@@ -290,18 +290,18 @@ func (s *Store) settingsLocked() (storeSettings, error) {
 	return out, nil
 }
 
-func (s *Store) Snapshot() meshcfg.Mesh {
+func (s *Store) Snapshot() core.Mesh {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, err := s.loadMeshLocked()
 	if err != nil {
-		return meshcfg.EmptyMesh()
+		return core.EmptyMesh()
 	}
 	return m
 }
 
-func (s *Store) loadMeshLocked() (meshcfg.Mesh, error) {
-	m := meshcfg.EmptyMesh()
+func (s *Store) loadMeshLocked() (core.Mesh, error) {
+	m := core.EmptyMesh()
 	revStr, err := s.metaGet(metaRevision)
 	if err != nil {
 		return m, err
@@ -315,7 +315,7 @@ func (s *Store) loadMeshLocked() (meshcfg.Mesh, error) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var n meshcfg.Node
+		var n core.Node
 		var listenPort, mtu, enabled int
 		var transport, lastSeen, routes, addrChanged, geoUpdated string
 		if err := rows.Scan(&n.ID, &n.Name, &n.Role, &n.PublicKey, &n.PrivateKey, &n.Address, &listenPort, &n.Endpoint, &mtu, &n.Token, &n.Interface, &n.PollInterval, &transport, &lastSeen,
@@ -341,7 +341,7 @@ func (s *Store) loadMeshLocked() (meshcfg.Mesh, error) {
 	}
 	defer lrows.Close()
 	for lrows.Next() {
-		var l meshcfg.Link
+		var l core.Link
 		var allowed string
 		if err := lrows.Scan(&l.FromNodeID, &l.ToNodeID, &allowed, &l.Keepalive); err != nil {
 			return m, err
@@ -356,7 +356,7 @@ func (s *Store) loadMeshLocked() (meshcfg.Mesh, error) {
 	}
 	defer frows.Close()
 	for frows.Next() {
-		var f meshcfg.Forward
+		var f core.Forward
 		var port int
 		if err := frows.Scan(&f.NodeID, &f.Protocol, &f.Listen, &f.DestNodeID, &port); err != nil {
 			return m, err
@@ -367,14 +367,14 @@ func (s *Store) loadMeshLocked() (meshcfg.Mesh, error) {
 	return m, nil
 }
 
-func (s *Store) PutMesh(m meshcfg.Mesh) error {
+func (s *Store) PutMesh(m core.Mesh) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cur, err := s.loadMeshLocked()
 	if err != nil {
 		return err
 	}
-	existing := make(map[string]meshcfg.Node, len(cur.Nodes))
+	existing := make(map[string]core.Node, len(cur.Nodes))
 	for _, n := range cur.Nodes {
 		existing[n.ID] = n
 	}
@@ -392,7 +392,7 @@ func (s *Store) PutMesh(m meshcfg.Mesh) error {
 	return s.replaceMeshLocked(m)
 }
 
-func (s *Store) replaceMeshLocked(m meshcfg.Mesh) error {
+func (s *Store) replaceMeshLocked(m core.Mesh) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -451,40 +451,40 @@ func (s *Store) replaceMeshLocked(m meshcfg.Mesh) error {
 	return tx.Commit()
 }
 
-func (s *Store) Enroll(name, role, endpoint string, listenPort uint16) (meshcfg.Node, error) {
+func (s *Store) Enroll(name, role, endpoint string, listenPort uint16) (core.Node, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if role == "" {
-		role = meshcfg.RoleClient
+		role = core.RoleClient
 	}
-	if role != meshcfg.RoleServer && role != meshcfg.RoleClient {
-		return meshcfg.Node{}, fmt.Errorf("role must be server or client")
+	if role != core.RoleServer && role != core.RoleClient {
+		return core.Node{}, fmt.Errorf("role must be server or client")
 	}
 	settings, err := s.settingsLocked()
 	if err != nil {
-		return meshcfg.Node{}, err
+		return core.Node{}, err
 	}
 	m, err := s.loadMeshLocked()
 	if err != nil {
-		return meshcfg.Node{}, err
+		return core.Node{}, err
 	}
-	id, err := meshcfg.GenerateNodeID()
+	id, err := core.GenerateNodeID()
 	if err != nil {
-		return meshcfg.Node{}, err
+		return core.Node{}, err
 	}
-	priv, pub, err := meshcfg.GenerateKeyPair()
+	priv, pub, err := core.GenerateKeyPair()
 	if err != nil {
-		return meshcfg.Node{}, err
+		return core.Node{}, err
 	}
-	tok, err := meshcfg.GenerateToken()
+	tok, err := core.GenerateToken()
 	if err != nil {
-		return meshcfg.Node{}, err
+		return core.Node{}, err
 	}
 	addr, err := nextAddress(settings.VPNSubnet, m.Nodes)
 	if err != nil {
-		return meshcfg.Node{}, err
+		return core.Node{}, err
 	}
-	n := meshcfg.Node{
+	n := core.Node{
 		ID:           id,
 		Name:         name,
 		Role:         role,
@@ -500,31 +500,31 @@ func (s *Store) Enroll(name, role, endpoint string, listenPort uint16) (meshcfg.
 
 		AddressChangedAt: time.Now().UTC(),
 	}
-	if role == meshcfg.RoleServer && n.ListenPort == 0 {
+	if role == core.RoleServer && n.ListenPort == 0 {
 		n.ListenPort = 25590
 	}
 	m.Nodes = append(m.Nodes, n)
-	if role == meshcfg.RoleClient {
+	if role == core.RoleClient {
 		for _, peer := range m.Nodes {
-			if peer.ID == n.ID || peer.Role != meshcfg.RoleServer {
+			if peer.ID == n.ID || peer.Role != core.RoleServer {
 				continue
 			}
-			m.Links = append(m.Links, meshcfg.Link{FromNodeID: n.ID, ToNodeID: peer.ID, Keepalive: 5})
+			m.Links = append(m.Links, core.Link{FromNodeID: n.ID, ToNodeID: peer.ID, Keepalive: 5})
 		}
 	} else {
 		for _, peer := range m.Nodes {
-			if peer.ID == n.ID || peer.Role != meshcfg.RoleClient {
+			if peer.ID == n.ID || peer.Role != core.RoleClient {
 				continue
 			}
-			m.Links = append(m.Links, meshcfg.Link{FromNodeID: peer.ID, ToNodeID: n.ID, Keepalive: 5})
+			m.Links = append(m.Links, core.Link{FromNodeID: peer.ID, ToNodeID: n.ID, Keepalive: 5})
 		}
 	}
 	m.Revision++
 	if err := validateMesh(m); err != nil {
-		return meshcfg.Node{}, err
+		return core.Node{}, err
 	}
 	if err := s.replaceMeshLocked(m); err != nil {
-		return meshcfg.Node{}, err
+		return core.Node{}, err
 	}
 	return n, nil
 }
@@ -547,7 +547,7 @@ func (s *Store) DeleteNode(id string) error {
 		return fmt.Errorf("node %q not found", id)
 	}
 	m.Nodes = append(m.Nodes[:idx], m.Nodes[idx+1:]...)
-	var links []meshcfg.Link
+	var links []core.Link
 	for _, l := range m.Links {
 		if l.FromNodeID == id || l.ToNodeID == id {
 			continue
@@ -555,7 +555,7 @@ func (s *Store) DeleteNode(id string) error {
 		links = append(links, l)
 	}
 	m.Links = links
-	var forwards []meshcfg.Forward
+	var forwards []core.Forward
 	for _, f := range m.Forwards {
 		if f.NodeID == id || f.DestNodeID == id {
 			continue
@@ -570,7 +570,7 @@ func (s *Store) DeleteNode(id string) error {
 	return s.deleteTrafficLocked(id)
 }
 
-func (s *Store) DesiredForToken(token string) (*meshcfg.DesiredConfig, error) {
+func (s *Store) DesiredForToken(token string) (*core.DesiredConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, err := s.loadMeshLocked()
@@ -579,7 +579,7 @@ func (s *Store) DesiredForToken(token string) (*meshcfg.DesiredConfig, error) {
 	}
 	n := m.FindNodeByToken(token)
 	if n == nil {
-		return nil, errUnauthorized
+		return nil, ErrUnauthorized
 	}
 	n.LastSeen = time.Now().UTC()
 	_, _ = s.db.Exec(`UPDATE nodes SET last_seen = ? WHERE id = ?`, n.LastSeen.UTC().Format(time.RFC3339Nano), n.ID)
@@ -587,14 +587,14 @@ func (s *Store) DesiredForToken(token string) (*meshcfg.DesiredConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	return meshcfg.CompileDesired(&m, n.ID, meshcfg.DesiredDefaults{
+	return core.CompileDesired(&m, n.ID, core.DesiredDefaults{
 		InterfaceName: settings.DefaultIface,
 		PollInterval:  settings.DefaultPoll,
 		Transport:     settings.TransportJSON,
 	})
 }
 
-func (s *Store) DesiredForNode(nodeID string) (*meshcfg.DesiredConfig, error) {
+func (s *Store) DesiredForNode(nodeID string) (*core.DesiredConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, err := s.loadMeshLocked()
@@ -605,7 +605,7 @@ func (s *Store) DesiredForNode(nodeID string) (*meshcfg.DesiredConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	return meshcfg.CompileDesired(&m, nodeID, meshcfg.DesiredDefaults{
+	return core.CompileDesired(&m, nodeID, core.DesiredDefaults{
 		InterfaceName: settings.DefaultIface,
 		PollInterval:  settings.DefaultPoll,
 		Transport:     settings.TransportJSON,
@@ -614,7 +614,7 @@ func (s *Store) DesiredForNode(nodeID string) (*meshcfg.DesiredConfig, error) {
 
 // DesiredForNodes compiles configs for many nodes from a single mesh load.
 // Unknown ids are skipped.
-func (s *Store) DesiredForNodes(ids []string) (map[string]*meshcfg.DesiredConfig, error) {
+func (s *Store) DesiredForNodes(ids []string) (map[string]*core.DesiredConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, err := s.loadMeshLocked()
@@ -625,17 +625,17 @@ func (s *Store) DesiredForNodes(ids []string) (map[string]*meshcfg.DesiredConfig
 	if err != nil {
 		return nil, err
 	}
-	def := meshcfg.DesiredDefaults{
+	def := core.DesiredDefaults{
 		InterfaceName: settings.DefaultIface,
 		PollInterval:  settings.DefaultPoll,
 		Transport:     settings.TransportJSON,
 	}
-	out := make(map[string]*meshcfg.DesiredConfig, len(ids))
+	out := make(map[string]*core.DesiredConfig, len(ids))
 	for _, id := range ids {
 		if m.FindNode(id) == nil {
 			continue
 		}
-		d, err := meshcfg.CompileDesired(&m, id, def)
+		d, err := core.CompileDesired(&m, id, def)
 		if err != nil {
 			return nil, err
 		}
@@ -644,7 +644,7 @@ func (s *Store) DesiredForNodes(ids []string) (map[string]*meshcfg.DesiredConfig
 	return out, nil
 }
 
-func nextAddress(subnet string, nodes []meshcfg.Node) (string, error) {
+func nextAddress(subnet string, nodes []core.Node) (string, error) {
 	if subnet == "" {
 		subnet = DefaultVPNSubnet
 	}
@@ -697,22 +697,22 @@ func hostIP4(cidr string) (uint32, error) {
 	return binary.BigEndian.Uint32(b[:]), nil
 }
 
-var errUnauthorized = fmt.Errorf("unauthorized")
+var ErrUnauthorized = fmt.Errorf("unauthorized")
 
-func validateMesh(m meshcfg.Mesh) error {
+func validateMesh(m core.Mesh) error {
 	ids := make(map[string]struct{}, len(m.Nodes))
 	for _, n := range m.Nodes {
 		if n.ID == "" {
 			return fmt.Errorf("node missing id")
 		}
-		if !meshcfg.ValidNodeID(n.ID) {
+		if !core.ValidNodeID(n.ID) {
 			return fmt.Errorf("node id %q must be a UUID", n.ID)
 		}
 		if _, ok := ids[n.ID]; ok {
 			return fmt.Errorf("duplicate node id %q", n.ID)
 		}
 		ids[n.ID] = struct{}{}
-		if n.Role != meshcfg.RoleServer && n.Role != meshcfg.RoleClient {
+		if n.Role != core.RoleServer && n.Role != core.RoleClient {
 			return fmt.Errorf("node %s: invalid role", n.ID)
 		}
 		if n.Address == "" {

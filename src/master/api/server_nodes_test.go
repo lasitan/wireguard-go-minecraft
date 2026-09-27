@@ -1,4 +1,4 @@
-package master
+package api
 
 import (
 	"bytes"
@@ -8,8 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"golang.zx2c4.com/wireguard/meshcfg"
-	"golang.zx2c4.com/wireguard/meshcfg/wire"
+	"golang.zx2c4.com/wireguard/src/master/store"
+	"golang.zx2c4.com/wireguard/src/master/storetest"
+
+	"golang.zx2c4.com/wireguard/src/core"
+	"golang.zx2c4.com/wireguard/src/core/config"
+	"golang.zx2c4.com/wireguard/src/core/wire"
 )
 
 type apiClient struct {
@@ -44,12 +48,12 @@ func (c *apiClient) do(method, path string, body any, out any) int {
 
 func newAPIFixture(t *testing.T) (*Server, *apiClient) {
 	t.Helper()
-	s, err := NewServer(meshcfg.MasterConfig{AdminPassword: "pw", DataDir: t.TempDir(), DisableGeoIPOnline: true})
+	s, err := NewServer(config.MasterConfig{AdminPassword: "pw", DataDir: t.TempDir(), DisableGeoIPOnline: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.store.Close() })
-	setTestSettings(t, s.store, "10.10.0.0/24")
+	storetest.SetSettings(t, s.store, "10.10.0.0/24")
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
 	c := &apiClient{t: t, base: srv.URL}
@@ -63,10 +67,10 @@ func newAPIFixture(t *testing.T) (*Server, *apiClient) {
 
 func TestAdminNodeAPIs(t *testing.T) {
 	s, c := newAPIFixture(t)
-	srvNode, _ := s.store.Enroll("srv", meshcfg.RoleServer, "1.2.3.4:25590", 0)
-	cli, _ := s.store.Enroll("cli", meshcfg.RoleClient, "", 0)
+	srvNode, _ := s.store.Enroll("srv", core.RoleServer, "1.2.3.4:25590", 0)
+	cli, _ := s.store.Enroll("cli", core.RoleClient, "", 0)
 
-	var mesh meshcfg.Mesh
+	var mesh core.Mesh
 	c.do(http.MethodGet, "/api/mesh", nil, &mesh)
 	for _, n := range mesh.Nodes {
 		if n.PrivateKey != "" {
@@ -77,7 +81,7 @@ func TestAdminNodeAPIs(t *testing.T) {
 	enabled := false
 	routes := []string{"192.168.9.7/24"}
 	addr := "10.10.0.50/24"
-	if code := c.do(http.MethodPatch, "/api/nodes?id="+cli.ID, NodePatch{Enabled: &enabled, Routes: &routes, Address: &addr}, &mesh); code != 200 {
+	if code := c.do(http.MethodPatch, "/api/nodes?id="+cli.ID, store.NodePatch{Enabled: &enabled, Routes: &routes, Address: &addr}, &mesh); code != 200 {
 		t.Fatalf("patch status %d", code)
 	}
 	n := mesh.FindNode(cli.ID)
@@ -85,12 +89,12 @@ func TestAdminNodeAPIs(t *testing.T) {
 		t.Fatalf("patched node: %+v", n)
 	}
 	bad := "not-an-ip"
-	if code := c.do(http.MethodPatch, "/api/nodes?id="+cli.ID, NodePatch{Address: &bad}, nil); code != 400 {
+	if code := c.do(http.MethodPatch, "/api/nodes?id="+cli.ID, store.NodePatch{Address: &bad}, nil); code != 400 {
 		t.Fatalf("bad address status %d", code)
 	}
 
-	fwds := []meshcfg.Forward{{Protocol: "tcp", Listen: "8080", DestNodeID: cli.ID, DestPort: 80}}
-	var gotF []meshcfg.Forward
+	fwds := []core.Forward{{Protocol: "tcp", Listen: "8080", DestNodeID: cli.ID, DestPort: 80}}
+	var gotF []core.Forward
 	if code := c.do(http.MethodPut, "/api/nodes/forwards?id="+srvNode.ID, fwds, &gotF); code != 200 || len(gotF) != 1 || gotF[0].NodeID != srvNode.ID {
 		t.Fatalf("put forwards %d %+v", code, gotF)
 	}
@@ -107,7 +111,7 @@ func TestAdminNodeAPIs(t *testing.T) {
 	s.stats.MarkConnected(srvNode.ID, now.Add(-4*time.Second))
 	s.stats.Ingest(srvNode.ID, &wire.Stats{RxBytes: 1000, TxBytes: 1000}, now.Add(-4*time.Second))
 	s.stats.Ingest(srvNode.ID, &wire.Stats{RxBytes: 5000, TxBytes: 3000}, now.Add(-2*time.Second))
-	s.stats.flushNow()
+	s.stats.FlushNow()
 
 	var st nodeStatsView
 	if code := c.do(http.MethodGet, "/api/nodes/stats?id="+srvNode.ID, nil, &st); code != 200 {
@@ -118,8 +122,8 @@ func TestAdminNodeAPIs(t *testing.T) {
 	}
 
 	var series struct {
-		Step   int            `json:"step"`
-		Points []TrafficPoint `json:"points"`
+		Step   int                  `json:"step"`
+		Points []store.TrafficPoint `json:"points"`
 	}
 	if code := c.do(http.MethodGet, "/api/nodes/traffic?id="+srvNode.ID+"&range=1h", nil, &series); code != 200 || series.Step != 60 || len(series.Points) == 0 {
 		t.Fatalf("traffic %d %+v", code, series)
@@ -141,9 +145,9 @@ func TestAdminNodeAPIs(t *testing.T) {
 // A legacy agent that only polls /api/agent/config keeps working.
 func TestLegacyHTTPAgentStillServed(t *testing.T) {
 	s, c := newAPIFixture(t)
-	n, _ := s.store.Enroll("old", meshcfg.RoleClient, "", 0)
+	n, _ := s.store.Enroll("old", core.RoleClient, "", 0)
 	c.token = n.Token
-	var d meshcfg.DesiredConfig
+	var d core.DesiredConfig
 	if code := c.do(http.MethodGet, "/api/agent/config", nil, &d); code != 200 || d.NodeID != n.ID {
 		t.Fatalf("legacy config %d %+v", code, d)
 	}

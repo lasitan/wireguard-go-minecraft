@@ -1,5 +1,5 @@
 # One-line install / upgrade for wireguard-mc (Windows 10+ x64 / ARM64, run as Administrator):
-#   powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/scripts/install.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/deploy/scripts/install.ps1 | iex"
 # Env:
 #   WG_MC_VERSION   pin a version (e.g. 2.0.3); default = latest release
 #   WG_MC_GH_PROXY  download mirror prefix (e.g. https://ghfast.top/)

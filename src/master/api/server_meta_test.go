@@ -1,10 +1,13 @@
-package master
+package api
 
 import (
 	"net/http"
 	"testing"
 
-	"golang.zx2c4.com/wireguard/meshcfg"
+	"golang.zx2c4.com/wireguard/src/master/store"
+	"golang.zx2c4.com/wireguard/src/master/storetest"
+
+	"golang.zx2c4.com/wireguard/src/core"
 )
 
 type metaResp struct {
@@ -14,7 +17,7 @@ type metaResp struct {
 }
 
 func TestFirstRunGeneratesEnrollToken(t *testing.T) {
-	st, err := OpenStore(t.TempDir())
+	st, err := store.OpenStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +29,7 @@ func TestFirstRunGeneratesEnrollToken(t *testing.T) {
 	if len(settings.EnrollToken) < 16 {
 		t.Fatalf("enroll token not generated: %q", settings.EnrollToken)
 	}
-	if settings.VPNSubnet != DefaultVPNSubnet {
+	if settings.VPNSubnet != store.DefaultVPNSubnet {
 		t.Fatalf("pool = %q", settings.VPNSubnet)
 	}
 }
@@ -35,7 +38,7 @@ func TestPatchMeta(t *testing.T) {
 	s, c := newAPIFixture(t)
 
 	var m metaResp
-	if code := c.do(http.MethodGet, "/api/meta", nil, &m); code != 200 || m.EnrollToken != testEnrollToken {
+	if code := c.do(http.MethodGet, "/api/meta", nil, &m); code != 200 || m.EnrollToken != storetest.EnrollToken {
 		t.Fatalf("get meta: %d %+v", code, m)
 	}
 
@@ -62,11 +65,11 @@ func TestPatchMeta(t *testing.T) {
 	if code := anon.do(http.MethodPatch, "/api/meta", map[string]string{"enrollToken": "hijacked-key"}, nil); code != 401 {
 		t.Fatalf("anon patch: %d", code)
 	}
-	if code := anon.do(http.MethodPost, "/api/agent/enroll", map[string]string{"enrollToken": testEnrollToken}, nil); code != 401 {
+	if code := anon.do(http.MethodPost, "/api/agent/enroll", map[string]string{"enrollToken": storetest.EnrollToken}, nil); code != 401 {
 		t.Fatalf("old token enroll: %d", code)
 	}
 	var created struct{ Address string }
-	if code := anon.do(http.MethodPost, "/api/agent/enroll", map[string]string{"enrollToken": "new-enroll-key", "role": meshcfg.RoleClient}, &created); code != 201 {
+	if code := anon.do(http.MethodPost, "/api/agent/enroll", map[string]string{"enrollToken": "new-enroll-key", "role": core.RoleClient}, &created); code != 201 {
 		t.Fatalf("new token enroll: %d", code)
 	}
 	if created.Address != "10.20.0.1/16" {

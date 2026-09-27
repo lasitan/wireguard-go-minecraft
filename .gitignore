@@ -8,3 +8,4 @@ wireguard-go
 /*.build
 *.exe
 **/node_modules/
+/src/web/.vite/

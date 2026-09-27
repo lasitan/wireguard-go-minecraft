@@ -59,23 +59,23 @@ type tcpPacket struct {
 }
 
 type tcpSession struct {
-	bind     *TCPBind
-	key      string
-	dst      netip.AddrPort
-	conn     net.Conn
-	writeMu  sync.Mutex
-	alive    bool
-	inbound  bool // accepted from peer (server side) vs dialed out (client)
-	toNAT    bool // inbound session signaled ToNAT client mode
-	lastRX   atomic.Int64 // unix nano of last framed payload read
+	bind    *TCPBind
+	key     string
+	dst     netip.AddrPort
+	conn    net.Conn
+	writeMu sync.Mutex
+	alive   bool
+	inbound bool         // accepted from peer (server side) vs dialed out (client)
+	toNAT   bool         // inbound session signaled ToNAT client mode
+	lastRX  atomic.Int64 // unix nano of last framed payload read
 }
 
 type reconnectConfig struct {
-	initial        time.Duration
-	max            time.Duration
-	dialTimeout    time.Duration
-	rxIdleTimeout  time.Duration
-	allowOutbound  bool // if false, never dial (listen-only server)
+	initial       time.Duration
+	max           time.Duration
+	dialTimeout   time.Duration
+	rxIdleTimeout time.Duration
+	allowOutbound bool // if false, never dial (listen-only server)
 }
 
 // TCPBind implements Bind over TCP transport with simple length-prefixed

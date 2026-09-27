@@ -1,4 +1,4 @@
-package master
+package store
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"golang.zx2c4.com/wireguard/meshcfg"
+	"golang.zx2c4.com/wireguard/src/core"
 )
 
 const (
@@ -68,28 +68,28 @@ func normalizeRoutes(in []string) ([]string, error) {
 }
 
 // PatchNode applies admin edits to one node and bumps the revision.
-func (s *Store) PatchNode(id string, p NodePatch) (meshcfg.Node, error) {
+func (s *Store) PatchNode(id string, p NodePatch) (core.Node, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, err := s.loadMeshLocked()
 	if err != nil {
-		return meshcfg.Node{}, err
+		return core.Node{}, err
 	}
 	n := m.FindNode(id)
 	if n == nil {
-		return meshcfg.Node{}, fmt.Errorf("node %q not found", id)
+		return core.Node{}, fmt.Errorf("node %q not found", id)
 	}
 	if p.Name != nil {
 		name := strings.TrimSpace(*p.Name)
 		if len(name) > maxNodeNameLen {
-			return meshcfg.Node{}, fmt.Errorf("name longer than %d", maxNodeNameLen)
+			return core.Node{}, fmt.Errorf("name longer than %d", maxNodeNameLen)
 		}
 		n.Name = name
 	}
 	if p.Address != nil {
 		addr, err := normalizeAddress(*p.Address)
 		if err != nil {
-			return meshcfg.Node{}, err
+			return core.Node{}, err
 		}
 		if addr != n.Address {
 			n.Address = addr
@@ -102,27 +102,27 @@ func (s *Store) PatchNode(id string, p NodePatch) (meshcfg.Node, error) {
 	if p.Routes != nil {
 		routes, err := normalizeRoutes(*p.Routes)
 		if err != nil {
-			return meshcfg.Node{}, err
+			return core.Node{}, err
 		}
 		n.Routes = routes
 	}
 	out := *n
 	m.Revision++
 	if err := validateMesh(m); err != nil {
-		return meshcfg.Node{}, err
+		return core.Node{}, err
 	}
 	if err := s.replaceMeshLocked(m); err != nil {
-		return meshcfg.Node{}, err
+		return core.Node{}, err
 	}
 	return out, nil
 }
 
-func (s *Store) NodeForwards(id string) ([]meshcfg.Forward, error) {
+func (s *Store) NodeForwards(id string) ([]core.Forward, error) {
 	m := s.Snapshot()
 	if m.FindNode(id) == nil {
 		return nil, fmt.Errorf("node %q not found", id)
 	}
-	out := []meshcfg.Forward{}
+	out := []core.Forward{}
 	for _, f := range m.Forwards {
 		if f.NodeID == id {
 			out = append(out, f)
@@ -148,7 +148,7 @@ func validListen(listen string) bool {
 }
 
 // PutNodeForwards replaces the forwards listening on node id.
-func (s *Store) PutNodeForwards(id string, fwds []meshcfg.Forward) ([]meshcfg.Forward, error) {
+func (s *Store) PutNodeForwards(id string, fwds []core.Forward) ([]core.Forward, error) {
 	if len(fwds) > maxNodeFwds {
 		return nil, fmt.Errorf("at most %d forwards", maxNodeFwds)
 	}
@@ -162,7 +162,7 @@ func (s *Store) PutNodeForwards(id string, fwds []meshcfg.Forward) ([]meshcfg.Fo
 		return nil, fmt.Errorf("node %q not found", id)
 	}
 	seen := map[string]struct{}{}
-	clean := make([]meshcfg.Forward, 0, len(fwds))
+	clean := make([]core.Forward, 0, len(fwds))
 	for i, f := range fwds {
 		f.NodeID = id
 		f.Protocol = strings.ToLower(strings.TrimSpace(f.Protocol))
@@ -186,7 +186,7 @@ func (s *Store) PutNodeForwards(id string, fwds []meshcfg.Forward) ([]meshcfg.Fo
 		seen[key] = struct{}{}
 		clean = append(clean, f)
 	}
-	var rest []meshcfg.Forward
+	var rest []core.Forward
 	for _, f := range m.Forwards {
 		if f.NodeID != id {
 			rest = append(rest, f)

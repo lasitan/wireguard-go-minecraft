@@ -1,6 +1,6 @@
 //go:build windows
 
-package service
+package windows
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 
-	"golang.zx2c4.com/wireguard/internal/update"
+	"golang.zx2c4.com/wireguard/src/update"
 )
 
 func applyUpdate(ctx context.Context, rel *update.Release, exe string) error {
@@ -21,7 +21,7 @@ func applyUpdate(ctx context.Context, rel *update.Release, exe string) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := downloadAsset(ctx, rel, name, filepath.Dir(exe))
+	tmp, err := update.DownloadAsset(ctx, rel, name, filepath.Dir(exe))
 	if err != nil {
 		return err
 	}

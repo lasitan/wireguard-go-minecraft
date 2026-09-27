@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Build (and optionally push) the wireguard-mc Docker image.
 # Usage (from repo root):
-#   bash scripts/package-docker.sh
-#   bash scripts/package-docker.sh --push
-#   VERSION=v1.1.5 IMAGE=ghcr.io/OWNER/REPO bash scripts/package-docker.sh --push
+#   bash deploy/scripts/package-docker.sh
+#   bash deploy/scripts/package-docker.sh --push
+#   VERSION=v1.1.5 IMAGE=ghcr.io/OWNER/REPO bash deploy/scripts/package-docker.sh --push
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 PUSH=0
@@ -40,8 +40,7 @@ PLATFORM="${PLATFORM:-}"
 
 echo "==> Building ${IMAGE}:${TAG} (GO_VERSION=${GO_VERSION})"
 build_args=(
-  -f Dockerfile
-  --build-arg "VERSION=${TAG}"
+  -f deploy/docker/Dockerfile
   --build-arg "GO_VERSION=${GO_VERSION}"
   -t "${IMAGE}:${TAG}"
   -t "${IMAGE}:${DEB_UPSTREAM}"

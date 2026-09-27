@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package windows
 
 import (
 	"bytes"
@@ -16,8 +16,8 @@ import (
 )
 
 // embeddedWintunDLL is the official signed Wintun 0.14.1 for GOARCH, set in
-// wintun_dll_windows_<arch>.go. Redistribution permitted under the license
-// shipped in third_party/wintun/.
+// wintun_<arch>.go. Redistribution permitted under the license
+// shipped in wintun/.
 
 // ensureWintunDLL writes the embedded wintun.dll next to this executable when
 // missing or outdated. golang.zx2c4.com/wintun loads via

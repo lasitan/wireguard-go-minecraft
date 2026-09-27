@@ -1,4 +1,4 @@
-package master
+package hub
 
 import (
 	"context"
@@ -11,16 +11,20 @@ import (
 	"testing"
 	"time"
 
+	"golang.zx2c4.com/wireguard/src/master/stats"
+	"golang.zx2c4.com/wireguard/src/master/store"
+	"golang.zx2c4.com/wireguard/src/master/storetest"
+
 	"github.com/coder/websocket"
 
-	"golang.zx2c4.com/wireguard/meshcfg"
-	"golang.zx2c4.com/wireguard/meshcfg/wire"
+	"golang.zx2c4.com/wireguard/src/core"
+	"golang.zx2c4.com/wireguard/src/core/wire"
 )
 
-func newHubFixture(t *testing.T) (*Store, *Hub, *httptest.Server) {
+func newHubFixture(t *testing.T) (*store.Store, *Hub, *httptest.Server) {
 	t.Helper()
-	st := openTestStore(t, "10.10.0.0/16")
-	hub := NewHub(st, NewStatsService(st))
+	st := storetest.Open(t, "10.10.0.0/16")
+	hub := NewHub(st, stats.NewStatsService(st))
 	srv := httptest.NewServer(http.HandlerFunc(hub.ServeWS))
 	t.Cleanup(srv.Close)
 	return st, hub, srv
@@ -65,7 +69,7 @@ func readNonPing(ctx context.Context, ws *websocket.Conn) (wire.Frame, error) {
 
 func TestHubHandshakeStatsAndPush(t *testing.T) {
 	st, hub, srv := newHubFixture(t)
-	node, err := st.Enroll("a", meshcfg.RoleClient, "", 0)
+	node, err := st.Enroll("a", core.RoleClient, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +94,7 @@ func TestHubHandshakeStatsAndPush(t *testing.T) {
 	if err != nil || f.Type != wire.TypeConfigPush {
 		t.Fatalf("want ConfigPush, got %v %v", f.Type, err)
 	}
-	var d meshcfg.DesiredConfig
+	var d core.DesiredConfig
 	if err := json.Unmarshal(f.Payload, &d); err != nil || d.NodeID != node.ID {
 		t.Fatalf("config: %+v %v", d, err)
 	}
@@ -144,7 +148,7 @@ func TestHubRejectsBadToken(t *testing.T) {
 
 func TestHubReplacesDuplicateConnection(t *testing.T) {
 	st, hub, srv := newHubFixture(t)
-	node, err := st.Enroll("a", meshcfg.RoleClient, "", 0)
+	node, err := st.Enroll("a", core.RoleClient, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +191,7 @@ func TestHubManyConnections(t *testing.T) {
 	st, hub, srv := newHubFixture(t)
 	tokens := make([]string, n)
 	for i := range tokens {
-		node, err := st.Enroll(fmt.Sprintf("n%d", i), meshcfg.RoleClient, "", 0)
+		node, err := st.Enroll(fmt.Sprintf("n%d", i), core.RoleClient, "", 0)
 		if err != nil {
 			t.Fatal(err)
 		}

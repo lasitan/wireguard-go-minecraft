@@ -1,8 +1,7 @@
-package master
+package api
 
 import (
 	"crypto/subtle"
-	"embed"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -11,27 +10,31 @@ import (
 	"sync"
 	"time"
 
-	"golang.zx2c4.com/wireguard/internal/update"
-	"golang.zx2c4.com/wireguard/meshcfg"
-)
+	"golang.zx2c4.com/wireguard/src/master/geoip"
+	"golang.zx2c4.com/wireguard/src/master/hub"
+	"golang.zx2c4.com/wireguard/src/master/stats"
+	"golang.zx2c4.com/wireguard/src/master/store"
+	"golang.zx2c4.com/wireguard/src/master/ui"
 
-//go:embed ui/*
-var uiFS embed.FS
+	"golang.zx2c4.com/wireguard/src/core"
+	"golang.zx2c4.com/wireguard/src/core/config"
+	"golang.zx2c4.com/wireguard/src/update"
+)
 
 // Server is the Master control-plane HTTP API + embedded UI.
 type Server struct {
-	cfg      meshcfg.MasterConfig
-	store    *Store
+	cfg      config.MasterConfig
+	store    *store.Store
 	sessions *sessionStore
-	stats    *StatsService
-	hub      *Hub
-	geo      *GeoIP
+	stats    *stats.StatsService
+	hub      *hub.Hub
+	geo      *geoip.GeoIP
 	updates  *update.Checker
 
 	httpGeoAt sync.Map // nodeID -> time.Time of last legacy-agent IP observation
 }
 
-func NewServer(cfg meshcfg.MasterConfig) (*Server, error) {
+func NewServer(cfg config.MasterConfig) (*Server, error) {
 	if cfg.Listen == "" {
 		cfg.Listen = ":8443"
 	}
@@ -39,22 +42,22 @@ func NewServer(cfg meshcfg.MasterConfig) (*Server, error) {
 		cfg.DataDir = "/var/lib/wireguard-mc"
 	}
 	if cfg.AdminPassword == "" {
-		return nil, fmt.Errorf("adminPassword is required in %s", meshcfg.MasterFileName)
+		return nil, fmt.Errorf("adminPassword is required in %s", config.MasterFileName)
 	}
-	st, err := OpenStore(cfg.DataDir)
+	st, err := store.OpenStore(cfg.DataDir)
 	if err != nil {
 		return nil, err
 	}
-	stats := NewStatsService(st)
-	hub := NewHub(st, stats)
-	geo := NewGeoIP(st, cfg.DataDir, cfg.GeoIPDB, !cfg.DisableGeoIPOnline)
-	hub.OnPublicIPs = geo.ResolveNode
+	statsSvc := stats.NewStatsService(st)
+	agentHub := hub.NewHub(st, statsSvc)
+	geo := geoip.NewGeoIP(st, cfg.DataDir, cfg.GeoIPDB, !cfg.DisableGeoIPOnline)
+	agentHub.OnPublicIPs = geo.ResolveNode
 	return &Server{
 		cfg:      cfg,
 		store:    st,
 		sessions: newSessionStore(cfg.AdminPassword),
-		stats:    stats,
-		hub:      hub,
+		stats:    statsSvc,
+		hub:      agentHub,
 		geo:      geo,
 		updates:  update.NewChecker(6*time.Hour, cfg.DisableUpdateCheck),
 	}, nil
@@ -76,10 +79,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/meta", s.handleMeta)
 	mux.HandleFunc("/api/version", s.handleVersion)
 
-	sub, err := fs.Sub(uiFS, "ui")
-	if err != nil {
-		panic(err)
-	}
+	sub := ui.FS()
 	fileServer := http.FileServer(http.FS(sub))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
@@ -130,7 +130,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodPatch {
-		var p SettingsPatch
+		var p store.SettingsPatch
 		if err := readJSON(r, &p); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
 			return
@@ -193,7 +193,7 @@ func (s *Server) handleMesh(w http.ResponseWriter, r *http.Request) {
 		if !s.requireAdmin(w, r) {
 			return
 		}
-		var m meshcfg.Mesh
+		var m core.Mesh
 		if err := readJSON(r, &m); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
@@ -296,7 +296,7 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	desired, err := s.store.DesiredForToken(tok)
 	if err != nil {
-		if err == errUnauthorized {
+		if err == store.ErrUnauthorized {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}

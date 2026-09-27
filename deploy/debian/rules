@@ -24,8 +24,8 @@ endif
 export GOOS := linux
 export GOARCH
 
-VERSION_UPSTREAM := $(shell dpkg-parsechangelog -S Version | sed 's/-[^-]*$$//')
-LDFLAGS := -s -w -X main.Version=v$(VERSION_UPSTREAM)
+VERSION := $(shell tr -d '\r\n\t ' < .github/build/version.txt)
+LDFLAGS := -s -w -X golang.zx2c4.com/wireguard/src/core/version.Version=$(VERSION)
 
 %:
 	dh $@
@@ -37,7 +37,7 @@ override_dh_auto_clean:
 override_dh_auto_build:
 	@command -v go >/dev/null || { echo "go toolchain missing in PATH (expected /usr/local/go)"; exit 1; }
 	go version
-	go build -trimpath -ldflags "$(LDFLAGS)" -o wireguard-go .
+	go build -trimpath -ldflags "$(LDFLAGS)" -o wireguard-go ./src
 
 override_dh_auto_test:
 	@echo "Skipping unit tests during package build"
@@ -46,8 +46,8 @@ override_dh_auto_install:
 	install -d debian/wireguard-mc/usr/bin
 	install -m 0755 wireguard-go debian/wireguard-mc/usr/bin/wireguard-go
 	install -d debian/wireguard-mc/etc/wireguard
-	install -m 0644 wireguard-go-master.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-master.json.example
-	install -m 0644 wireguard-go-agent.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-agent.json.example
+	install -m 0644 deploy/examples/wireguard-go-master.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-master.json.example
+	install -m 0644 deploy/examples/wireguard-go-agent.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-agent.json.example
 	install -d debian/wireguard-mc/usr/share/doc/wireguard-mc
 	install -m 0644 debian/README.Debian debian/wireguard-mc/usr/share/doc/wireguard-mc/README.Debian
 	install -d debian/wireguard-mc/lib/systemd/system

@@ -1,4 +1,4 @@
-package tunnel
+package config
 
 import (
 	"bufio"
@@ -8,12 +8,13 @@ import (
 	"strconv"
 	"strings"
 
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/meshcfg"
+	"golang.zx2c4.com/wireguard/src/core"
+	"golang.zx2c4.com/wireguard/src/tunnel/spec"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 // applyDesiredConfig applies a Master-compiled desired config via UAPI + iface net + returns peers for forwards.
-func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string, d *meshcfg.DesiredConfig) (*ConfApplyResult, error) {
+func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string, d *core.DesiredConfig) (*ConfApplyResult, error) {
 	if d == nil {
 		return &ConfApplyResult{}, nil
 	}
@@ -38,7 +39,7 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		netCfg.mtu = d.Interface.MTU
 	}
 
-	var peers []PeerHookConfig
+	var peers []spec.PeerHookConfig
 	for _, p := range d.Peers {
 		pubHex, err := base64ToHex(p.PublicKey)
 		if err != nil {
@@ -48,11 +49,11 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		if p.Endpoint != "" {
 			fmt.Fprintf(w, "endpoint=%s\n", p.Endpoint)
 		}
-		ph := PeerHookConfig{
-			label:        truncateKey(p.PublicKey),
-			publicKeyB64: p.PublicKey,
-			publicKeyHex: pubHex,
-			endpoint:     p.Endpoint,
+		ph := spec.PeerHookConfig{
+			Label:        truncateKey(p.PublicKey),
+			PublicKeyB64: p.PublicKey,
+			PublicKeyHex: pubHex,
+			Endpoint:     p.Endpoint,
 		}
 		for _, cidr := range p.AllowedIPs {
 			cidr = strings.TrimSpace(cidr)
@@ -60,30 +61,30 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 				continue
 			}
 			fmt.Fprintf(w, "allowed_ip=%s\n", cidr)
-			ph.hasAllowedIPs = true
+			ph.HasAllowedIPs = true
 			if host, err := firstHostFromCIDR(cidr); err == nil {
-				if ph.allowedIP == "" {
-					ph.allowedIP = host
+				if ph.AllowedIP == "" {
+					ph.AllowedIP = host
 				}
-				ph.allowedHosts = append(ph.allowedHosts, host)
+				ph.AllowedHosts = append(ph.AllowedHosts, host)
 			}
 		}
 		if p.Keepalive > 0 {
 			fmt.Fprintf(w, "persistent_keepalive_interval=%d\n", p.Keepalive)
-			ph.hasKeepalive = true
+			ph.HasKeepalive = true
 		}
 		peers = append(peers, ph)
 	}
 
 	// Attach node-level forwards to a synthetic peer hook (or first matching dest).
 	if len(d.Forwards) > 0 {
-		var fwdPeer *PeerHookConfig
+		var fwdPeer *spec.PeerHookConfig
 		for i := range peers {
 			fwdPeer = &peers[i]
 			break
 		}
 		if fwdPeer == nil {
-			peers = append(peers, PeerHookConfig{label: "forwards"})
+			peers = append(peers, spec.PeerHookConfig{Label: "forwards"})
 			fwdPeer = &peers[len(peers)-1]
 		}
 		for _, fw := range d.Forwards {
@@ -91,17 +92,17 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 			if err != nil {
 				return nil, fmt.Errorf("forward listen %q: %w", fw.Listen, err)
 			}
-			spec := PortForwardSpec{
+			fwSpec := spec.PortForwardSpec{
 				Proto:      strings.ToLower(fw.Protocol),
 				ListenHost: listenHost,
 				ListenPort: int(listenPort),
 				DestHost:   fw.DestHost,
 				DestPort:   int(fw.DestPort),
 			}
-			if spec.Proto == "" {
-				spec.Proto = protoTCP
+			if fwSpec.Proto == "" {
+				fwSpec.Proto = spec.ProtoTCP
 			}
-			fwdPeer.forwards = append(fwdPeer.forwards, spec)
+			fwdPeer.Forwards = append(fwdPeer.Forwards, fwSpec)
 		}
 	}
 

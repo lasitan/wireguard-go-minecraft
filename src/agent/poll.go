@@ -13,19 +13,21 @@ import (
 	"sync"
 	"time"
 
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/internal/tunnel"
-	"golang.zx2c4.com/wireguard/meshcfg"
+	"golang.zx2c4.com/wireguard/src/core"
+	"golang.zx2c4.com/wireguard/src/core/config"
+	"golang.zx2c4.com/wireguard/src/tunnel/ipcounter"
+	"golang.zx2c4.com/wireguard/src/tunnel/portfwd"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
 func BootstrapPath() string {
-	return filepath.Join(meshcfg.ConfDir(), meshcfg.AgentFileName)
+	return filepath.Join(config.ConfDir(), config.AgentFileName)
 }
 
-func LoadBootstrap() (*meshcfg.AgentBootstrap, error) {
+func LoadBootstrap() (*config.AgentBootstrap, error) {
 	path := BootstrapPath()
-	var b meshcfg.AgentBootstrap
-	if err := meshcfg.LoadJSON(path, &b); err != nil {
+	var b config.AgentBootstrap
+	if err := config.LoadJSON(path, &b); err != nil {
 		return nil, err
 	}
 	if b.MasterURL == "" {
@@ -36,7 +38,7 @@ func LoadBootstrap() (*meshcfg.AgentBootstrap, error) {
 	}
 	// Persist normalized form (only masterUrl + key).
 	norm := b.Normalized()
-	if err := meshcfg.SaveJSON(path, norm, 0600); err != nil {
+	if err := config.SaveJSON(path, norm, 0600); err != nil {
 		return nil, err
 	}
 	b = norm
@@ -46,7 +48,7 @@ func LoadBootstrap() (*meshcfg.AgentBootstrap, error) {
 	return &b, nil
 }
 
-func ensureEnrolled(b *meshcfg.AgentBootstrap) error {
+func ensureEnrolled(b *config.AgentBootstrap) error {
 	// Probe config; if unauthorized, treat key as enrollToken and enroll.
 	client := &http.Client{Timeout: 15 * time.Second}
 	url := stringsTrimSlash(b.MasterURL) + "/api/agent/config"
@@ -70,12 +72,12 @@ func ensureEnrolled(b *meshcfg.AgentBootstrap) error {
 	return fmt.Errorf("agent config probe HTTP %d: %s", resp.StatusCode, truncateStr(string(body), 200))
 }
 
-func enrollWithKey(b *meshcfg.AgentBootstrap) error {
+func enrollWithKey(b *config.AgentBootstrap) error {
 	hostname, _ := os.Hostname()
 	payload, _ := json.Marshal(map[string]string{
 		"enrollToken": b.Key,
 		"name":        hostname,
-		"role":        meshcfg.RoleClient,
+		"role":        core.RoleClient,
 	})
 	url := stringsTrimSlash(b.MasterURL) + "/api/agent/enroll"
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
@@ -105,7 +107,7 @@ func enrollWithKey(b *meshcfg.AgentBootstrap) error {
 		return fmt.Errorf("enroll response missing nodeToken")
 	}
 	b.Key = out.NodeToken
-	if err := meshcfg.SaveJSON(BootstrapPath(), b.Normalized(), 0600); err != nil {
+	if err := config.SaveJSON(BootstrapPath(), b.Normalized(), 0600); err != nil {
 		return fmt.Errorf("persist bootstrap: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "wireguard-go: enrolled as node %s (%s)\n", out.NodeID, out.Address)
@@ -127,13 +129,13 @@ func ConfigLoop(
 	dev *device.Device,
 	logger *device.Logger,
 	iface string,
-	fwdPtr **tunnel.PortForwardManager,
+	fwdPtr **portfwd.PortForwardManager,
 	fwdMu *sync.Mutex,
-	boot *meshcfg.AgentBootstrap,
+	boot *config.AgentBootstrap,
 	stop <-chan struct{},
 ) {
 	ap := newApplier(dev, logger, iface, fwdPtr, fwdMu)
-	counter := tunnel.NewIPCounter()
+	counter := ipcounter.NewIPCounter()
 	dev.SetTrafficCounter(counter)
 	defer dev.SetTrafficCounter(nil)
 
@@ -184,7 +186,7 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 }
 
 // pollHTTP polls /api/agent/config with ETag for up to window.
-func pollHTTP(ctx context.Context, boot *meshcfg.AgentBootstrap, ap *applier, logger *device.Logger, window time.Duration) {
+func pollHTTP(ctx context.Context, boot *config.AgentBootstrap, ap *applier, logger *device.Logger, window time.Duration) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	url := stringsTrimSlash(boot.MasterURL) + "/api/agent/config"
 	deadline := time.Now().Add(window)
@@ -217,7 +219,7 @@ func pollHTTP(ctx context.Context, boot *meshcfg.AgentBootstrap, ap *applier, lo
 			fmt.Fprintf(os.Stderr, "wireguard-go: agent config HTTP %d: %s\n", resp.StatusCode, truncateStr(string(body), 200))
 			return
 		}
-		var desired meshcfg.DesiredConfig
+		var desired core.DesiredConfig
 		if err := json.Unmarshal(body, &desired); err != nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: agent config json: %v\n", err)
 			return

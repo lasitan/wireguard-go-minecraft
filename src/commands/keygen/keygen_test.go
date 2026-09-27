@@ -1,4 +1,4 @@
-package tunnel
+package keygen
 
 import (
 	"encoding/base64"

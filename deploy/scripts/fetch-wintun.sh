@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Download official Wintun 0.14.1 and place <arch>/wintun.dll for go:embed.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUT_ROOT="${ROOT}/third_party/wintun"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+OUT_ROOT="${ROOT}/src/systems/windows/wintun"
 VERSION="0.14.1"
 URL="https://www.wintun.net/builds/wintun-${VERSION}.zip"
 EXPECT_SHA256="07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51"

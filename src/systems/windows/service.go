@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package service
+package windows
 
 import (
 	"fmt"
@@ -14,13 +14,15 @@ import (
 	"strings"
 	"time"
 
+	"golang.zx2c4.com/wireguard/src/commands/role"
+	"golang.zx2c4.com/wireguard/src/core"
+	"golang.zx2c4.com/wireguard/src/update"
+
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 
-	"golang.zx2c4.com/wireguard/meshcfg"
+	"golang.zx2c4.com/wireguard/src/core/config"
 )
-
-const ExitSetupFailed = 1
 
 const (
 	defaultIface         = "wg0"
@@ -39,18 +41,18 @@ func HandleCommand() bool {
 		}
 		if len(os.Args) > 3 {
 			fmt.Fprintln(os.Stderr, "Usage: wireguard-go install [INTERFACE|master]")
-			os.Exit(ExitSetupFailed)
+			os.Exit(core.ExitSetupFailed)
 		}
 		if target == "master" {
 			if err := serviceInstallMaster(); err != nil {
 				fmt.Fprintf(os.Stderr, "install master: %v\n", err)
-				os.Exit(ExitSetupFailed)
+				os.Exit(core.ExitSetupFailed)
 			}
 			return true
 		}
 		if err := serviceInstall(target); err != nil {
 			fmt.Fprintf(os.Stderr, "install: %v\n", err)
-			os.Exit(ExitSetupFailed)
+			os.Exit(core.ExitSetupFailed)
 		}
 		return true
 
@@ -64,7 +66,7 @@ func HandleCommand() bool {
 			default:
 				if strings.HasPrefix(a, "-") {
 					fmt.Fprintln(os.Stderr, "Usage: wireguard-go uninstall [INTERFACE|master] [--purge]")
-					os.Exit(ExitSetupFailed)
+					os.Exit(core.ExitSetupFailed)
 				}
 				target = a
 			}
@@ -72,20 +74,20 @@ func HandleCommand() bool {
 		if target == "master" {
 			if err := serviceUninstallMaster(purge); err != nil {
 				fmt.Fprintf(os.Stderr, "uninstall master: %v\n", err)
-				os.Exit(ExitSetupFailed)
+				os.Exit(core.ExitSetupFailed)
 			}
 			return true
 		}
 		if err := serviceUninstall(target, purge); err != nil {
 			fmt.Fprintf(os.Stderr, "uninstall: %v\n", err)
-			os.Exit(ExitSetupFailed)
+			os.Exit(core.ExitSetupFailed)
 		}
 		return true
 
 	case "update":
-		if err := runUpdate(os.Args[2:]); err != nil {
+		if err := update.RunCommand(os.Args[2:], ensureElevated, applyUpdate); err != nil {
 			fmt.Fprintf(os.Stderr, "update: %v\n", err)
-			os.Exit(ExitSetupFailed)
+			os.Exit(core.ExitSetupFailed)
 		}
 		return true
 
@@ -102,7 +104,7 @@ func serviceInstall(iface string) error {
 	if err := ensureElevated(); err != nil {
 		return err
 	}
-	if err := assertCanInstall(meshcfg.RoleAgent); err != nil {
+	if err := role.AssertCanInstall(config.RoleAgent); err != nil {
 		return err
 	}
 	if err := validateIfaceName(iface); err != nil {
@@ -120,7 +122,7 @@ func serviceInstall(iface string) error {
 	if err := ensureWGConfigsWindows(iface); err != nil {
 		return err
 	}
-	if err := writeRoleLock(meshcfg.RoleAgent); err != nil {
+	if err := role.Write(config.RoleAgent); err != nil {
 		return err
 	}
 
@@ -158,7 +160,7 @@ func serviceInstall(iface string) error {
 		return fmt.Errorf("start service %s: %w", name, err)
 	}
 	fmt.Fprintf(os.Stderr, "wireguard-go: started %s\n", name)
-	fmt.Fprintf(os.Stderr, "wireguard-go: agent config → %s\n", filepath.Join(meshcfg.ConfDir(), meshcfg.AgentFileName))
+	fmt.Fprintf(os.Stderr, "wireguard-go: agent config → %s\n", filepath.Join(config.ConfDir(), config.AgentFileName))
 	return nil
 }
 
@@ -166,7 +168,7 @@ func serviceInstallMaster() error {
 	if err := ensureElevated(); err != nil {
 		return err
 	}
-	if err := assertCanInstall(meshcfg.RoleMaster); err != nil {
+	if err := role.AssertCanInstall(config.RoleMaster); err != nil {
 		return err
 	}
 	exe, err := os.Executable()
@@ -176,11 +178,11 @@ func serviceInstallMaster() error {
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
 	}
-	dir := meshcfg.ConfDir()
+	dir := config.ConfDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	masterCfg := filepath.Join(dir, meshcfg.MasterFileName)
+	masterCfg := filepath.Join(dir, config.MasterFileName)
 	if _, err := os.Stat(masterCfg); os.IsNotExist(err) {
 		dataDir := filepath.Join(dir, "master-data")
 		example := fmt.Sprintf(`{
@@ -195,7 +197,7 @@ func serviceInstallMaster() error {
 		_ = os.MkdirAll(dataDir, 0750)
 		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword; enroll key is managed in the web UI\n", masterCfg)
 	}
-	if err := writeRoleLock(meshcfg.RoleMaster); err != nil {
+	if err := role.Write(config.RoleMaster); err != nil {
 		return err
 	}
 
@@ -252,9 +254,9 @@ func serviceUninstallMaster(purge bool) error {
 		_ = s.Delete()
 		s.Close()
 	}
-	_ = clearRoleLock()
+	_ = role.Clear()
 	if purge {
-		_ = os.Remove(filepath.Join(meshcfg.ConfDir(), meshcfg.MasterFileName))
+		_ = os.Remove(filepath.Join(config.ConfDir(), config.MasterFileName))
 	}
 	fmt.Fprintln(os.Stderr, "wireguard-go: uninstalled master service")
 	return nil
@@ -349,33 +351,33 @@ func serviceUninstall(iface string, purge bool) error {
 		s.Close()
 		fmt.Fprintf(os.Stderr, "wireguard-go: removed service %s\n", name)
 	}
-	_ = clearRoleLock()
+	_ = role.Clear()
 
 	if purge {
-		conf := filepath.Join(meshcfg.ConfDir(), iface+".conf")
+		conf := filepath.Join(config.ConfDir(), iface+".conf")
 		if err := os.Remove(conf); err == nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", conf)
 		}
-		transport := filepath.Join(meshcfg.ConfDir(), "wireguard-go-transport.json")
+		transport := filepath.Join(config.ConfDir(), "wireguard-go-transport.json")
 		if err := os.Remove(transport); err == nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", transport)
 		}
-		agent := filepath.Join(meshcfg.ConfDir(), meshcfg.AgentFileName)
+		agent := filepath.Join(config.ConfDir(), config.AgentFileName)
 		if err := os.Remove(agent); err == nil {
 			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", agent)
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "wireguard-go: kept configs under %s (pass --purge to delete)\n", meshcfg.ConfDir())
+		fmt.Fprintf(os.Stderr, "wireguard-go: kept configs under %s (pass --purge to delete)\n", config.ConfDir())
 	}
 	return nil
 }
 
 func ensureWGConfigsWindows(iface string) error {
-	dir := meshcfg.ConfDir()
+	dir := config.ConfDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	agentPath := filepath.Join(dir, meshcfg.AgentFileName)
+	agentPath := filepath.Join(dir, config.AgentFileName)
 	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
 		example := fmt.Sprintf(`{
   "masterUrl": "http://127.0.0.1:8443",

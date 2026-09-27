@@ -1,6 +1,6 @@
-//go:build !windows
+//go:build linux
 
-package service
+package linux
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"golang.zx2c4.com/wireguard/internal/update"
+	"golang.zx2c4.com/wireguard/src/update"
 )
 
 const dpkgList = "/var/lib/dpkg/info/wireguard-mc.list"
@@ -21,7 +21,7 @@ func applyUpdate(ctx context.Context, rel *update.Release, exe string) error {
 		if err != nil {
 			return err
 		}
-		deb, err := downloadAsset(ctx, rel, name, os.TempDir())
+		deb, err := update.DownloadAsset(ctx, rel, name, os.TempDir())
 		if err != nil {
 			return err
 		}
@@ -39,7 +39,7 @@ func applyUpdate(ctx context.Context, rel *update.Release, exe string) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := downloadAsset(ctx, rel, name, filepath.Dir(exe))
+	tmp, err := update.DownloadAsset(ctx, rel, name, filepath.Dir(exe))
 	if err != nil {
 		return err
 	}

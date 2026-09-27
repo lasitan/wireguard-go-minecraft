@@ -1,10 +1,10 @@
-package master
+package store
 
 import (
 	"database/sql"
 	"time"
 
-	"golang.zx2c4.com/wireguard/meshcfg"
+	"golang.zx2c4.com/wireguard/src/core"
 )
 
 const (
@@ -213,13 +213,13 @@ func (s *Store) deleteTrafficLocked(nodeID string) error {
 // ---- lightweight node updates (no revision bump) ----
 
 // NodeByToken resolves an agent token without loading the whole mesh.
-func (s *Store) NodeByToken(token string) (meshcfg.Node, error) {
-	var n meshcfg.Node
+func (s *Store) NodeByToken(token string) (core.Node, error) {
+	var n core.Node
 	var enabled int
 	err := s.rdb.QueryRow(`SELECT id, name, address, public_v4, public_v6, enabled FROM nodes WHERE token = ?`, token).
 		Scan(&n.ID, &n.Name, &n.Address, &n.PublicV4, &n.PublicV6, &enabled)
 	if err == sql.ErrNoRows {
-		return n, errUnauthorized
+		return n, ErrUnauthorized
 	}
 	n.Disabled = enabled == 0
 	n.Token = token

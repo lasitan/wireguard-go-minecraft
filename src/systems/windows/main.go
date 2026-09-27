@@ -1,9 +1,11 @@
+//go:build windows
+
 /* SPDX-License-Identifier: MIT
  *
  * Copyright (C) 2017-2025 WireGuard LLC. All Rights Reserved.
  */
 
-package main
+package windows
 
 import (
 	"fmt"
@@ -14,41 +16,35 @@ import (
 	"strings"
 	"sync"
 
+	"golang.zx2c4.com/wireguard/src/core"
+
 	"golang.org/x/sys/windows"
 
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/internal/agent"
-	"golang.zx2c4.com/wireguard/internal/service"
-	"golang.zx2c4.com/wireguard/internal/tunnel"
-	"golang.zx2c4.com/wireguard/internal/update"
-	"golang.zx2c4.com/wireguard/ipc"
-	"golang.zx2c4.com/wireguard/meshcfg"
-	"golang.zx2c4.com/wireguard/tun"
+	"golang.zx2c4.com/wireguard/src/agent"
+	"golang.zx2c4.com/wireguard/src/commands/keygen"
+	"golang.zx2c4.com/wireguard/src/core/config"
+	"golang.zx2c4.com/wireguard/src/core/version"
+	tunconf "golang.zx2c4.com/wireguard/src/tunnel/config"
+	"golang.zx2c4.com/wireguard/src/tunnel/natgw"
+	"golang.zx2c4.com/wireguard/src/tunnel/portfwd"
+	"golang.zx2c4.com/wireguard/src/update"
+	"golang.zx2c4.com/wireguard/src/wireguard/conn"
+	"golang.zx2c4.com/wireguard/src/wireguard/device"
+	"golang.zx2c4.com/wireguard/src/wireguard/ipc"
+	"golang.zx2c4.com/wireguard/src/wireguard/tun"
 )
 
-const (
-	ExitSetupSuccess = 0
-	ExitSetupFailed  = 1
-)
+// VersionText is printed by `wireguard-go --version`.
+func VersionText() string {
+	return fmt.Sprintf("wireguard-go v%s\n", update.Current())
+}
 
-func main() {
-	update.SetCurrent(Version)
-	update.CleanupOld()
-	if len(os.Args) == 2 && os.Args[1] == "--version" {
-		fmt.Printf("wireguard-go v%s\n", update.Current())
-		return
-	}
+// Main runs SCM entry, service subcommands or the tunnel daemon for os.Args.
+func Main() {
 	if runAsWindowsServiceIfRequested() {
 		return
 	}
-	if tunnel.HandleKeyCommand() {
-		return
-	}
-	if handleMasterCommand() {
-		return
-	}
-	if service.HandleCommand() {
+	if HandleCommand() {
 		return
 	}
 
@@ -61,22 +57,22 @@ func main() {
 	case len(os.Args) == 2:
 		interfaceName = os.Args[1]
 		if interfaceName == "-f" || interfaceName == "--foreground" {
-			tunnel.PrintUsage()
-			os.Exit(ExitSetupFailed)
+			keygen.PrintUsage()
+			os.Exit(core.ExitSetupFailed)
 		}
 	default:
-		tunnel.PrintUsage()
-		os.Exit(ExitSetupFailed)
+		keygen.PrintUsage()
+		os.Exit(core.ExitSetupFailed)
 	}
 	if strings.ContainsAny(interfaceName, `/\`) || strings.HasSuffix(strings.ToLower(interfaceName), ".conf") {
 		fmt.Fprintf(os.Stderr, "wireguard-go: pass interface name (e.g. wg0), not a config path\n")
-		fmt.Fprintf(os.Stderr, "wireguard-go: config is loaded from %s\\<iface>.conf\n", meshcfg.ConfDir())
-		os.Exit(ExitSetupFailed)
+		fmt.Fprintf(os.Stderr, "wireguard-go: config is loaded from %s\\<iface>.conf\n", config.ConfDir())
+		os.Exit(core.ExitSetupFailed)
 	}
 
 	if err := ensureWintunDLL(); err != nil {
 		fmt.Fprintf(os.Stderr, "wireguard-go: wintun.dll: %v\n", err)
-		os.Exit(ExitSetupFailed)
+		os.Exit(core.ExitSetupFailed)
 	}
 	logLevel := device.LogLevelError
 	switch os.Getenv("LOG_LEVEL") {
@@ -90,7 +86,7 @@ func main() {
 		logLevel,
 		fmt.Sprintf("(%s) ", interfaceName),
 	)
-	logger.Verbosef("Starting wireguard-go version %s", Version)
+	logger.Verbosef("Starting wireguard-go version %s", version.Version)
 
 	tdev, err := tun.CreateTUN(interfaceName, 0)
 	if err == nil {
@@ -100,7 +96,7 @@ func main() {
 		}
 	} else {
 		logger.Errorf("Failed to create TUN device: %v", err)
-		os.Exit(ExitSetupFailed)
+		os.Exit(core.ExitSetupFailed)
 	}
 
 	tcpBind := conn.NewTCPBind().(*conn.TCPBind)
@@ -108,11 +104,11 @@ func main() {
 	logger.Verbosef("Transport mode: TCP + MC-Camouflage")
 	if err := dev.Up(); err != nil {
 		logger.Errorf("Failed to bring up device: %v", err)
-		os.Exit(ExitSetupFailed)
+		os.Exit(core.ExitSetupFailed)
 	}
 
-	var natgw *tunnel.NatGateway
-	fwd := tunnel.NewPortForwardManager(logger)
+	var gateway *natgw.NatGateway
+	fwd := portfwd.NewPortForwardManager(logger)
 	var fwdMu sync.Mutex
 	agentStop := make(chan struct{})
 	confPath := ""
@@ -120,15 +116,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "wireguard-go: agent mode → %s (nodeId from Master)\n", boot.MasterURL)
 		go agent.ConfigLoop(dev, logger, interfaceName, &fwd, &fwdMu, boot, agentStop)
 	} else if os.Getenv("WG_LEGACY_CONF") == "1" {
-		confFile := filepath.Join(meshcfg.ConfDir(), interfaceName+".conf")
+		confFile := filepath.Join(config.ConfDir(), interfaceName+".conf")
 		if _, statErr := os.Stat(confFile); statErr == nil {
 			confPath = confFile
 			fmt.Fprintf(os.Stderr, "wireguard-go: loading legacy %s\n", confFile)
-			result, err := tunnel.ApplyWGConf(dev, logger, interfaceName)
+			result, err := tunconf.ApplyWGConf(dev, logger, interfaceName)
 			if err != nil {
 				logger.Errorf("Failed to apply wg conf: %v", err)
 				fmt.Fprintf(os.Stderr, "wireguard-go: failed to apply %s: %v\n", confFile, err)
-				os.Exit(ExitSetupFailed)
+				os.Exit(core.ExitSetupFailed)
 			}
 			if result != nil {
 				if result.Nat.ToNATClient {
@@ -136,14 +132,14 @@ func main() {
 					tcpBind.SetDialToNAT(true)
 				}
 				if result.Nat.ServerMode {
-					natgw = tunnel.NewNatGateway(logger, interfaceName, result.Nat)
-					if err := natgw.Start(dev); err != nil {
+					gateway = natgw.NewNatGateway(logger, interfaceName, result.Nat)
+					if err := gateway.Start(dev); err != nil {
 						logger.Errorf("Failed to start NAT gateway: %v", err)
 						fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway error: %v\n", err)
-						os.Exit(ExitSetupFailed)
+						os.Exit(core.ExitSetupFailed)
 					}
 					dev.SetNatClientHandler(func(pk device.NoisePublicKey) {
-						natgw.RegisterClient(pk)
+						gateway.RegisterClient(pk)
 					})
 				}
 				_ = fwd.StartFromPeers(result.Peers)
@@ -160,7 +156,7 @@ func main() {
 	uapi, err := ipc.UAPIListen(interfaceName)
 	if err != nil {
 		logger.Errorf("Failed to listen on uapi socket: %v", err)
-		os.Exit(ExitSetupFailed)
+		os.Exit(core.ExitSetupFailed)
 	}
 
 	errs := make(chan error)
@@ -190,7 +186,7 @@ func main() {
 				}
 			}
 		}
-		tunnel.PrintStartupInfo(dev, logger, interfaceName, confPath, tcpPort, true, fwd.Count())
+		tunconf.PrintStartupInfo(dev, logger, interfaceName, confPath, tcpPort, true, fwd.Count())
 		fmt.Fprintln(os.Stderr, "wireguard-go: ready (foreground). Waiting for peers — Ctrl+C to stop.")
 	}
 
@@ -206,8 +202,8 @@ func main() {
 
 	close(agentStop)
 	_ = tcpBind.Close()
-	if natgw != nil {
-		natgw.Close(dev)
+	if gateway != nil {
+		gateway.Close(dev)
 	}
 	fwdMu.Lock()
 	if fwd != nil {

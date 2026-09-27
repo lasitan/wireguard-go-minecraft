@@ -1,4 +1,4 @@
-package service
+package update
 
 import (
 	"context"
@@ -8,15 +8,16 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
-
-	"golang.zx2c4.com/wireguard/internal/update"
 )
 
 const updateUsage = "Usage: wireguard-go update [--check] [--force]"
 
-// runUpdate implements `wireguard-go update`: check GitHub Releases and,
-// unless --check, install the newer build and restart running services.
-func runUpdate(args []string) error {
+// ApplyFunc installs rel over the running executable exe (platform specific).
+type ApplyFunc func(ctx context.Context, rel *Release, exe string) error
+
+// RunCommand implements `wireguard-go update`: check GitHub Releases and,
+// unless --check, elevate and install the newer build via apply.
+func RunCommand(args []string, ensureElevated func() error, apply ApplyFunc) error {
 	check, force := false, false
 	for _, a := range args {
 		switch a {
@@ -33,14 +34,14 @@ func runUpdate(args []string) error {
 	defer cancel()
 	lookup, lcancel := context.WithTimeout(ctx, 30*time.Second)
 	defer lcancel()
-	rel, err := update.Latest(lookup)
+	rel, err := Latest(lookup)
 	if err != nil {
-		return fmt.Errorf("check %s: %w", update.ReleasesURL, err)
+		return fmt.Errorf("check %s: %w", ReleasesURL, err)
 	}
 
-	cur := update.Current()
+	cur := Current()
 	fmt.Fprintf(os.Stderr, "wireguard-go: 当前版本 %s，最新版本 %s（%s）\n", orUnknown(cur), rel.Version, rel.URL)
-	newer := update.Newer(rel.Version, cur)
+	newer := Newer(rel.Version, cur)
 	if !newer && !force {
 		fmt.Fprintln(os.Stderr, "wireguard-go: 已是最新版本")
 		return nil
@@ -62,20 +63,21 @@ func runUpdate(args []string) error {
 	if r, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = r
 	}
-	if err := applyUpdate(ctx, rel, exe); err != nil {
+	if err := apply(ctx, rel, exe); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "wireguard-go: 已升级到 %s\n", rel.Version)
 	return nil
 }
 
-func downloadAsset(ctx context.Context, rel *update.Release, name, dir string) (string, error) {
+// DownloadAsset fetches the named release asset into dir, logging the URL.
+func DownloadAsset(ctx context.Context, rel *Release, name, dir string) (string, error) {
 	a, ok := rel.Asset(name)
 	if !ok {
 		return "", fmt.Errorf("release %s has no asset %s", rel.Tag, name)
 	}
-	fmt.Fprintf(os.Stderr, "wireguard-go: 下载 %s\n", update.Proxied(a.URL))
-	return update.Download(ctx, a, dir, os.Stderr)
+	fmt.Fprintf(os.Stderr, "wireguard-go: 下载 %s\n", Proxied(a.URL))
+	return Download(ctx, a, dir, os.Stderr)
 }
 
 func updateHint() string {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Ensure GitHub CLI (gh) is on PATH. Downloads a static binary if missing.
 # Usage (from repo root / checkout):
-#   bash scripts/ensure-gh.sh
+#   bash deploy/scripts/ensure-gh.sh
 # Under Actions, appends install dir to $GITHUB_PATH for later steps.
 set -euo pipefail
 

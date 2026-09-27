@@ -28,30 +28,41 @@ To run with more logging you may set the environment variable `LOG_LEVEL=debug`.
 
 This will run on Linux; however you should instead use the kernel module, which is faster and better integrated into the OS. See the [installation page](https://www.wireguard.com/install/) for instructions.
 
-### macOS
-
-This runs on macOS using the utun driver. It does not yet support sticky sockets, and won't support fwmarks because of Darwin limitations. Since the utun driver cannot have arbitrary interface names, you must either use `utun[0-9]+` for an explicit interface name or `utun` to have the kernel select one for you. If you choose `utun` as the interface name, and the environment variable `WG_TUN_NAME_FILE` is defined, then the actual name of the interface chosen by the kernel is written to the file specified by that variable.
-
 ### Windows
 
-This runs on Windows, but you should instead use it from the more [fully featured Windows app](https://git.zx2c4.com/wireguard-windows/about/), which uses this as a module.
+This runs on Windows 10+ (amd64 / arm64). The signed Wintun driver is embedded and released next to the executable on first start.
 
-### FreeBSD
-
-This will run on FreeBSD. It does not yet support sticky sockets. Fwmark is mapped to `SO_USER_COOKIE`.
-
-### OpenBSD
-
-This will run on OpenBSD. It does not yet support sticky sockets. Fwmark is mapped to `SO_RTABLE`. Since the tun driver cannot have arbitrary interface names, you must either use `tun[0-9]+` for an explicit interface name or `tun` to have the program select one for you. If you choose `tun` as the interface name, and the environment variable `WG_TUN_NAME_FILE` is defined, then the actual name of the interface chosen by the kernel is written to the file specified by that variable.
+Other platforms (macOS, BSD, Android, iOS) are not supported by this fork.
 
 ## Building
 
-This requires an installation of the latest version of [Go](https://go.dev/).
+This requires an installation of the latest version of [Go](https://go.dev/) and Node.js (for the Master web panel).
 
 ```
-$ git clone https://git.zx2c4.com/wireguard-go
-$ cd wireguard-go
-$ make
+$ bash deploy/scripts/build-master-ui.sh
+$ go build -o wireguard-go \
+    -ldflags "-X golang.zx2c4.com/wireguard/src/core/version.Version=$(cat .github/build/version.txt)" ./src
+```
+
+The release version lives in `.github/build/version.txt`; bumping it on `main` triggers the release workflow. Builds without `-ldflags` report `dev`.
+
+## Layout
+
+```
+src/
+  main*.go     entry point and subcommand dispatch
+  core/        mesh models, config files, wire protocol, version
+  wireguard/   upstream wireguard-go kernel (device, conn, tun, ipc)
+  tunnel/      data plane: wg conf, NAT gateway, port forwards
+  agent/       agent polling / websocket client
+  master/      control plane: store, stats, geoip, hub, api, embedded ui
+  update/      self-update from GitHub Releases
+  commands/    keygen, role lock
+  systems/     linux / windows service, elevation and daemon main
+  utils/       small shared helpers
+  web/         Master web panel (vite, built into master/ui/dist)
+deploy/
+  debian/ docker/ scripts/ examples/
 ```
 
 ## License

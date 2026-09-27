@@ -1,24 +1,30 @@
-package master
+// Package storetest provides Store fixtures shared by master package tests.
+package storetest
 
-import "testing"
+import (
+	"testing"
 
-const testEnrollToken = "enroll-test-token"
+	"golang.zx2c4.com/wireguard/src/master/store"
+)
 
-func openTestStore(t *testing.T, pool string) *Store {
+const EnrollToken = "enroll-test-token"
+
+// Open returns a fresh Store in a temp dir with EnrollToken and pool set.
+func Open(t *testing.T, pool string) *store.Store {
 	t.Helper()
-	st, err := OpenStore(t.TempDir())
+	st, err := store.OpenStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	setTestSettings(t, st, pool)
+	SetSettings(t, st, pool)
 	return st
 }
 
-func setTestSettings(t *testing.T, st *Store, pool string) {
+func SetSettings(t *testing.T, st *store.Store, pool string) {
 	t.Helper()
-	token := testEnrollToken
-	if err := st.UpdateSettings(SettingsPatch{EnrollToken: &token, VPNSubnet: &pool}); err != nil {
+	token := EnrollToken
+	if err := st.UpdateSettings(store.SettingsPatch{EnrollToken: &token, VPNSubnet: &pool}); err != nil {
 		t.Fatal(err)
 	}
 }
