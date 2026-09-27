@@ -25,6 +25,10 @@ export function EdgeLegend() {
           <span className="swatch line solid red" />
           <span>红色 · 端点离线或链路异常</span>
         </li>
+        <li>
+          <span className="swatch line solid grey" />
+          <span>灰色 · 节点已停用</span>
+        </li>
       </ul>
       <p className="edge-legend-note">
         拖动画布平移 · 滚轮缩放 · 拖拽 Agent 改位置。虚实互斥；同 IP 仅前端标黄。

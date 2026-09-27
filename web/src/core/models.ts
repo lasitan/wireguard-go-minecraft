@@ -7,6 +7,81 @@ export type Node = {
   token?: string;
   listenPort?: number;
   lastSeen?: string;
+  disabled?: boolean;
+  routes?: string[];
+  /** Later address change loses an IP conflict. */
+  addressChangedAt?: string;
+  publicV4?: string;
+  publicV6?: string;
+  geoCountry?: string;
+  geoCountryCode?: string;
+};
+
+export type NodePatch = {
+  name?: string;
+  address?: string;
+  enabled?: boolean;
+  routes?: string[];
+};
+
+export type LivePeer = {
+  publicKey: string;
+  rx: number;
+  tx: number;
+  lastHandshake?: string;
+  nodeId?: string;
+  name?: string;
+};
+
+export type LiveForward = {
+  protocol: string;
+  listen: string;
+  rx: number;
+  tx: number;
+};
+
+export type IpTraffic = {
+  ip: string;
+  nodeId?: string;
+  name?: string;
+  rx: number;
+  tx: number;
+  rxRate: number;
+  txRate: number;
+  updatedAt?: number;
+};
+
+/** Master control link: ws = long connection, http = legacy polling. */
+export type LinkKind = "ws" | "http" | "offline";
+
+export type NodeStats = {
+  nodeId: string;
+  link: LinkKind;
+  lastSeen?: string;
+  connectedAt?: string;
+  rttMs?: number;
+  publicV4?: string;
+  publicV6?: string;
+  geoCountry?: string;
+  geoCountryCode?: string;
+  rxRate: number;
+  txRate: number;
+  sampleAt?: string;
+  totals: { rx: number; tx: number };
+  peers: LivePeer[];
+  forwards: LiveForward[];
+  ips: IpTraffic[];
+};
+
+export type TrafficRange = "1h" | "24h" | "7d" | "30d";
+
+export type TrafficPoint = { ts: number; rx: number; tx: number };
+
+export type TrafficSeries = {
+  range: TrafficRange;
+  /** Bucket width in seconds. */
+  step: number;
+  points: TrafficPoint[];
 };
 
 export type Link = {
@@ -45,7 +120,7 @@ export type Focus = { x: number; y: number; scale: number };
 export type PlacedNode = { node: Node; x: number; y: number };
 
 /** Traffic-light status for topology edges. */
-export type EdgeStatus = "green" | "yellow" | "red";
+export type EdgeStatus = "green" | "yellow" | "red" | "grey";
 
 /** Solid = active rule; dashed = indirect reachability. Mutually exclusive per pair. */
 export type EdgeKind = "solid" | "dashed";

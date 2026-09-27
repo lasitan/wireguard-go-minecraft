@@ -37,7 +37,9 @@ function edgeStatus(
   bOnline: boolean,
   aConflict: boolean,
   bConflict: boolean,
+  anyDisabled = false,
 ): EdgeStatus {
+  if (anyDisabled) return "grey";
   if (aConflict || bConflict) return "yellow";
   if (!aOnline || !bOnline) return "red";
   return "green";
@@ -56,6 +58,7 @@ export function BuildEdgeGraph(
 ): TopologyEdge[] {
   const byId = new Map(placed.map((p) => [p.node.id, p]));
   const online = new Map(placed.map((p) => [p.node.id, isOnline(p.node)]));
+  const disabled = new Set(placed.filter((p) => p.node.disabled).map((p) => p.node.id));
 
   const solidPairs = new Set<string>();
   for (const l of mesh.links || []) {
@@ -106,6 +109,7 @@ export function BuildEdgeGraph(
       !!online.get(bId),
       !!conflicts.get(aId),
       !!conflicts.get(bId),
+      disabled.has(aId) || disabled.has(bId),
     );
     edges.push({
       id: `${kind}:${pairKey(aId, bId)}`,
@@ -134,7 +138,8 @@ export function BuildEdgeGraph(
     const nodeOnline = !!online.get(p.node.id);
     const conflict = !!conflicts.get(p.node.id);
     let status: EdgeStatus = "green";
-    if (conflict) status = "yellow";
+    if (disabled.has(p.node.id)) status = "grey";
+    else if (conflict) status = "yellow";
     else if (!nodeOnline) status = "red";
     edges.push({
       id: `spoke:${p.node.id}`,

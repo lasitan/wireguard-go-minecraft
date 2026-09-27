@@ -2,16 +2,17 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/internal/tunnel"
 	"golang.zx2c4.com/wireguard/meshcfg"
@@ -111,7 +112,17 @@ func enrollWithKey(b *meshcfg.AgentBootstrap) error {
 	return nil
 }
 
-// ConfigLoop polls Master and re-applies desired config when revision changes.
+const (
+	wsBackoffMin = time.Second
+	wsBackoffMax = time.Minute
+	// httpFallbackWindow is how long to poll over HTTP before retrying WS
+	// (e.g. an older Master without /api/agent/ws).
+	httpFallbackWindow = time.Minute
+)
+
+// ConfigLoop keeps the agent in sync with Master. It prefers the binary
+// WebSocket long connection (config push + stats) and falls back to HTTP
+// polling while the WS endpoint is unreachable.
 func ConfigLoop(
 	dev *device.Device,
 	logger *device.Logger,
@@ -121,22 +132,72 @@ func ConfigLoop(
 	boot *meshcfg.AgentBootstrap,
 	stop <-chan struct{},
 ) {
-	appliedRev := -1
+	ap := newApplier(dev, logger, iface, fwdPtr, fwdMu)
+	counter := tunnel.NewIPCounter()
+	dev.SetTrafficCounter(counter)
+	defer dev.SetTrafficCounter(nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-stop
+		cancel()
+	}()
+
+	ws := &wsClient{boot: boot, dev: dev, counter: counter, ap: ap}
+	backoff := wsBackoffMin
+	for ctx.Err() == nil {
+		connected, err := ws.run(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		if connected {
+			backoff = wsBackoffMin
+			fmt.Fprintf(os.Stderr, "wireguard-go: master link lost: %v; reconnecting\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "wireguard-go: master ws unavailable (%v); HTTP polling for %s\n", err, httpFallbackWindow)
+			pollHTTP(ctx, boot, ap, logger, httpFallbackWindow)
+		}
+		if !sleepCtx(ctx, jitter(backoff)) {
+			return
+		}
+		backoff *= 2
+		if backoff > wsBackoffMax {
+			backoff = wsBackoffMax
+		}
+	}
+}
+
+func jitter(d time.Duration) time.Duration {
+	return d/2 + time.Duration(rand.Int64N(int64(d)))
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
+}
+
+// pollHTTP polls /api/agent/config with ETag for up to window.
+func pollHTTP(ctx context.Context, boot *meshcfg.AgentBootstrap, ap *applier, logger *device.Logger, window time.Duration) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	url := stringsTrimSlash(boot.MasterURL) + "/api/agent/config"
-	pollEvery := 10 * time.Second
-	ticker := time.NewTicker(pollEvery)
-	defer ticker.Stop()
+	deadline := time.Now().Add(window)
 
 	fetch := func() {
-		req, err := http.NewRequest(http.MethodGet, url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			logger.Errorf("agent: %v", err)
 			return
 		}
 		req.Header.Set("Authorization", "Bearer "+boot.Key)
-		if appliedRev >= 0 {
-			req.Header.Set("If-None-Match", fmt.Sprintf(`"%d"`, appliedRev))
+		if rev := ap.revision(); rev >= 0 {
+			req.Header.Set("If-None-Match", fmt.Sprintf(`"%d"`, rev))
 		}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -161,61 +222,17 @@ func ConfigLoop(
 			fmt.Fprintf(os.Stderr, "wireguard-go: agent config json: %v\n", err)
 			return
 		}
-		if desired.Revision == appliedRev {
-			return
+		if err := ap.apply(&desired); err != nil {
+			fmt.Fprintf(os.Stderr, "wireguard-go: %v\n", err)
 		}
-
-		if len(desired.Transport) > 0 {
-			conn.SetTransportConfigJSON(desired.Transport)
-		}
-		applyIface := iface
-		if desired.InterfaceName != "" {
-			applyIface = desired.InterfaceName
-		}
-		if desired.PollInterval != "" {
-			if d, err := time.ParseDuration(desired.PollInterval); err == nil && d >= time.Second {
-				if d != pollEvery {
-					pollEvery = d
-					ticker.Reset(pollEvery)
-				}
-			}
-		}
-
-		newFwd := tunnel.NewPortForwardManager(logger)
-		result, err := tunnel.ApplyDesiredConfig(dev, logger, applyIface, &desired)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: apply desired rev=%d: %v\n", desired.Revision, err)
-			logger.Errorf("apply desired: %v", err)
-			return
-		}
-		if err := newFwd.StartFromPeers(result.Peers); err != nil {
-			newFwd.Close()
-			fmt.Fprintf(os.Stderr, "wireguard-go: port forward: %v\n", err)
-			logger.Errorf("port forward: %v", err)
-			return
-		}
-
-		fwdMu.Lock()
-		old := *fwdPtr
-		*fwdPtr = newFwd
-		fwdMu.Unlock()
-		if old != nil {
-			old.Close()
-		}
-
-		appliedRev = desired.Revision
-		fmt.Fprintf(os.Stderr, "wireguard-go: applied mesh revision %d (node %s, %s, %d peers, %d forwards)\n",
-			appliedRev, desired.NodeID, desired.Role, len(desired.Peers), len(desired.Forwards))
 	}
 
 	fetch()
-	for {
-		select {
-		case <-stop:
+	for time.Now().Before(deadline) {
+		if !sleepCtx(ctx, ap.pollInterval()) {
 			return
-		case <-ticker.C:
-			fetch()
 		}
+		fetch()
 	}
 }
 

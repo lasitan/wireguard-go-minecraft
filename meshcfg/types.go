@@ -50,6 +50,43 @@ type Node struct {
 	PollInterval string          `json:"pollInterval,omitempty"` // default 10s (Master-managed)
 	Transport    json.RawMessage `json:"transport,omitempty"`    // per-node override; else mesh default
 	LastSeen     time.Time       `json:"lastSeen,omitempty"`
+
+	// Disabled nodes are removed from every peer list (tunnel down) but keep
+	// their Master connection so they can be re-enabled.
+	Disabled bool `json:"disabled,omitempty"`
+	// Routes are extra CIDRs reachable through this node (subnet router).
+	Routes []string `json:"routes,omitempty"`
+	// AddressChangedAt decides IP-conflict precedence: the later change loses.
+	AddressChangedAt time.Time `json:"addressChangedAt,omitempty"`
+
+	// Server-observed fields (never accepted from admin mesh edits).
+	PublicV4       string    `json:"publicV4,omitempty"`
+	PublicV6       string    `json:"publicV6,omitempty"`
+	GeoCountry     string    `json:"geoCountry,omitempty"`
+	GeoCountryCode string    `json:"geoCountryCode,omitempty"`
+	GeoUpdatedAt   time.Time `json:"geoUpdatedAt,omitempty"`
+}
+
+// PreserveServerFields copies Master-owned fields from cur into n, so admin
+// mesh edits (which never see private keys) cannot wipe them.
+func (n *Node) PreserveServerFields(cur Node) {
+	if n.PrivateKey == "" {
+		n.PrivateKey = cur.PrivateKey
+	}
+	if n.Token == "" {
+		n.Token = cur.Token
+	}
+	n.LastSeen = cur.LastSeen
+	n.PublicV4 = cur.PublicV4
+	n.PublicV6 = cur.PublicV6
+	n.GeoCountry = cur.GeoCountry
+	n.GeoCountryCode = cur.GeoCountryCode
+	n.GeoUpdatedAt = cur.GeoUpdatedAt
+	if n.Address != cur.Address {
+		n.AddressChangedAt = time.Now().UTC()
+	} else {
+		n.AddressChangedAt = cur.AddressChangedAt
+	}
 }
 
 // Link means fromNode dials toNode (client→server typically).
@@ -93,6 +130,11 @@ type MasterConfig struct {
 	// Seeded into SQLite on first run when meta is empty:
 	EnrollToken string `json:"enrollToken,omitempty"`
 	VPNSubnet   string `json:"vpnSubnet,omitempty"`
+	// GeoIPDB is an offline country mmdb (GeoLite2-Country / DB-IP Lite).
+	// Defaults to <dataDir>/GeoLite2-Country.mmdb or dbip-country-lite.mmdb.
+	GeoIPDB string `json:"geoipDb,omitempty"`
+	// DisableGeoIPOnline turns off the ip-api.com fallback.
+	DisableGeoIPOnline bool `json:"disableGeoipOnline,omitempty"`
 }
 
 // DesiredConfig is what an agent applies (fully Master-authored).
@@ -272,6 +314,75 @@ func hostAsSlash32(addr string) (string, error) {
 	return host + "/32", nil
 }
 
+// ConflictLosers returns node ids whose VPN host IP duplicates another node's.
+// The node that changed its address earliest keeps the IP; later changers lose.
+// Ties (or missing timestamps) fall back to mesh order (earlier enrolled wins).
+func ConflictLosers(mesh *Mesh) map[string]bool {
+	type holder struct {
+		idx int
+		at  time.Time
+	}
+	winners := map[string]holder{}
+	losers := map[string]bool{}
+	better := func(a, b holder) bool {
+		switch {
+		case a.at.IsZero() && b.at.IsZero():
+			return a.idx < b.idx
+		case a.at.IsZero():
+			return true
+		case b.at.IsZero():
+			return false
+		case !a.at.Equal(b.at):
+			return a.at.Before(b.at)
+		default:
+			return a.idx < b.idx
+		}
+	}
+	for i, n := range mesh.Nodes {
+		host, err := hostFromAddress(n.Address)
+		if err != nil {
+			continue
+		}
+		h := holder{idx: i, at: n.AddressChangedAt}
+		w, ok := winners[host]
+		if !ok {
+			winners[host] = h
+			continue
+		}
+		if better(h, w) {
+			losers[mesh.Nodes[w.idx].ID] = true
+			winners[host] = h
+		} else {
+			losers[n.ID] = true
+		}
+	}
+	return losers
+}
+
+// peerAllowedIPs is the node's own /32 plus its advertised subnet routes.
+func peerAllowedIPs(n *Node, base []string) ([]string, error) {
+	allowed := append([]string(nil), base...)
+	if len(allowed) == 0 {
+		slash32, err := hostAsSlash32(n.Address)
+		if err != nil {
+			return nil, fmt.Errorf("node %s address: %w", n.ID, err)
+		}
+		allowed = []string{slash32}
+	}
+	seen := make(map[string]struct{}, len(allowed))
+	for _, a := range allowed {
+		seen[a] = struct{}{}
+	}
+	for _, r := range n.Routes {
+		if _, ok := seen[r]; ok {
+			continue
+		}
+		seen[r] = struct{}{}
+		allowed = append(allowed, r)
+	}
+	return allowed, nil
+}
+
 // DesiredDefaults are mesh-wide defaults applied when a node omits overrides.
 type DesiredDefaults struct {
 	InterfaceName string
@@ -322,8 +433,18 @@ func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*Desir
 			ListenPort: n.ListenPort,
 			MTU:        mtu,
 		},
-		IPForward: n.Role == RoleServer,
+		IPForward: n.Role == RoleServer || len(n.Routes) > 0,
 		Transport: transport,
+		Peers:     []DesiredPeer{},
+		Forwards:  []DesiredForward{},
+	}
+	if n.Disabled {
+		// Tunnel down: no peers, no forwards. The control connection stays up.
+		return out, nil
+	}
+	losers := ConflictLosers(mesh)
+	excluded := func(peer *Node) bool {
+		return peer.Disabled || losers[peer.ID]
 	}
 
 	// Peers from links where this node is the "from" side (outbound dial).
@@ -335,13 +456,12 @@ func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*Desir
 		if to == nil {
 			return nil, fmt.Errorf("link to unknown node %q", link.ToNodeID)
 		}
-		allowed := link.AllowedIPs
-		if len(allowed) == 0 {
-			slash32, err := hostAsSlash32(to.Address)
-			if err != nil {
-				return nil, fmt.Errorf("node %s address: %w", to.ID, err)
-			}
-			allowed = []string{slash32}
+		if excluded(to) {
+			continue
+		}
+		allowed, err := peerAllowedIPs(to, link.AllowedIPs)
+		if err != nil {
+			return nil, err
 		}
 		ep := to.Endpoint
 		ka := link.Keepalive
@@ -373,13 +493,16 @@ func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*Desir
 		if _, ok := seenPub[from.PublicKey]; ok {
 			continue
 		}
-		slash32, err := hostAsSlash32(from.Address)
+		if excluded(from) {
+			continue
+		}
+		allowed, err := peerAllowedIPs(from, nil)
 		if err != nil {
 			return nil, err
 		}
 		out.Peers = append(out.Peers, DesiredPeer{
 			PublicKey:  from.PublicKey,
-			AllowedIPs: []string{slash32},
+			AllowedIPs: allowed,
 		})
 		seenPub[from.PublicKey] = struct{}{}
 	}
@@ -391,6 +514,9 @@ func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*Desir
 		dest := mesh.FindNode(fw.DestNodeID)
 		if dest == nil {
 			return nil, fmt.Errorf("forward dest unknown node %q", fw.DestNodeID)
+		}
+		if excluded(dest) {
+			continue
 		}
 		host, err := hostFromAddress(dest.Address)
 		if err != nil {

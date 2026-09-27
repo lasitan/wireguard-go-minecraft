@@ -46,6 +46,7 @@
 .mesh-edge.status-green { stroke: var(--edge-green); opacity: 0.9; }
 .mesh-edge.status-yellow { stroke: var(--edge-yellow); opacity: 0.95; }
 .mesh-edge.status-red { stroke: var(--edge-red); opacity: 0.75; }
+.mesh-edge.status-grey { stroke: var(--edge-grey); opacity: 0.6; }
 
 /*
  * Green edges: dash pattern slowly rolls toward Master (x2 is nearer hub).
@@ -121,7 +122,22 @@
   cursor: pointer;
   height: 58px;
   user-select: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.28s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.28s ease,
+    background-color 0.35s ease, filter 0.35s ease, opacity 0.35s ease;
+}
+.node-card.disabled {
+  background: #f1f3f6;
+  filter: grayscale(1);
+  opacity: 0.72;
+}
+.node-card.disabled .dot {
+  background: var(--offline) !important;
+  box-shadow: none !important;
+}
+.disabled-tag {
+  color: var(--muted);
+  font-weight: 650;
+  font-size: 0.65rem;
 }
 .node-card.selected {
   border-color: var(--accent);

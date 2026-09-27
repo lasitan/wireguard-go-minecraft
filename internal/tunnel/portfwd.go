@@ -171,18 +171,19 @@ func (m *PortForwardManager) proxyTCP(client net.Conn, spec PortForwardSpec) {
 	_ = client.SetDeadline(time.Time{})
 	_ = upstream.SetDeadline(time.Time{})
 
+	ctr := forwardCounterFor(spec)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(upstream, client)
+		_, _ = io.Copy(countingWriter{upstream, &ctr.rx}, client)
 		if tc, ok := upstream.(*net.TCPConn); ok {
 			_ = tc.CloseWrite()
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(client, upstream)
+		_, _ = io.Copy(countingWriter{client, &ctr.tx}, upstream)
 		if tc, ok := client.(*net.TCPConn); ok {
 			_ = tc.CloseWrite()
 		}
@@ -223,15 +224,16 @@ func (m *PortForwardManager) startUDPForward(spec PortForwardSpec, peerLabel str
 	m.logger.Verbosef("ForwardUDP %s (peer %s)", spec.String(), peerLabel)
 	fmt.Fprintf(os.Stderr, "wireguard-go: ForwardUDP %s (peer %s)\n", spec.ListenAddr()+" -> "+spec.DestAddr(), peerLabel)
 
+	ctr := forwardCounterFor(spec)
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		m.serveUDP(pc, destAddr, peerLabel)
+		m.serveUDP(pc, destAddr, peerLabel, ctr)
 	}()
 	return nil
 }
 
-func (m *PortForwardManager) serveUDP(pc *net.UDPConn, destAddr *net.UDPAddr, peerLabel string) {
+func (m *PortForwardManager) serveUDP(pc *net.UDPConn, destAddr *net.UDPAddr, peerLabel string, ctr *ForwardCounter) {
 	sessions := make(map[string]*udpSession)
 	var sessMu sync.Mutex
 
@@ -310,7 +312,9 @@ func (m *PortForwardManager) serveUDP(pc *net.UDPConn, destAddr *net.UDPAddr, pe
 					sessMu.Lock()
 					s.lastActive = time.Now()
 					sessMu.Unlock()
-					if _, err := pc.WriteToUDP(rbuf[:rn], s.clientAddr); err != nil {
+					wn, err := pc.WriteToUDP(rbuf[:rn], s.clientAddr)
+					ctr.tx.Add(uint64(wn))
+					if err != nil {
 						return
 					}
 				}
@@ -321,7 +325,9 @@ func (m *PortForwardManager) serveUDP(pc *net.UDPConn, destAddr *net.UDPAddr, pe
 		up := sess.upstream
 		sessMu.Unlock()
 
-		if _, err := up.Write(payload); err != nil {
+		wn, err := up.Write(payload)
+		ctr.rx.Add(uint64(wn))
+		if err != nil {
 			sessMu.Lock()
 			if cur, exists := sessions[key]; exists && cur.upstream == up {
 				_ = up.Close()

@@ -19,6 +19,7 @@ export function demoMesh(): Mesh {
   const now = new Date().toISOString();
   const ago = new Date(Date.now() - 120_000).toISOString();
   const later = new Date(Date.now() - 5_000).toISOString();
+  const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
   return {
     revision: 7,
     nodes: [
@@ -31,6 +32,11 @@ export function demoMesh(): Mesh {
         listenPort: 25590,
         token: "demo-token-web",
         lastSeen: now,
+        addressChangedAt: daysAgo(30),
+        publicV4: "1.2.3.4",
+        publicV6: "2001:db8:1::4",
+        geoCountry: "Japan",
+        geoCountryCode: "JP",
       },
       {
         id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002",
@@ -39,6 +45,11 @@ export function demoMesh(): Mesh {
         address: "100.96.0.2/24",
         token: "demo-token-db",
         lastSeen: now,
+        addressChangedAt: daysAgo(20),
+        routes: ["192.168.50.0/24"],
+        publicV4: "203.0.113.20",
+        geoCountry: "Singapore",
+        geoCountryCode: "SG",
       },
       {
         id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0003",
@@ -47,6 +58,11 @@ export function demoMesh(): Mesh {
         address: "100.96.0.10/24",
         token: "demo-token-mac",
         lastSeen: now,
+        addressChangedAt: daysAgo(12),
+        publicV4: "198.51.100.7",
+        publicV6: "2001:db8:abcd::7",
+        geoCountry: "China",
+        geoCountryCode: "CN",
       },
       {
         id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0004",
@@ -56,7 +72,7 @@ export function demoMesh(): Mesh {
         token: "demo-token-vm",
         lastSeen: ago,
       },
-      // Same VPN IP as db-replica — later change; frontend marks yellow only.
+      // Same VPN IP as db-replica but changed later → loses the conflict.
       {
         id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0005",
         name: "stale-clone",
@@ -64,6 +80,23 @@ export function demoMesh(): Mesh {
         address: "100.96.0.2/24",
         token: "demo-token-clone",
         lastSeen: later,
+        addressChangedAt: daysAgo(1),
+        publicV4: "192.0.2.55",
+        geoCountry: "United States",
+        geoCountryCode: "US",
+      },
+      {
+        id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0006",
+        name: "backup-nas",
+        role: "client",
+        address: "100.96.0.20/24",
+        token: "demo-token-nas",
+        lastSeen: now,
+        disabled: true,
+        addressChangedAt: daysAgo(40),
+        publicV4: "198.51.100.88",
+        geoCountry: "Germany",
+        geoCountryCode: "DE",
       },
     ],
     links: [
@@ -71,6 +104,7 @@ export function demoMesh(): Mesh {
       { fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0003", toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001", keepalive: 5 },
       { fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0004", toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001", keepalive: 5 },
       { fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0005", toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001", keepalive: 5 },
+      { fromNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0006", toNodeId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001", keepalive: 5 },
     ],
     forwards: [
       {

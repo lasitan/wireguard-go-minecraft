@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"golang.zx2c4.com/wireguard/meshcfg"
 )
@@ -20,6 +21,11 @@ type Server struct {
 	cfg      meshcfg.MasterConfig
 	store    *Store
 	sessions *sessionStore
+	stats    *StatsService
+	hub      *Hub
+	geo      *GeoIP
+
+	httpGeoAt sync.Map // nodeID -> time.Time of last legacy-agent IP observation
 }
 
 func NewServer(cfg meshcfg.MasterConfig) (*Server, error) {
@@ -36,10 +42,17 @@ func NewServer(cfg meshcfg.MasterConfig) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	stats := NewStatsService(st)
+	hub := NewHub(st, stats)
+	geo := NewGeoIP(st, cfg.DataDir, cfg.GeoIPDB, !cfg.DisableGeoIPOnline)
+	hub.OnPublicIPs = geo.ResolveNode
 	return &Server{
 		cfg:      cfg,
 		store:    st,
 		sessions: newSessionStore(cfg.AdminPassword),
+		stats:    stats,
+		hub:      hub,
+		geo:      geo,
 	}, nil
 }
 
@@ -49,8 +62,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/mesh", s.handleMesh)
 	mux.HandleFunc("/api/nodes", s.handleNodes)
+	mux.HandleFunc("/api/nodes/forwards", s.handleNodeForwards)
+	mux.HandleFunc("/api/nodes/stats", s.handleNodeStats)
+	mux.HandleFunc("/api/nodes/traffic", s.handleNodeTraffic)
 	mux.HandleFunc("/api/agent/enroll", s.handleAgentEnroll)
 	mux.HandleFunc("/api/agent/config", s.handleAgentConfig)
+	mux.HandleFunc("/api/agent/whoami", s.handleAgentWhoami)
+	mux.HandleFunc("/api/agent/ws", s.hub.ServeWS)
 	mux.HandleFunc("/api/meta", s.handleMeta)
 
 	sub, err := fs.Sub(uiFS, "ui")
@@ -79,6 +97,9 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) ListenAndServe() error {
 	h := s.Handler()
+	stop := make(chan struct{})
+	defer close(stop)
+	go s.stats.Run(stop)
 	fmt.Fprintf(os.Stderr, "wireguard-go master: listening on %s (data %s)\n", s.cfg.Listen, s.cfg.DataDir)
 	if s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
 		return http.ListenAndServeTLS(s.cfg.Listen, s.cfg.TLSCert, s.cfg.TLSKey, h)
@@ -150,7 +171,7 @@ func (s *Server) handleMesh(w http.ResponseWriter, r *http.Request) {
 		if !s.requireAdmin(w, r) {
 			return
 		}
-		writeJSON(w, http.StatusOK, s.store.Snapshot())
+		writeJSON(w, http.StatusOK, s.store.Snapshot().WithoutPrivateKeys())
 	case http.MethodPut:
 		if !s.requireAdmin(w, r) {
 			return
@@ -164,7 +185,8 @@ func (s *Server) handleMesh(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, s.store.Snapshot())
+		s.hub.PushAll()
+		writeJSON(w, http.StatusOK, s.store.Snapshot().WithoutPrivateKeys())
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -185,10 +207,18 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, http.StatusOK, s.store.Snapshot())
+		s.hub.Disconnect(id)
+		s.stats.Forget(id)
+		s.hub.PushAll()
+		writeJSON(w, http.StatusOK, s.store.Snapshot().WithoutPrivateKeys())
+	case http.MethodPatch:
+		if !s.requireAdmin(w, r) {
+			return
+		}
+		s.handlePatchNode(w, r)
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{
-			"error": "nodes are created by agent enroll only; use DELETE ?id=",
+			"error": "nodes are created by agent enroll only; use PATCH or DELETE ?id=",
 		})
 	}
 }
@@ -218,6 +248,7 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	s.hub.PushAll()
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"nodeId":    created.ID,
 		"nodeToken": created.Token,
@@ -257,6 +288,7 @@ func (s *Server) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	s.observeHTTPAgent(tok, r.RemoteAddr)
 	etag := fmt.Sprintf(`"%d"`, desired.Revision)
 	w.Header().Set("ETag", etag)
 	if match := r.Header.Get("If-None-Match"); match != "" && strings.Contains(match, fmt.Sprintf("%d", desired.Revision)) {

@@ -28,7 +28,8 @@ const (
 
 type Store struct {
 	mu   sync.Mutex
-	db   *sql.DB
+	db   *sql.DB // single writer connection
+	rdb  *sql.DB // read-only pool (WAL allows concurrent readers)
 	path string
 }
 
@@ -45,7 +46,8 @@ func OpenStore(dataDir string, seedEnroll, seedSubnet string) (*Store, error) {
 		return nil, err
 	}
 	path := filepath.Join(dataDir, "mesh.db")
-	db, err := sql.Open("sqlite", path)
+	pragmas := "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+pragmas)
 	if err != nil {
 		return nil, err
 	}
@@ -59,6 +61,13 @@ func OpenStore(dataDir string, seedEnroll, seedSubnet string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	rdb, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+pragmas+"&_pragma=query_only(1)")
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	rdb.SetMaxOpenConns(4)
+	s.rdb = rdb
 	// One-time import of legacy mesh.json if DB has no nodes.
 	legacy := filepath.Join(dataDir, "mesh.json")
 	if err := s.importLegacyJSON(legacy); err != nil {
@@ -105,7 +114,67 @@ CREATE TABLE IF NOT EXISTS forwards (
   dest_port INTEGER NOT NULL
 );
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	if err := s.addMissingNodeColumns(); err != nil {
+		return err
+	}
+	return s.migrateTraffic()
+}
+
+// addMissingNodeColumns upgrades databases created before these fields existed.
+func (s *Store) addMissingNodeColumns() error {
+	have := map[string]bool{}
+	rows, err := s.db.Query(`PRAGMA table_info(nodes)`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	rows.Close()
+	cols := []struct{ name, ddl string }{
+		{"enabled", "INTEGER NOT NULL DEFAULT 1"},
+		{"routes_json", "TEXT NOT NULL DEFAULT '[]'"},
+		{"address_changed_at", "TEXT NOT NULL DEFAULT ''"},
+		{"public_v4", "TEXT NOT NULL DEFAULT ''"},
+		{"public_v6", "TEXT NOT NULL DEFAULT ''"},
+		{"geo_country", "TEXT NOT NULL DEFAULT ''"},
+		{"geo_country_code", "TEXT NOT NULL DEFAULT ''"},
+		{"geo_updated_at", "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, c := range cols {
+		if have[c.name] {
+			continue
+		}
+		if _, err := s.db.Exec(`ALTER TABLE nodes ADD COLUMN ` + c.name + ` ` + c.ddl); err != nil {
+			return fmt.Errorf("add column %s: %w", c.name, err)
+		}
+	}
+	return nil
+}
+
+func formatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func parseTime(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	t, _ := time.Parse(time.RFC3339Nano, s)
+	return t
 }
 
 func (s *Store) ensureSeeds(seedEnroll, seedSubnet string) error {
@@ -239,16 +308,18 @@ func (s *Store) loadMeshLocked() (meshcfg.Mesh, error) {
 	}
 	fmt.Sscanf(revStr, "%d", &m.Revision)
 
-	rows, err := s.db.Query(`SELECT id, name, role, public_key, private_key, address, listen_port, endpoint, mtu, token, iface_name, poll_interval, transport_json, last_seen FROM nodes`)
+	rows, err := s.db.Query(`SELECT id, name, role, public_key, private_key, address, listen_port, endpoint, mtu, token, iface_name, poll_interval, transport_json, last_seen,
+		enabled, routes_json, address_changed_at, public_v4, public_v6, geo_country, geo_country_code, geo_updated_at FROM nodes ORDER BY rowid`)
 	if err != nil {
 		return m, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var n meshcfg.Node
-		var listenPort, mtu int
-		var transport, lastSeen string
-		if err := rows.Scan(&n.ID, &n.Name, &n.Role, &n.PublicKey, &n.PrivateKey, &n.Address, &listenPort, &n.Endpoint, &mtu, &n.Token, &n.Interface, &n.PollInterval, &transport, &lastSeen); err != nil {
+		var listenPort, mtu, enabled int
+		var transport, lastSeen, routes, addrChanged, geoUpdated string
+		if err := rows.Scan(&n.ID, &n.Name, &n.Role, &n.PublicKey, &n.PrivateKey, &n.Address, &listenPort, &n.Endpoint, &mtu, &n.Token, &n.Interface, &n.PollInterval, &transport, &lastSeen,
+			&enabled, &routes, &addrChanged, &n.PublicV4, &n.PublicV6, &n.GeoCountry, &n.GeoCountryCode, &geoUpdated); err != nil {
 			return m, err
 		}
 		n.ListenPort = uint16(listenPort)
@@ -256,11 +327,11 @@ func (s *Store) loadMeshLocked() (meshcfg.Mesh, error) {
 		if transport != "" {
 			n.Transport = json.RawMessage(transport)
 		}
-		if lastSeen != "" {
-			if t, e := time.Parse(time.RFC3339Nano, lastSeen); e == nil {
-				n.LastSeen = t
-			}
-		}
+		n.LastSeen = parseTime(lastSeen)
+		n.Disabled = enabled == 0
+		_ = json.Unmarshal([]byte(routes), &n.Routes)
+		n.AddressChangedAt = parseTime(addrChanged)
+		n.GeoUpdatedAt = parseTime(geoUpdated)
 		m.Nodes = append(m.Nodes, n)
 	}
 
@@ -303,14 +374,16 @@ func (s *Store) PutMesh(m meshcfg.Mesh) error {
 	if err != nil {
 		return err
 	}
-	existing := make(map[string]struct{}, len(cur.Nodes))
+	existing := make(map[string]meshcfg.Node, len(cur.Nodes))
 	for _, n := range cur.Nodes {
-		existing[n.ID] = struct{}{}
+		existing[n.ID] = n
 	}
-	for _, n := range m.Nodes {
-		if _, ok := existing[n.ID]; !ok {
-			return fmt.Errorf("cannot add node %q via mesh edit; agents must enroll", n.ID)
+	for i := range m.Nodes {
+		c, ok := existing[m.Nodes[i].ID]
+		if !ok {
+			return fmt.Errorf("cannot add node %q via mesh edit; agents must enroll", m.Nodes[i].ID)
 		}
+		m.Nodes[i].PreserveServerFields(c)
 	}
 	m.Revision = cur.Revision + 1
 	if err := validateMesh(m); err != nil {
@@ -339,13 +412,19 @@ func (s *Store) replaceMeshLocked(m meshcfg.Mesh) error {
 		if len(n.Transport) > 0 {
 			tr = string(n.Transport)
 		}
-		last := ""
-		if !n.LastSeen.IsZero() {
-			last = n.LastSeen.UTC().Format(time.RFC3339Nano)
+		routes, _ := json.Marshal(n.Routes)
+		if n.Routes == nil {
+			routes = []byte("[]")
 		}
-		if _, err := tx.Exec(`INSERT INTO nodes(id, name, role, public_key, private_key, address, listen_port, endpoint, mtu, token, iface_name, poll_interval, transport_json, last_seen)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			n.ID, n.Name, n.Role, n.PublicKey, n.PrivateKey, n.Address, int(n.ListenPort), n.Endpoint, n.MTU, n.Token, n.Interface, n.PollInterval, tr, last); err != nil {
+		enabled := 1
+		if n.Disabled {
+			enabled = 0
+		}
+		if _, err := tx.Exec(`INSERT INTO nodes(id, name, role, public_key, private_key, address, listen_port, endpoint, mtu, token, iface_name, poll_interval, transport_json, last_seen,
+			enabled, routes_json, address_changed_at, public_v4, public_v6, geo_country, geo_country_code, geo_updated_at)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			n.ID, n.Name, n.Role, n.PublicKey, n.PrivateKey, n.Address, int(n.ListenPort), n.Endpoint, n.MTU, n.Token, n.Interface, n.PollInterval, tr, formatTime(n.LastSeen),
+			enabled, string(routes), formatTime(n.AddressChangedAt), n.PublicV4, n.PublicV6, n.GeoCountry, n.GeoCountryCode, formatTime(n.GeoUpdatedAt)); err != nil {
 			return err
 		}
 	}
@@ -418,6 +497,8 @@ func (s *Store) Enroll(name, role, endpoint string, listenPort uint16) (meshcfg.
 		Interface:    settings.DefaultIface,
 		PollInterval: settings.DefaultPoll,
 		LastSeen:     time.Now().UTC(),
+
+		AddressChangedAt: time.Now().UTC(),
 	}
 	if role == meshcfg.RoleServer && n.ListenPort == 0 {
 		n.ListenPort = 25590
@@ -483,7 +564,10 @@ func (s *Store) DeleteNode(id string) error {
 	}
 	m.Forwards = forwards
 	m.Revision++
-	return s.replaceMeshLocked(m)
+	if err := s.replaceMeshLocked(m); err != nil {
+		return err
+	}
+	return s.deleteTrafficLocked(id)
 }
 
 func (s *Store) DesiredForToken(token string) (*meshcfg.DesiredConfig, error) {
@@ -526,6 +610,38 @@ func (s *Store) DesiredForNode(nodeID string) (*meshcfg.DesiredConfig, error) {
 		PollInterval:  settings.DefaultPoll,
 		Transport:     settings.TransportJSON,
 	})
+}
+
+// DesiredForNodes compiles configs for many nodes from a single mesh load.
+// Unknown ids are skipped.
+func (s *Store) DesiredForNodes(ids []string) (map[string]*meshcfg.DesiredConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.loadMeshLocked()
+	if err != nil {
+		return nil, err
+	}
+	settings, err := s.settingsLocked()
+	if err != nil {
+		return nil, err
+	}
+	def := meshcfg.DesiredDefaults{
+		InterfaceName: settings.DefaultIface,
+		PollInterval:  settings.DefaultPoll,
+		Transport:     settings.TransportJSON,
+	}
+	out := make(map[string]*meshcfg.DesiredConfig, len(ids))
+	for _, id := range ids {
+		if m.FindNode(id) == nil {
+			continue
+		}
+		d, err := meshcfg.CompileDesired(&m, id, def)
+		if err != nil {
+			return nil, err
+		}
+		out[id] = d
+	}
+	return out, nil
 }
 
 func nextAddress(subnet string, nodes []meshcfg.Node) (string, error) {

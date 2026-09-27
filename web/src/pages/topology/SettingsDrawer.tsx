@@ -1,11 +1,9 @@
 import { MASTER_ID } from "../../core/constants";
-import { notify, state } from "../../core/state";
-import { hostOf } from "../../utils/hostOf";
-import { isOnline } from "../../utils/isOnline";
-import { shortName } from "../../utils/shortName";
+import { state } from "../../core/state";
 import { ResolveIpConflicts } from "../../topology/ResolveIpConflicts";
 import { goHome } from "../../app/FocusNav";
-import { logout, removeNode } from "../../app/Session";
+import { logout } from "../../app/Session";
+import { AgentPanel } from "../agentPanel/AgentPanel";
 import "./drawer.css";
 
 export function SettingsDrawer() {
@@ -22,7 +20,9 @@ export function SettingsDrawer() {
       />
       <aside
         id="settings-drawer"
-        className={`settings-drawer${open ? " open" : ""}${swap ? " content-swap" : ""}`}
+        className={`settings-drawer${open ? " open" : ""}${swap ? " content-swap" : ""}${
+          id && id !== MASTER_ID ? " wide" : ""
+        }`}
       >
         <DrawerBody id={id} />
       </aside>
@@ -86,63 +86,5 @@ function DrawerBody({ id }: { id: string | null }) {
   const n = (state.mesh?.nodes || []).find((x) => x.id === id);
   if (!n) return null;
   const conflicts = state.mesh ? ResolveIpConflicts(state.mesh) : new Map();
-  const conflict = conflicts.has(n.id);
-
-  return (
-    <>
-      <div className="drawer-head">
-        <div>
-          <div className="drawer-kicker">
-            {n.role}
-            {conflict ? " · 冲突" : ""}
-          </div>
-          <h2>{n.name || shortName(n)}</h2>
-        </div>
-        <button type="button" className="icon-btn" aria-label="关闭" onClick={() => void goHome()}>
-          ✕
-        </button>
-      </div>
-      <div className="drawer-body">
-        <div className="detail">
-          <span>状态</span>
-          <b className={conflict ? "warn" : isOnline(n) ? "ok" : "muted"}>
-            {conflict ? "IP 冲突" : isOnline(n) ? "在线" : "离线"}
-          </b>
-        </div>
-        <div className="detail">
-          <span>地址</span>
-          <b>{n.address || "—"}</b>
-        </div>
-        <div className="detail">
-          <span>Endpoint</span>
-          <b>{n.endpoint || "—"}</b>
-        </div>
-        <div className="detail">
-          <span>UUID</span>
-          <code className="tiny">{n.id}</code>
-        </div>
-        <div className="detail">
-          <span>Token</span>
-          <code className="tiny">{n.token || ""}</code>
-        </div>
-        {conflict ? (
-          <p className="warn-note">
-            与另一节点共用 {hostOf(n.address)}。前端仅标黄展示互斥，不影响已在运行的隧道。
-          </p>
-        ) : null}
-        <button
-          type="button"
-          className="danger"
-          onClick={() => {
-            removeNode(n.id).catch((e) => {
-              state.err = e.message;
-              notify();
-            });
-          }}
-        >
-          删除节点
-        </button>
-      </div>
-    </>
-  );
+  return <AgentPanel node={n} conflict={conflicts.has(n.id)} />;
 }

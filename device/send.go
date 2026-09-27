@@ -278,6 +278,9 @@ func (device *Device) RoutineReadFromTUN() {
 			if peer == nil {
 				continue
 			}
+			if tc := device.trafficCounter.Load(); tc != nil {
+				tc.c.CountOutbound(elem.packet)
+			}
 			elemsForPeer, ok := elemsByPeer[peer]
 			if !ok {
 				elemsForPeer = device.GetOutboundElementsContainer()

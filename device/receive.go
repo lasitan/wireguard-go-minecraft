@@ -513,6 +513,9 @@ func (peer *Peer) RoutineSequentialReceiver(maxBatchSize int) {
 			if filter != nil && !filter(peer.PublicKey(), elem.packet) {
 				continue
 			}
+			if tc := device.trafficCounter.Load(); tc != nil {
+				tc.c.CountInbound(elem.packet)
+			}
 
 			if tonat, ok := elem.endpoint.(interface{ IsToNAT() bool }); ok && tonat.IsToNAT() {
 				device.notifyNatClient(peer.PublicKey())

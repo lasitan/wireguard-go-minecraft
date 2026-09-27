@@ -100,6 +100,52 @@ type Device struct {
 		sync.Mutex
 		fn NatClientHandler
 	}
+
+	trafficCounter atomic.Pointer[trafficCounterBox]
+}
+
+// TrafficCounter observes plaintext tunnel packets. Implementations must be
+// cheap and safe for concurrent use; they run on the packet hot path.
+type TrafficCounter interface {
+	// CountOutbound sees packets read from TUN and routed to a peer.
+	CountOutbound(packet []byte)
+	// CountInbound sees decrypted packets about to be written to TUN.
+	CountInbound(packet []byte)
+}
+
+type trafficCounterBox struct{ c TrafficCounter }
+
+// SetTrafficCounter installs or clears (nil) the per-packet traffic counter.
+func (device *Device) SetTrafficCounter(c TrafficCounter) {
+	if c == nil {
+		device.trafficCounter.Store(nil)
+		return
+	}
+	device.trafficCounter.Store(&trafficCounterBox{c: c})
+}
+
+// PeerStat is a snapshot of one peer's cumulative counters.
+type PeerStat struct {
+	PublicKey         NoisePublicKey
+	RxBytes           uint64
+	TxBytes           uint64
+	LastHandshakeNano int64
+}
+
+// PeerStats returns counters for all configured peers.
+func (device *Device) PeerStats() []PeerStat {
+	device.peers.RLock()
+	defer device.peers.RUnlock()
+	out := make([]PeerStat, 0, len(device.peers.keyMap))
+	for key, peer := range device.peers.keyMap {
+		out = append(out, PeerStat{
+			PublicKey:         key,
+			RxBytes:           peer.rxBytes.Load(),
+			TxBytes:           peer.txBytes.Load(),
+			LastHandshakeNano: peer.lastHandshakeNano.Load(),
+		})
+	}
+	return out
 }
 
 // InboundPacketFilter returns false to drop a decrypted IP packet before it is

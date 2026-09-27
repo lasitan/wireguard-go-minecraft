@@ -1,21 +1,39 @@
 import type { IpConflictMap, Mesh, Node } from "../core/models";
 import { hostKey } from "../utils/hostOf";
 
+/** Missing / Go zero time sorts first, same as Master. */
+function changedAt(n: Node): number {
+  const t = n.addressChangedAt ? Date.parse(n.addressChangedAt) : NaN;
+  return Number.isFinite(t) && t > 0 ? t : -Infinity;
+}
+
 /**
- * Same VPN host IP → mutual exclusion on the frontend.
- * The node that holds the IP first (earlier in mesh.nodes, i.e. enrolled earlier)
- * keeps running; later ones are marked yellow. Must not use lastSeen: it moves on
- * every heartbeat and would make the flag flip between nodes.
- * Does not alter backend / running tunnels.
+ * Same VPN host IP → mutual exclusion, matching Master's ConflictLosers:
+ * the node that changed its address earliest keeps the IP; later changers are
+ * flagged (Master also withholds them from other peers). Ties fall back to
+ * mesh order (enrolled earlier wins). Never uses lastSeen, which moves on
+ * every heartbeat and would make the flag flip.
  */
 export function ResolveIpConflicts(mesh: Mesh): IpConflictMap {
-  const owner = new Map<string, Node>();
+  const owner = new Map<string, { node: Node; idx: number }>();
   const conflicted: IpConflictMap = new Map();
-  for (const n of mesh.nodes || []) {
+  (mesh.nodes || []).forEach((n, idx) => {
     const ip = hostKey(n.address);
-    if (!ip) continue;
-    if (owner.has(ip)) conflicted.set(n.id, true);
-    else owner.set(ip, n);
-  }
+    if (!ip) return;
+    const cur = owner.get(ip);
+    if (!cur) {
+      owner.set(ip, { node: n, idx });
+      return;
+    }
+    const a = changedAt(n);
+    const b = changedAt(cur.node);
+    const challengerWins = a < b || (a === b && idx < cur.idx);
+    if (challengerWins) {
+      conflicted.set(cur.node.id, true);
+      owner.set(ip, { node: n, idx });
+    } else {
+      conflicted.set(n.id, true);
+    }
+  });
   return conflicted;
 }

@@ -13,6 +13,7 @@
   --edge-green: #12b76a;
   --edge-yellow: #e2a008;
   --edge-red: #d9485f;
+  --edge-grey: #b4bcc8;
   --drawer-w: min(380px, 92vw);
   font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
 }

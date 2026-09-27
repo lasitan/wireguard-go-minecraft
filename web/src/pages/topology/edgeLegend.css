@@ -49,6 +49,7 @@
 }
 .edge-legend .swatch.line.yellow { border-top-color: var(--edge-yellow); }
 .edge-legend .swatch.line.red { border-top-color: var(--edge-red); }
+.edge-legend .swatch.line.grey { border-top-color: var(--edge-grey); }
 .edge-legend .swatch.line.flowing {
   background: linear-gradient(
     90deg,

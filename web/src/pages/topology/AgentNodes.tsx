@@ -26,6 +26,7 @@ export function AgentNodes({
         const online = isOnline(p.node);
         const selected = state.selectedId === p.node.id;
         const conflict = conflicts.has(p.node.id);
+        const disabled = !!p.node.disabled;
         const delay = jitterDelay(p.node.id);
         const wrapClass = [
           "node-wrap",
@@ -39,7 +40,8 @@ export function AgentNodes({
           "node-card",
           online ? "online" : "offline",
           selected ? "selected" : "",
-          conflict ? "conflict" : "",
+          conflict && !disabled ? "conflict" : "",
+          disabled ? "disabled" : "",
         ]
           .filter(Boolean)
           .join(" ");
@@ -64,7 +66,11 @@ export function AgentNodes({
                   <div className="node-name">{shortName(p.node)}</div>
                   <div className="node-ip">
                     {hostOf(p.node.address)}
-                    {conflict ? <span className="conflict-tag"> IP冲突</span> : null}
+                    {disabled ? (
+                      <span className="disabled-tag"> 已停用</span>
+                    ) : conflict ? (
+                      <span className="conflict-tag"> IP冲突</span>
+                    ) : null}
                   </div>
                 </div>
               </div>
