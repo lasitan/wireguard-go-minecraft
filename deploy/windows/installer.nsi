@@ -123,6 +123,11 @@ Section "!${APP_NAME}" SecMain
   WriteRegDWORD HKLM "${UNINST_KEY}" "NoRepair" 1
 SectionEnd
 
+Section "$(AutostartSection)" SecAutostart
+  nsExec::ExecToLog '${PS} "$INSTDIR\${HELPER}" -Action Autostart -Dir "$INSTDIR"'
+  Pop $0
+SectionEnd
+
 Section "$(PathSection)" SecPath
   nsExec::ExecToLog '${PS} "$INSTDIR\${HELPER}" -Action AddPath -Dir "$INSTDIR"'
   Pop $0
@@ -145,11 +150,16 @@ Section "Uninstall"
   Delete "$INSTDIR\${AGENT_JSON}.example"
   Delete "$INSTDIR\${MASTER_JSON}.example"
   Delete "$INSTDIR\${HELPER}"
+  Delete "$INSTDIR\.role"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
   DeleteRegKey HKLM "${UNINST_KEY}"
 SectionEnd
 
+LangString AutostartSection ${LANG_SIMPCHINESE} "开机自启（注册为系统服务）"
+LangString AutostartSection ${LANG_ENGLISH} "Start at boot (Windows service)"
+LangString DescAutostart ${LANG_SIMPCHINESE} "按所选模式注册自动启动的系统服务（wireguard-go-wg0 / wireguard-go-master），开机无需登录即运行，并立即启动。未选择模式时跳过。"
+LangString DescAutostart ${LANG_ENGLISH} "Register an automatic Windows service for the chosen mode (wireguard-go-wg0 / wireguard-go-master); it runs at boot without logon and starts now. Skipped when no mode is chosen."
 LangString PathSection ${LANG_SIMPCHINESE} "添加到系统 PATH"
 LangString PathSection ${LANG_ENGLISH} "Add to system PATH"
 LangString ShortcutSection ${LANG_SIMPCHINESE} "开始菜单快捷方式"
@@ -167,6 +177,7 @@ LangString DescShortcut ${LANG_ENGLISH} "Start from the Start menu (same as doub
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} $(DescMain)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecAutostart} $(DescAutostart)
   !insertmacro MUI_DESCRIPTION_TEXT ${SecPath} $(DescPath)
   !insertmacro MUI_DESCRIPTION_TEXT ${SecShortcut} $(DescShortcut)
 !insertmacro MUI_FUNCTION_DESCRIPTION_END

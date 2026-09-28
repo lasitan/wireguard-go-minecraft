@@ -1,7 +1,7 @@
 # Service / PATH steps for the wireguard-mc NSIS installer (deploy/windows/installer.nsi).
 # Keep this file ASCII-only: Windows PowerShell 5 reads it without a BOM.
 param(
-    [Parameter(Mandatory)][ValidateSet('PreInstall', 'PostInstall', 'AddPath', 'WriteConfig', 'Uninstall')][string]$Action,
+    [Parameter(Mandatory)][ValidateSet('PreInstall', 'PostInstall', 'AddPath', 'WriteConfig', 'Autostart', 'Uninstall')][string]$Action,
     [Parameter(Mandatory)][string]$Dir,
     # WriteConfig: UTF-16 key=value lines from the installer's mode page (deleted after use).
     [string]$InputFile
@@ -27,6 +27,11 @@ function Stop-OwnService($name) {
 }
 
 function Get-MachinePath { @([Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';' | Where-Object { $_ }) }
+
+function Invoke-Exe {
+    # 2>&1 + stringify: PowerShell 5 would otherwise wrap native stderr lines as error records.
+    & $exe @args 2>&1 | ForEach-Object { [Console]::Out.WriteLine("wireguard-mc: $_") }
+}
 
 switch ($Action) {
     'PreInstall' {
@@ -86,6 +91,32 @@ switch ($Action) {
         [IO.File]::WriteAllText($path, (($cfg | ConvertTo-Json) + "`n"), (New-Object Text.UTF8Encoding $false))
         Say "wrote $path"
     }
+    'Autostart' {
+        # Registers an automatic-start (boot) service for the mode whose config sits in $Dir.
+        $masterCfg = Join-Path $Dir 'wireguard-go-master.json'
+        $agentCfg = Join-Path $Dir 'wireguard-go-agent.json'
+        $hasMaster = Test-Path $masterCfg
+        $hasAgent = Test-Path $agentCfg
+        if ($hasMaster -and $hasAgent) {
+            Say "both master and agent configs exist in $Dir; autostart skipped (keep only one, then run: wireguard-go install [master])"
+            exit 0
+        }
+        if ($hasMaster) {
+            Invoke-Exe install master
+        } elseif ($hasAgent) {
+            $iface = 'wg0'
+            try {
+                $j = Get-Content -LiteralPath $agentCfg -Raw | ConvertFrom-Json
+                if ($j.interface) { $iface = $j.interface }
+            } catch {}
+            Invoke-Exe install $iface
+        } else {
+            Say "no config in $Dir; autostart skipped (add a config, then run: wireguard-go install [master])"
+            exit 0
+        }
+        $code = $LASTEXITCODE
+        if ($code -ne 0) { Say "autostart setup exited with $code (service may be registered but not running; check the config)" }
+    }
     'Uninstall' {
         foreach ($svc in Get-OwnServices) {
             Stop-OwnService $svc.Name
@@ -99,6 +130,7 @@ switch ($Action) {
         }
         # Configs under %ProgramData%\wireguard are kept; only the master/agent role lock is cleared.
         Remove-Item (Join-Path $env:ProgramData 'wireguard\.role') -Force -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $Dir '.role') -Force -ErrorAction SilentlyContinue
     }
 }
 exit 0
