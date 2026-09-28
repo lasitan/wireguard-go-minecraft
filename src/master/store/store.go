@@ -31,6 +31,9 @@ type Store struct {
 	db   *sql.DB // single writer connection
 	rdb  *sql.DB // read-only pool (WAL allows concurrent readers)
 	path string
+
+	planKey   string
+	planCache *core.Plan
 }
 
 type Settings struct {
@@ -645,7 +648,7 @@ func (s *Store) DesiredForNodes(ids []string) (map[string]*core.DesiredConfig, e
 		Transport:     settings.TransportJSON,
 	}
 	out := make(map[string]*core.DesiredConfig, len(ids))
-	plan := core.PlanMesh(&m)
+	plan := s.planLocked(&m)
 	for _, id := range ids {
 		if m.FindNode(id) == nil {
 			continue
@@ -657,6 +660,17 @@ func (s *Store) DesiredForNodes(ids []string) (map[string]*core.DesiredConfig, e
 		out[id] = d
 	}
 	return out, nil
+}
+
+// planLocked reuses the last plan while its inputs are unchanged: every agent
+// (re)connect asks for its config, and planning a large mesh is O(n²).
+func (s *Store) planLocked(m *core.Mesh) *core.Plan {
+	key := core.PlanKey(m)
+	if s.planCache != nil && s.planKey == key {
+		return s.planCache
+	}
+	s.planCache, s.planKey = core.PlanMesh(m), key
+	return s.planCache
 }
 
 func nextAddress(subnet string, nodes []core.Node) (string, error) {

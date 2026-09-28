@@ -1,8 +1,12 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/netip"
 	"sort"
+	"strconv"
+	"time"
 )
 
 // PathChoices records, per node and per VPN subnet, which mother card the node
@@ -98,6 +102,48 @@ func hostPrefix(addr string) (netip.Prefix, netip.Prefix, bool) {
 		return netip.Prefix{}, netip.Prefix{}, false
 	}
 	return p.Masked(), netip.PrefixFrom(p.Addr(), 32), true
+}
+
+// PlanKey fingerprints exactly the mesh inputs PlanMesh reads, so a cached
+// plan can be reused while only unrelated fields (last seen, geo, ...) move.
+func PlanKey(mesh *Mesh) string {
+	h := sha256.New()
+	w := func(parts ...string) {
+		for _, s := range parts {
+			h.Write([]byte(s))
+			h.Write([]byte{0})
+		}
+	}
+	for i := range mesh.Nodes {
+		n := &mesh.Nodes[i]
+		w(n.ID, n.PublicKey, n.Address, strconv.Itoa(int(n.ListenPort)), n.Endpoint, n.PublicV4,
+			strconv.FormatBool(n.Disabled), n.AddressChangedAt.UTC().Format(time.RFC3339Nano))
+		w(n.Routes...)
+		h.Write([]byte{1})
+	}
+	for _, l := range mesh.Links {
+		w(l.FromNodeID, l.ToNodeID, strconv.Itoa(l.Keepalive))
+		w(l.AllowedIPs...)
+		h.Write([]byte{1})
+	}
+	for _, id := range sortedKeys(mesh.Paths) {
+		for _, sub := range sortedKeys(mesh.Paths[id]) {
+			w(id, sub, mesh.Paths[id][sub])
+		}
+	}
+	if r := mesh.Relay; r != nil {
+		w("relay", r.PublicKey, strconv.Itoa(int(r.Port)))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // PlanMesh computes the routing plan for every active node.
@@ -365,6 +411,37 @@ func PlanMesh(mesh *Mesh) *Plan {
 		}
 		return out
 	}
+	// Dense per-node indexes for the O(n²) loops below: map lookups on string
+	// keys there dominate planning time on large meshes.
+	bySubnet := map[netip.Prefix][]string{}
+	for _, id := range p.order {
+		pn := p.nodes[id]
+		bySubnet[pn.subnet] = append(bySubnet[pn.subnet], id)
+	}
+	subnets := sortedCands(bySubnet)
+	subIdx := make(map[netip.Prefix]int, len(subnets))
+	for i, s := range subnets {
+		subIdx[s] = i
+	}
+	type nodeIx struct {
+		sub   int
+		gwTo  []string // gateway per subnet index
+		homes []string
+	}
+	ix := make(map[string]*nodeIx, len(p.order))
+	for _, id := range p.order {
+		pn := p.nodes[id]
+		ni := &nodeIx{sub: subIdx[pn.subnet], gwTo: make([]string, len(subnets))}
+		for s, g := range p.gw[id] {
+			if i, ok := subIdx[s]; ok {
+				ni.gwTo[i] = g
+			}
+		}
+		if !pn.mother {
+			ni.homes = homes(id)
+		}
+		ix[id] = ni
+	}
 
 	// Allowed IPs.
 	lanClaimed := map[string]map[netip.Prefix]bool{}
@@ -407,9 +484,9 @@ func PlanMesh(mesh *Mesh) *Plan {
 			// Same subnet: reach a mother directly and a child through one of its
 			// own mothers (the shared fastest one when possible). Targets whose
 			// mother is not dialable fall back to the subnet route via g.
-			for _, tid := range p.order {
+			for _, tid := range bySubnet[sub] {
 				t := p.nodes[tid]
-				if tid == id || tid == g || t.subnet != sub {
+				if tid == id || tid == g {
 					continue
 				}
 				if t.mother {
@@ -418,12 +495,13 @@ func PlanMesh(mesh *Mesh) *Plan {
 					}
 					continue
 				}
-				hs := homes(tid)
+				ti := ix[tid]
+				hs := ti.homes
 				if contains(hs, g) {
 					continue
 				}
 				via := ""
-				if th := p.gw[tid][t.subnet]; contains(hs, th) {
+				if th := ti.gwTo[ti.sub]; contains(hs, th) {
 					if tp, _ := p.peerOf(id, th); tp != nil {
 						via = th
 					}
@@ -455,8 +533,7 @@ func PlanMesh(mesh *Mesh) *Plan {
 	// Cross-subnet child pairs must use one gateway in both directions or
 	// WireGuard's source check drops the replies. The pair rides a real mother
 	// over the relay, else the lower id's choice; the other end pins a /32.
-	pairVia := func(x, y string) string {
-		gx, gy := p.gw[x][p.nodes[y].subnet], p.gw[y][p.nodes[x].subnet]
+	pairVia := func(x string, gx string, y string, gy string) string {
 		switch {
 		case gx == "" || gy == "":
 			return gx + gy
@@ -474,17 +551,24 @@ func PlanMesh(mesh *Mesh) *Plan {
 		if px.mother {
 			continue
 		}
-		for _, y := range p.order {
-			py := p.nodes[y]
-			if py.mother || py.subnet == px.subnet {
+		xi := ix[x]
+		for si, sub := range subnets {
+			if si == xi.sub {
 				continue
 			}
-			via := pairVia(x, y)
-			if via == "" || via == p.gw[x][py.subnet] {
-				continue
-			}
-			if pp, _ := p.peerOf(x, via); pp != nil {
-				pp.allow(py.host)
+			gx := xi.gwTo[si]
+			for _, y := range bySubnet[sub] {
+				py := p.nodes[y]
+				if py.mother {
+					continue
+				}
+				via := pairVia(x, gx, y, ix[y].gwTo[xi.sub])
+				if via == "" || via == gx {
+					continue
+				}
+				if pp, _ := p.peerOf(x, via); pp != nil {
+					pp.allow(py.host)
+				}
 			}
 		}
 	}
