@@ -410,8 +410,6 @@ func (b *TCPBind) Send(bufs [][]byte, endpoint Endpoint) error {
 }
 
 func (b *TCPBind) sessionWrite(session *tcpSession, buf []byte) error {
-	var header [tcpFrameHeaderSize]byte
-	binary.BigEndian.PutUint16(header[:], uint16(len(buf)))
 	session.writeMu.Lock()
 	defer session.writeMu.Unlock()
 	if session.conn == nil || !session.alive {
@@ -419,6 +417,11 @@ func (b *TCPBind) sessionWrite(session *tcpSession, buf []byte) error {
 	}
 	_ = session.conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
 	defer session.conn.SetWriteDeadline(time.Time{})
+	if b.camouflageHidesVPN() {
+		return b.writeCoverFrame(session.conn, buf)
+	}
+	var header [tcpFrameHeaderSize]byte
+	binary.BigEndian.PutUint16(header[:], uint16(len(buf)))
 	if err := writeAll(session.conn, header[:]); err != nil {
 		return err
 	}
@@ -584,7 +587,7 @@ func (b *TCPBind) dialOnce(ctx context.Context, dst netip.AddrPort) (net.Conn, e
 		_ = conn.Close()
 		return nil, err
 	}
-	if b.dialToNAT.Load() {
+	if b.dialToNAT.Load() && !b.camouflageHidesVPN() {
 		if _, err := conn.Write([]byte(toNATMagic)); err != nil {
 			_ = conn.Close()
 			return nil, fmt.Errorf("tonat announce: %w", err)
@@ -762,12 +765,13 @@ func (b *TCPBind) acceptLoop(listener net.Listener) {
 			_ = conn.Close()
 			continue
 		}
-		conn, toNATMagic, err := peekToNATMagic(conn)
+		conn, sawMagic, err := peekToNATMagic(conn)
 		if err != nil {
 			_ = conn.Close()
 			continue
 		}
-		toNAT := toNATFromMC || toNATMagic
+		// Camouflaged peers never send the cleartext announce.
+		toNAT := toNATFromMC || (sawMagic && !b.camouflageHidesVPN())
 		remote, ok := addrPortFromNetAddr(conn.RemoteAddr())
 		if !ok {
 			_ = conn.Close()
@@ -809,15 +813,24 @@ func (b *TCPBind) readLoop(session *tcpSession) {
 	defer b.dropSession(session.key, session)
 
 	for {
-		var header [tcpFrameHeaderSize]byte
-		if _, err := io.ReadFull(session.conn, header[:]); err != nil {
-			return
-		}
-		size := int(binary.BigEndian.Uint16(header[:]))
-		payload := make([]byte, size)
-		if size > 0 {
-			if _, err := io.ReadFull(session.conn, payload); err != nil {
+		var payload []byte
+		if b.camouflageHidesVPN() {
+			var err error
+			payload, err = b.readCoverFrame(session.conn)
+			if err != nil {
 				return
+			}
+		} else {
+			var header [tcpFrameHeaderSize]byte
+			if _, err := io.ReadFull(session.conn, header[:]); err != nil {
+				return
+			}
+			size := int(binary.BigEndian.Uint16(header[:]))
+			payload = make([]byte, size)
+			if size > 0 {
+				if _, err := io.ReadFull(session.conn, payload); err != nil {
+					return
+				}
 			}
 		}
 		session.lastRX.Store(time.Now().UnixNano())

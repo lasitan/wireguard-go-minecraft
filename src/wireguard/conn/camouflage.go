@@ -21,8 +21,6 @@ const (
 	camoProfileSteam      = "steam"
 	camoProfileBedrock    = "bedrock"
 	camoProfileFiveM      = "fivem"
-
-	camoAuthMagic = "WGMCAUTH"
 )
 
 type camoSharedConfig struct {
@@ -189,23 +187,18 @@ func camoAuthClient(conn net.Conn, secret string, challenge []byte) error {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(challenge)
 	sum := mac.Sum(nil)
-	pkt := append([]byte(camoAuthMagic), sum...)
-	return writeAll(conn, pkt)
+	// No ASCII marker — looks like a continuation blob, not a VPN tag.
+	return writeAll(conn, sum)
 }
 
 func camoAuthServer(conn net.Conn, secret string, challenge []byte) error {
-	buf := make([]byte, len(camoAuthMagic)+32)
+	buf := make([]byte, 32)
 	if _, err := io.ReadFull(conn, buf); err != nil {
 		return fmt.Errorf("camo auth read: %w", err)
 	}
-	if string(buf[:len(camoAuthMagic)]) != camoAuthMagic {
-		return fmt.Errorf("camo auth magic mismatch")
-	}
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(challenge)
-	want := mac.Sum(nil)
-	got := buf[len(camoAuthMagic):]
-	if !hmac.Equal(got, want) {
+	if !hmac.Equal(buf, mac.Sum(nil)) {
 		return fmt.Errorf("camo auth rejected")
 	}
 	return nil

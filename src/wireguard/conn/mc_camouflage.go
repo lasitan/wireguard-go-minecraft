@@ -7,8 +7,10 @@ package conn
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/md5"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -687,36 +689,32 @@ func validatePluginChannel(got, want string) error {
 	return nil
 }
 
-const pluginFlagToNAT = "\x00TONAT"
-
 func buildPluginResponse(secret string, challenge []byte, toNAT bool) []byte {
-	out := make([]byte, 0, len(secret)+len(challenge)+len(pluginFlagToNAT))
-	out = append(out, secret...)
-	out = append(out, challenge...)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(challenge)
+	flag := byte(0)
 	if toNAT {
-		out = append(out, pluginFlagToNAT...)
+		flag = 1
 	}
-	return out
+	mac.Write([]byte{flag})
+	return append(mac.Sum(nil), flag)
 }
 
 func verifyPluginResponse(secret string, challenge, data []byte) (ok bool, toNAT bool) {
-	base := buildPluginResponse(secret, challenge, false)
-	if len(data) < len(base) {
+	if len(data) != 33 {
 		return false, false
 	}
-	for i := range base {
-		if data[i] != base[i] {
-			return false, false
-		}
+	flag := data[32]
+	if flag > 1 {
+		return false, false
 	}
-	rest := data[len(base):]
-	if len(rest) == 0 {
-		return true, false
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(challenge)
+	mac.Write([]byte{flag})
+	if !hmac.Equal(data[:32], mac.Sum(nil)) {
+		return false, false
 	}
-	if string(rest) == pluginFlagToNAT {
-		return true, true
-	}
-	return false, false
+	return true, flag == 1
 }
 
 // offlinePlayerUUID returns the standard Minecraft offline-mode UUID bytes (big-endian).
