@@ -18,6 +18,8 @@ import (
 
 	"golang.zx2c4.com/wireguard/src/master/geoip"
 	"golang.zx2c4.com/wireguard/src/master/hub"
+	"golang.zx2c4.com/wireguard/src/master/pathsel"
+	"golang.zx2c4.com/wireguard/src/master/relay"
 	"golang.zx2c4.com/wireguard/src/master/stats"
 	"golang.zx2c4.com/wireguard/src/master/store"
 	"golang.zx2c4.com/wireguard/src/master/ui"
@@ -36,6 +38,8 @@ type Server struct {
 	hub      *hub.Hub
 	geo      *geoip.GeoIP
 	updates  *update.Checker
+	paths    *pathsel.Selector
+	relay    *relay.Service
 
 	httpGeoAt sync.Map // nodeID -> time.Time of last legacy-agent IP observation
 }
@@ -63,6 +67,7 @@ func NewServer(cfg config.MasterConfig) (*Server, error) {
 	agentHub := hub.NewHub(st, statsSvc)
 	geo := geoip.NewGeoIP(st, cfg.DataDir, cfg.GeoIPDB, !cfg.DisableGeoIPOnline)
 	agentHub.OnPublicIPs = geo.ResolveNode
+	relaySvc := &relay.Service{Store: st}
 	return &Server{
 		cfg:      cfg,
 		store:    st,
@@ -71,6 +76,11 @@ func NewServer(cfg config.MasterConfig) (*Server, error) {
 		hub:      agentHub,
 		geo:      geo,
 		updates:  update.NewChecker(6*time.Hour, cfg.DisableUpdateCheck),
+		paths: &pathsel.Selector{Store: st, Stats: statsSvc, Alive: agentHub.IsConnected, Push: func() {
+			agentHub.PushAll()
+			relaySvc.Sync()
+		}},
+		relay: relaySvc,
 	}, nil
 }
 
@@ -115,12 +125,22 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+// pushAll re-pushes every agent after a mesh edit and re-evaluates gateways
+// right away (a changed choice pushes once more).
+func (s *Server) pushAll() {
+	s.hub.PushAll()
+	s.relay.Sync()
+	s.paths.Tick(time.Now())
+}
+
 func (s *Server) ListenAndServe() error {
 	h := s.Handler()
 	stop := make(chan struct{})
 	defer close(stop)
 	go s.stats.Run(stop)
 	go s.updates.Run(stop)
+	go s.paths.Run(stop)
+	go s.relay.Run(stop)
 	fmt.Fprintf(os.Stderr, "wireguard-go master: listening on %s (data %s)\n", s.cfg.Listen, s.cfg.DataDir)
 	if s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
 		return http.ListenAndServeTLS(s.cfg.Listen, s.cfg.TLSCert, s.cfg.TLSKey, h)
@@ -154,7 +174,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		s.hub.PushAll()
+		s.pushAll()
 	}
 	settings, err := s.store.Settings()
 	if err != nil {
@@ -172,6 +192,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		"defaultIface": settings.DefaultIface,
 		"defaultPoll":  settings.DefaultPoll,
 		"transport":    transport,
+		"relayPort":    settings.RelayPort,
 	})
 }
 
@@ -223,7 +244,7 @@ func (s *Server) handleMesh(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		s.hub.PushAll()
+		s.pushAll()
 		writeJSON(w, http.StatusOK, s.store.Snapshot().WithoutPrivateKeys())
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -247,7 +268,7 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 		}
 		s.hub.Disconnect(id)
 		s.stats.Forget(id)
-		s.hub.PushAll()
+		s.pushAll()
 		writeJSON(w, http.StatusOK, s.store.Snapshot().WithoutPrivateKeys())
 	case http.MethodPatch:
 		if !s.requireAdmin(w, r) {
@@ -295,7 +316,7 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	s.hub.PushAll()
+	s.pushAll()
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"nodeId":    created.ID,
 		"nodeToken": created.Token,

@@ -69,7 +69,7 @@ export function OverviewTab({
         </div>
       </div>
       <AddressEditor node={node} busy={busy} run={run} />
-      <MagnetSection node={node} onError={onError} />
+      <MagnetSection node={node} stats={stats} onError={onError} />
 
       <div className="speed-grid">
         <div className="speed-card up">

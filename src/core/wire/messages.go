@@ -53,6 +53,9 @@ type PeerStat struct {
 	RxBytes           uint64
 	TxBytes           uint64
 	LastHandshakeNano int64
+	// HandshakeRTTMicros travels in a trailing section so older Masters,
+	// which stop reading after Forwards, stay compatible.
+	HandshakeRTTMicros uint32
 }
 
 // IPStat counts tunnel traffic exchanged with one VPN address.
@@ -119,6 +122,10 @@ func (m Stats) Marshal() []byte {
 		w.u64(f.RxBytes)
 		w.u64(f.TxBytes)
 	}
+	w.u16(uint16(len(peers)))
+	for _, p := range peers {
+		w.u32(p.HandshakeRTTMicros)
+	}
 	return w.b
 }
 
@@ -151,6 +158,13 @@ func (m *Stats) Unmarshal(b []byte) error {
 			m.Forwards[i].Listen = r.str()
 			m.Forwards[i].RxBytes = r.u64()
 			m.Forwards[i].TxBytes = r.u64()
+		}
+	}
+	if r.err == nil && len(r.b) > 0 {
+		if n := r.count(MaxPeers, "peer rtts"); r.err == nil && n == len(m.Peers) {
+			for i := range m.Peers {
+				m.Peers[i].HandshakeRTTMicros = r.u32()
+			}
 		}
 	}
 	return r.err

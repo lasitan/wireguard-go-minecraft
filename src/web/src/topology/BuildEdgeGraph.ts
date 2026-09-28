@@ -1,4 +1,4 @@
-import { MASTER_ID, VIEW } from "../core/constants";
+import { MASTER_ID, RELAY_ID, VIEW } from "../core/constants";
 import type {
   EdgeKind,
   EdgeStatus,
@@ -10,6 +10,7 @@ import type {
 } from "../core/models";
 import { isOnline } from "../utils/isOnline";
 import { pcbRouteD } from "./PcbRoute";
+import { vpnPrefixFromAddress } from "./SubnetGroups";
 
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
@@ -50,8 +51,9 @@ function edgeStatus(
 /**
  * Build display edges:
  * - solid: active link or forward between the pair
+ * - gateway: cross-subnet gateway mother Master picked for a node (lowest RTT)
  * - dashed: indirect reachability (shared hub / control spoke) when no solid rule
- * Solid and dashed are mutually exclusive per pair.
+ * Kinds are mutually exclusive per pair.
  */
 export function BuildEdgeGraph(
   mesh: Mesh,
@@ -132,20 +134,47 @@ export function BuildEdgeGraph(
     });
   };
 
+  // Cross-subnet gateways Master picked (not already an explicit attachment).
+  const gatewayPairs = new Set<string>();
+  const relaySubnets = new Set<string>();
+  const relayNodes = new Set<string>();
+  for (const [nodeId, bySub] of Object.entries(mesh.paths || {})) {
+    for (const [sub, gw] of Object.entries(bySub)) {
+      if (gw === RELAY_ID) {
+        relaySubnets.add(sub);
+        relayNodes.add(nodeId);
+        continue;
+      }
+      const key = pairKey(nodeId, gw);
+      if (!solidPairs.has(key)) gatewayPairs.add(key);
+    }
+  }
+  // Nodes of a relay-served subnet stay on Master's relay so it can deliver.
+  for (const n of mesh.nodes) {
+    const sub = vpnPrefixFromAddress(n.address);
+    if (sub && relaySubnets.has(sub)) relayNodes.add(n.id);
+  }
+
   for (const key of solidPairs) {
     const [a, b] = key.split("|");
     if (!sameStack(a, b)) pushPair(a, b, "solid");
   }
+  for (const key of gatewayPairs) {
+    const [a, b] = key.split("|");
+    if (!sameStack(a, b)) pushPair(a, b, "gateway");
+  }
   for (const key of indirectPairs) {
-    if (solidPairs.has(key)) continue;
+    if (solidPairs.has(key) || gatewayPairs.has(key)) continue;
     const [a, b] = key.split("|");
     if (!sameStack(a, b)) pushPair(a, b, "dashed");
   }
 
-  // Control-plane spokes: agent ↔ Master (always dashed; solid never applies to Master).
-  // Attached cards share their mother's spoke.
+  // Control-plane spokes: agent ↔ Master (dashed; solid never applies to Master).
+  // Attached cards share their mother's spoke. Nodes on Master's cross-subnet
+  // relay get a gateway-style spoke of their own.
   for (const p of placed) {
-    if (stacks.parentOf.has(p.node.id)) continue;
+    const onRelay = relayNodes.has(p.node.id);
+    if (stacks.parentOf.has(p.node.id) && !onRelay) continue;
     const o = orientTowardMaster(p.x, p.y, VIEW.cx, VIEW.cy);
     const nodeOnline = !!online.get(p.node.id);
     const conflict = !!conflicts.get(p.node.id);
@@ -159,7 +188,7 @@ export function BuildEdgeGraph(
       toId: MASTER_ID,
       ...o,
       pathD: pcbRouteD(o.x1, o.y1, o.x2, o.y2),
-      kind: "dashed",
+      kind: onRelay ? "gateway" : "dashed",
       status,
       flowTowardMaster: status === "green",
     });

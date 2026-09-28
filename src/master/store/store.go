@@ -39,6 +39,7 @@ type Settings struct {
 	DefaultIface  string
 	DefaultPoll   string
 	TransportJSON json.RawMessage
+	RelayPort     int // 0 = cross-subnet relay fallback disabled
 }
 
 func OpenStore(dataDir string) (*Store, error) {
@@ -62,6 +63,10 @@ func OpenStore(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	if err := s.ensureTransportDefault(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := s.ensureRelaySeeds(); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -276,6 +281,7 @@ func (s *Store) settingsLocked() (Settings, error) {
 		return out, err
 	}
 	out.TransportJSON = json.RawMessage(tr)
+	out.RelayPort = int(s.relayLocked().Port)
 	return out, nil
 }
 
@@ -359,6 +365,8 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 			return m, err
 		}
 	}
+	m.Paths = s.pathsLocked()
+	m.Relay = s.meshRelayLocked()
 	return m, nil
 }
 
@@ -637,11 +645,12 @@ func (s *Store) DesiredForNodes(ids []string) (map[string]*core.DesiredConfig, e
 		Transport:     settings.TransportJSON,
 	}
 	out := make(map[string]*core.DesiredConfig, len(ids))
+	plan := core.PlanMesh(&m)
 	for _, id := range ids {
 		if m.FindNode(id) == nil {
 			continue
 		}
-		d, err := core.CompileDesired(&m, id, def)
+		d, err := core.CompileDesiredWithPlan(&m, plan, id, def)
 		if err != nil {
 			return nil, err
 		}

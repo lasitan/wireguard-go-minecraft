@@ -24,6 +24,7 @@ type Peer struct {
 	txBytes           atomic.Uint64  // bytes send to peer (endpoint)
 	rxBytes           atomic.Uint64  // bytes received from peer
 	lastHandshakeNano atomic.Int64   // nano seconds since epoch
+	handshakeRTTNano  atomic.Int64   // initiation sent -> response received, latest sample
 
 	endpoint struct {
 		sync.Mutex

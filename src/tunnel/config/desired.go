@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -168,6 +169,18 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		}
 		if err := applyIfaceNetConfig(iface, netCfg, logger); err != nil {
 			return nil, err
+		}
+	}
+	if want := tunnelRoutes(d); len(want) > 0 || prev != nil {
+		var have []netip.Prefix
+		if prev != nil && prev.InterfaceName == d.InterfaceName {
+			have = tunnelRoutes(prev)
+		}
+		if add, del := diffRoutes(want, have); len(add)+len(del) > 0 {
+			if err := syncIfaceRoutes(iface, add, del, logger); err != nil {
+				logger.Errorf("tunnel routes: %v", err)
+				fmt.Fprintf(os.Stderr, "wireguard-go: warning: tunnel routes: %v\n", err)
+			}
 		}
 	}
 	if d.IPForward {

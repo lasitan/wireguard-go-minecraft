@@ -67,7 +67,7 @@ export function parseTransport(raw: unknown): TransportView {
 }
 
 export function buildTransportJson(camo: TransportCamouflage, prev?: unknown): string {
-  const root =
+  const root: Record<string, unknown> =
     prev && typeof prev === "object"
       ? { ...(prev as Record<string, unknown>) }
       : {

@@ -67,3 +67,28 @@
   animation: tab-in 0.2s ease;
 }
 .magnet-hint { margin: 0 0 0.6rem; line-height: 1.5; }
+.magnet-parents { display: grid; gap: 0.3rem; min-width: 0; }
+.magnet-parent {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+.magnet-parent.on { border-color: var(--accent); background: #fff4e8; }
+.magnet-parent input { margin: 0; }
+.magnet-parent-name { font-weight: 650; }
+.magnet-parent-ep {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+}
+.magnet-parent-rtt { font-size: 0.72rem; font-variant-numeric: tabular-nums; color: var(--accent-deep); }

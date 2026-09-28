@@ -10,6 +10,10 @@ export function EdgeLegend() {
           <span>实线 · 两者之间有规则在运行</span>
         </li>
         <li>
+          <span className="swatch line gateway green" />
+          <span>点线 · 跨网段网关（目标网段内延迟最低的母卡）</span>
+        </li>
+        <li>
           <span className="swatch line dashed green" />
           <span>虚线 · 间接可达（无直接规则）</span>
         </li>

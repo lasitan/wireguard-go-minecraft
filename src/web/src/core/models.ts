@@ -28,6 +28,8 @@ export type NodePatch = {
   endpoint?: string;
   /** Attach under a mother card; "" detaches. */
   parentId?: string;
+  /** Attach to several mother cards at once (replaces the whole set). */
+  parentIds?: string[];
 };
 
 /** Mother card id → attached child ids (in attach order), and the reverse. */
@@ -41,6 +43,8 @@ export type LivePeer = {
   rx: number;
   tx: number;
   lastHandshake?: string;
+  /** Smoothed tunnel handshake RTT toward this peer. */
+  rttMs?: number;
   nodeId?: string;
   name?: string;
 };
@@ -118,6 +122,10 @@ export type Mesh = {
   nodes: Node[];
   links: Link[];
   forwards: Forward[];
+  /** Master-chosen gateway mother per node and VPN subnet (lowest RTT); "master" = relay fallback. */
+  paths?: Record<string, Record<string, string>>;
+  /** Present when Master's cross-subnet relay is enabled. */
+  relay?: { publicKey: string; port: number };
 };
 
 export type Meta = {
@@ -127,12 +135,15 @@ export type Meta = {
   defaultIface?: string;
   defaultPoll?: string;
   transport?: unknown;
+  /** Master's cross-subnet fallback relay TCP port; 0 = disabled. */
+  relayPort?: number;
 };
 
 export type MetaPatch = {
   enrollToken?: string;
   vpnSubnet?: string;
   transportJson?: string;
+  relayPort?: number;
 };
 
 export type UpdateCommands = {
@@ -194,7 +205,7 @@ export type PlacedNode = { node: Node; x: number; y: number };
 export type EdgeStatus = "green" | "yellow" | "red" | "grey";
 
 /** Solid = active rule; dashed = indirect reachability. Mutually exclusive per pair. */
-export type EdgeKind = "solid" | "dashed";
+export type EdgeKind = "solid" | "dashed" | "gateway";
 
 export type TopologyEdge = {
   id: string;

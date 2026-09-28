@@ -36,7 +36,21 @@ type LivePeer struct {
 	RxBytes       uint64    `json:"rx"`
 	TxBytes       uint64    `json:"tx"`
 	LastHandshake time.Time `json:"lastHandshake,omitempty"`
+	RTTMillis     float64   `json:"rttMs,omitempty"` // smoothed handshake RTT
 }
+
+// PeerRTT is the smoothed tunnel RTT a node measured toward one peer.
+type PeerRTT struct {
+	Millis float64
+	At     time.Time // last sample
+}
+
+type peerRTTState struct {
+	PeerRTT
+	hs int64 // handshake timestamp of the last folded sample
+}
+
+const rttSmoothing = 0.3
 
 type LiveForward struct {
 	Protocol string `json:"protocol"`
@@ -61,6 +75,7 @@ type StatsService struct {
 	pending   map[string]*store.TrafficDelta
 	connected map[string]time.Time
 	rtt       map[string]time.Duration
+	peerRTT   map[string]map[string]*peerRTTState // nodeID -> peer pubkey
 }
 
 func NewStatsService(st *store.Store) *StatsService {
@@ -70,7 +85,51 @@ func NewStatsService(st *store.Store) *StatsService {
 		pending:   make(map[string]*store.TrafficDelta),
 		connected: make(map[string]time.Time),
 		rtt:       make(map[string]time.Duration),
+		peerRTT:   make(map[string]map[string]*peerRTTState),
 	}
+}
+
+// foldPeerRTT smooths one handshake RTT sample; a sample is new only when the
+// handshake timestamp moved.
+func (s *StatsService) foldPeerRTT(nodeID, pub string, p wire.PeerStat, now time.Time) float64 {
+	byPeer := s.peerRTT[nodeID]
+	if byPeer == nil {
+		byPeer = make(map[string]*peerRTTState)
+		s.peerRTT[nodeID] = byPeer
+	}
+	cur := byPeer[pub]
+	if p.HandshakeRTTMicros == 0 {
+		if cur == nil {
+			return 0
+		}
+		return cur.Millis
+	}
+	sample := float64(p.HandshakeRTTMicros) / 1000
+	switch {
+	case cur == nil:
+		byPeer[pub] = &peerRTTState{PeerRTT: PeerRTT{Millis: sample, At: now}, hs: p.LastHandshakeNano}
+		return sample
+	case cur.hs != p.LastHandshakeNano:
+		cur.Millis += rttSmoothing * (sample - cur.Millis)
+		cur.At = now
+		cur.hs = p.LastHandshakeNano
+	}
+	return cur.Millis
+}
+
+// PeerRTTs snapshots every node's smoothed RTT per peer public key.
+func (s *StatsService) PeerRTTs() map[string]map[string]PeerRTT {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]map[string]PeerRTT, len(s.peerRTT))
+	for id, byPeer := range s.peerRTT {
+		m := make(map[string]PeerRTT, len(byPeer))
+		for pub, st := range byPeer {
+			m[pub] = st.PeerRTT
+		}
+		out[id] = m
+	}
+	return out
 }
 
 // counterDelta handles agent restarts: a counter going backwards means the
@@ -103,6 +162,7 @@ func (s *StatsService) Ingest(nodeID string, st *wire.Stats, now time.Time) {
 		if p.LastHandshakeNano > 0 {
 			lp.LastHandshake = time.Unix(0, p.LastHandshakeNano).UTC()
 		}
+		lp.RTTMillis = s.foldPeerRTT(nodeID, lp.PublicKey, p, now)
 		cur.live.Peers = append(cur.live.Peers, lp)
 	}
 	for _, f := range st.Forwards {
@@ -214,6 +274,7 @@ func (s *StatsService) Forget(nodeID string) {
 	delete(s.pending, nodeID)
 	delete(s.connected, nodeID)
 	delete(s.rtt, nodeID)
+	delete(s.peerRTT, nodeID)
 }
 
 func (s *StatsService) takePending() map[string]*store.TrafficDelta {

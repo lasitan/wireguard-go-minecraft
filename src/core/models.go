@@ -4,6 +4,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -18,6 +19,29 @@ type Mesh struct {
 	Nodes    []Node    `json:"nodes"`
 	Links    []Link    `json:"links"`
 	Forwards []Forward `json:"forwards"`
+	// Paths is Master-owned (lowest-RTT gateway per node and subnet); admin
+	// mesh edits never write it.
+	Paths PathChoices `json:"paths,omitempty"`
+	// Relay is Master's built-in fallback relay (nil = disabled); Master-owned.
+	Relay *Relay `json:"relay,omitempty"`
+}
+
+// RelayNodeID stands for Master's relay wherever a gateway node id is expected.
+const RelayNodeID = "master"
+
+// RelayEndpointHost is replaced by each agent with its own Master URL host.
+const RelayEndpointHost = "@master"
+
+// Relay describes Master's fallback relay: a WireGuard peer that only forwards
+// between agents, used for cross-subnet traffic when no mother is reachable.
+type Relay struct {
+	PublicKey string `json:"publicKey"`
+	Port      uint16 `json:"port"`
+}
+
+// Endpoint is the placeholder dial address agents resolve against their Master URL.
+func (r *Relay) Endpoint() string {
+	return fmt.Sprintf("%s:%d", RelayEndpointHost, r.Port)
 }
 
 // Node is a tunnel endpoint managed by Master.

@@ -68,6 +68,11 @@
   stroke-dasharray: 5 7;
   stroke-linecap: round;
 }
+.mesh-edge.kind-gateway {
+  stroke-width: 2.2;
+  stroke-dasharray: 0.1 6;
+  stroke-linecap: round;
+}
 .mesh-edge.status-green { stroke: var(--edge-green); opacity: 0.9; }
 .mesh-edge.status-yellow { stroke: var(--edge-yellow); opacity: 0.95; }
 .mesh-edge.status-red { stroke: var(--edge-red); opacity: 0.75; }
@@ -84,6 +89,14 @@
 .mesh-edge.kind-dashed.status-green.is-flowing {
   stroke-dasharray: 5 7;
   animation: edge-flow-dashed 3.6s linear infinite;
+}
+.mesh-edge.kind-gateway.status-green.is-flowing {
+  stroke-dasharray: 0.1 6;
+  animation: edge-flow-gateway 2.4s linear infinite;
+}
+@keyframes edge-flow-gateway {
+  from { stroke-dashoffset: 30.5; }
+  to { stroke-dashoffset: 0; }
 }
 @keyframes edge-flow-solid {
   from { stroke-dashoffset: 32; }

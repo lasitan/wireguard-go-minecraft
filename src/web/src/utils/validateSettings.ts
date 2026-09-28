@@ -18,6 +18,13 @@ export function validatePool(s: string): string {
   return "";
 }
 
+/** Mirrors Master's normalizeRelayPort: 0 disables. */
+export function validateRelayPort(s: string): string {
+  const v = s.trim();
+  if (!/^\d+$/.test(v) || Number(v) > 65535) return "端口需为 0–65535（0 为关闭）";
+  return "";
+}
+
 /** Masks host bits, e.g. 10.20.3.4/16 → 10.20.0.0/16. */
 export function maskPool(s: string): string {
   const [addr, bitsStr] = s.trim().split("/");

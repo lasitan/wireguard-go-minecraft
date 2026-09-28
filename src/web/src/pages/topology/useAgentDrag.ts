@@ -4,14 +4,14 @@ import { clientToSvg } from "../../camera/SvgCoords";
 import { notify, state } from "../../core/state";
 import { setNodePosition } from "../../topology/SyncPlacedNodes";
 import { findMagnetTarget } from "../../topology/MagnetLayout";
-import { isMother } from "../../topology/MagnetStacks";
+import { attachedMothers, isMother } from "../../topology/MagnetStacks";
 import {
   hitPlacedNode,
   nodeVpnPrefix,
   subnetZones,
   zoneAt,
 } from "../../topology/SubnetGroups";
-import { attachNode, reassignNodeSubnet, swapNodeAddresses } from "../../app/NodeActions";
+import { attachNode, reassignNodeSubnet, setNodeParents, swapNodeAddresses } from "../../app/NodeActions";
 import { focusTarget } from "../../app/FocusNav";
 
 type DragState = {
@@ -32,8 +32,9 @@ function magnetAttachChanged(target: string | null, parentAtStart: string | null
 
 /**
  * Pointer drag for agents. Short press → focus; drag → reposition. Plain
- * cards snap under a mother card on release (attach / switch), and dragging
- * an attached card out of its stack detaches it.
+ * cards snap under a mother card on release (attach / switch); holding
+ * Ctrl/Shift adds that mother instead of switching. Dragging an attached card
+ * out of its stack detaches it from that mother only.
  */
 export function useAgentDrag() {
   const drag = useRef<DragState | null>(null);
@@ -137,12 +138,28 @@ export function useAgentDrag() {
       }
     };
 
-    if (d.canSnap && magnetAttachChanged(magnetTarget, d.parentAtStart)) {
+    const fail = (err: Error) => {
+      state.err = err.message;
       notify();
-      attachNode(d.id, magnetTarget || "").catch((err: Error) => {
-        state.err = err.message;
-        notify();
-      });
+    };
+    const mesh = state.mesh;
+    const addMode = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (d.canSnap && mesh && addMode && magnetTarget) {
+      const current = attachedMothers(mesh, d.id);
+      notify();
+      if (!current.includes(magnetTarget)) {
+        setNodeParents(d.id, [...current, magnetTarget]).catch(fail);
+      }
+      return;
+    }
+    if (d.canSnap && mesh && magnetAttachChanged(magnetTarget, d.parentAtStart)) {
+      notify();
+      if (magnetTarget) {
+        attachNode(d.id, magnetTarget).catch(fail);
+      } else {
+        const rest = attachedMothers(mesh, d.id).filter((m) => m !== d.parentAtStart);
+        setNodeParents(d.id, rest).catch(fail);
+      }
       return;
     }
 

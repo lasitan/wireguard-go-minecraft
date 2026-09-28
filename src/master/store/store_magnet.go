@@ -11,10 +11,14 @@ import (
 )
 
 // Magnet cards: a node with a ListenPort is a "mother"; every other node
-// attaches to at most one mother via a single outbound link, and Master
-// pushes that mother's DialEndpoint to it.
+// attaches to one or more mothers via outbound links, and Master pushes those
+// mothers' DialEndpoints to it. With several mothers in its subnet, the
+// lowest-RTT one carries the subnet route and the others deliver to it directly.
 
-const magnetKeepalive = 5
+const (
+	magnetKeepalive  = 5
+	maxMagnetParents = 8
+)
 
 // setListenPort turns n into a mother (port > 0) or back into a plain card.
 // A new mother drops its own attachment; a former mother releases its children.
@@ -31,25 +35,46 @@ func setListenPort(m *core.Mesh, n *core.Node, port uint16) {
 
 // attachTo replaces child's outbound links with one link to parentID ("" = detach).
 func attachTo(m *core.Mesh, childID, parentID string) error {
+	if parentID == "" {
+		return setParents(m, childID, nil)
+	}
+	return setParents(m, childID, []string{parentID})
+}
+
+// setParents replaces child's outbound links with one link per mother.
+func setParents(m *core.Mesh, childID string, parentIDs []string) error {
 	child := m.FindNode(childID)
 	if child == nil {
 		return fmt.Errorf("node %q not found", childID)
 	}
-	if parentID != "" {
-		if child.IsMagnetParent() {
-			return fmt.Errorf("a node with a listen port cannot attach to another node")
+	var ids []string
+	seen := map[string]bool{}
+	for _, pid := range parentIDs {
+		pid = strings.TrimSpace(pid)
+		if pid == "" || seen[pid] {
+			continue
 		}
-		parent := m.FindNode(parentID)
+		seen[pid] = true
+		ids = append(ids, pid)
+	}
+	if len(ids) > maxMagnetParents {
+		return fmt.Errorf("at most %d mothers per card", maxMagnetParents)
+	}
+	if len(ids) > 0 && child.IsMagnetParent() {
+		return fmt.Errorf("a node with a listen port cannot attach to another node")
+	}
+	for _, pid := range ids {
+		parent := m.FindNode(pid)
 		if parent == nil || parent.ID == childID {
-			return fmt.Errorf("parent %q not found", parentID)
+			return fmt.Errorf("parent %q not found", pid)
 		}
 		if !parent.IsMagnetParent() {
-			return fmt.Errorf("parent %q has no listen port", parentID)
+			return fmt.Errorf("parent %q has no listen port", pid)
 		}
 	}
 	m.Links = dropLinks(m.Links, func(l core.Link) bool { return l.FromNodeID == childID })
-	if parentID != "" {
-		m.Links = append(m.Links, core.Link{FromNodeID: childID, ToNodeID: parentID, Keepalive: magnetKeepalive})
+	for _, pid := range ids {
+		m.Links = append(m.Links, core.Link{FromNodeID: childID, ToNodeID: pid, Keepalive: magnetKeepalive})
 	}
 	return nil
 }

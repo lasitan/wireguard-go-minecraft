@@ -30,11 +30,6 @@ function demoApplyPatch(id: string, patch: NodePatch) {
   state.mesh = { ...magnet, revision: mesh.revision + 1 };
 }
 
-/**
- * Snap a card under a mother ("" = detach). The local mesh changes first so
- * the card glides into its slot immediately; Master's reply then wins, and a
- * failure restores the previous mesh.
- */
 function demoSwapAddresses(aId: string, bId: string) {
   const mesh = state.mesh;
   if (!mesh) return;
@@ -93,18 +88,29 @@ export async function reassignNodeSubnet(nodeId: string, prefix: string): Promis
   }
 }
 
-export async function attachNode(id: string, parentId: string): Promise<void> {
+/**
+ * Snap a card under a single mother ("" = detach). The local mesh changes
+ * first so the card glides into its slot immediately; Master's reply then
+ * wins, and a failure restores the previous mesh.
+ */
+export function attachNode(id: string, parentId: string): Promise<void> {
+  return setNodeParents(id, parentId ? [parentId] : []);
+}
+
+/** Replace the set of mother cards a card is attached to (optimistic). */
+export async function setNodeParents(id: string, parentIds: string[]): Promise<void> {
   const before = state.mesh;
   if (!before) return;
+  const patch: NodePatch = { parentIds };
   if (state.demo) {
-    demoApplyPatch(id, { parentId });
+    demoApplyPatch(id, patch);
     notify();
     return;
   }
-  state.mesh = applyMagnetPatch(before, id, { parentId });
+  state.mesh = applyMagnetPatch(before, id, patch);
   notify();
   try {
-    state.mesh = await PatchNode(id, { parentId });
+    state.mesh = await PatchNode(id, patch);
   } catch (e) {
     state.mesh = before;
     throw e;

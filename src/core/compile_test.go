@@ -15,7 +15,7 @@ func policyMesh() Mesh {
 	return Mesh{
 		Revision: 1,
 		Nodes: []Node{
-			{ID: tSrv, Role: RoleServer, PublicKey: "S", PrivateKey: "s", Address: "10.10.0.1/24", Routes: []string{"10.10.0.0/24"}, Token: "a"},
+			{ID: tSrv, Role: RoleServer, PublicKey: "S", PrivateKey: "s", Address: "10.10.0.1/24", Routes: []string{"10.10.0.0/24"}, ListenPort: 25590, Endpoint: "1.1.1.1", Token: "a"},
 			{ID: tC1, Role: RoleClient, PublicKey: "C1", PrivateKey: "c1", Address: "10.10.0.2/24", Routes: []string{"10.10.0.0/24"}, Token: "b"},
 			{ID: tC2, Role: RoleClient, PublicKey: "C2", PrivateKey: "c2", Address: "10.10.0.3/24", Routes: []string{"10.10.0.0/24"}, Token: "c"},
 		},
@@ -70,7 +70,7 @@ func TestCompileRoutes(t *testing.T) {
 			got = p.AllowedIPs
 		}
 	}
-	if len(got) != 2 || got[0] != "10.10.0.0/24" || got[1] != "192.168.50.0/24" {
+	if len(got) != 2 || got[0] != "10.10.0.2/32" || got[1] != "192.168.50.0/24" {
 		t.Fatalf("server allowed for C1: %v", got)
 	}
 	c1Peer := c1.Peers[0].AllowedIPs

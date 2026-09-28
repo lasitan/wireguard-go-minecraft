@@ -107,7 +107,7 @@ export function AgentPanel({ node, conflict }: { node: Node; conflict: boolean }
       <div className={`drawer-body tab-pane${leaving ? " leaving" : ""}`} key={shown}>
         {shown === "overview" ? <OverviewTab node={node} stats={stats} conflict={conflict} onError={report} /> : null}
         {shown === "traffic" ? <TrafficTab node={node} stats={stats} /> : null}
-        {shown === "routes" ? <RoutesTab node={node} onError={report} /> : null}
+        {shown === "routes" ? <RoutesTab node={node} stats={stats} onError={report} /> : null}
         {shown === "forwards" ? <ForwardsTab node={node} stats={stats} onError={report} /> : null}
       </div>
     </div>

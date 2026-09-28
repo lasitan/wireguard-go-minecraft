@@ -72,6 +72,11 @@ type DesiredDefaults struct {
 
 // CompileDesired builds the per-node desired config from the mesh table.
 func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*DesiredConfig, error) {
+	return CompileDesiredWithPlan(mesh, PlanMesh(mesh), nodeID, defaults)
+}
+
+// CompileDesiredWithPlan reuses a precomputed plan (one per mesh load).
+func CompileDesiredWithPlan(mesh *Mesh, plan *Plan, nodeID string, defaults DesiredDefaults) (*DesiredConfig, error) {
 	n := mesh.FindNode(nodeID)
 	if n == nil {
 		return nil, fmt.Errorf("node %q not found", nodeID)
@@ -113,7 +118,7 @@ func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*Desir
 			ListenPort: n.ListenPort,
 			MTU:        mtu,
 		},
-		IPForward: n.Role == RoleServer || len(n.Routes) > 0,
+		IPForward: n.Role == RoleServer || n.IsMagnetParent() || len(n.Routes) > 0,
 		Transport: transport,
 		Peers:     []DesiredPeer{},
 		Forwards:  []DesiredForward{},
@@ -127,63 +132,24 @@ func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*Desir
 		return peer.Disabled || losers[peer.ID]
 	}
 
-	// Peers from links where this node is the "from" side (outbound dial).
-	for _, link := range mesh.Links {
-		if link.FromNodeID != nodeID {
+	for _, pp := range plan.peersFor(nodeID) {
+		var pub, ep string
+		if pp.peerID == RelayNodeID && mesh.Relay != nil {
+			pub, ep = mesh.Relay.PublicKey, mesh.Relay.Endpoint()
+		} else if peer := mesh.FindNode(pp.peerID); peer != nil {
+			pub, ep = peer.PublicKey, peer.DialEndpoint()
+		} else {
 			continue
 		}
-		to := mesh.FindNode(link.ToNodeID)
-		if to == nil {
-			return nil, fmt.Errorf("link to unknown node %q", link.ToNodeID)
+		dp := DesiredPeer{PublicKey: pub, AllowedIPs: make([]string, 0, len(pp.allowed))}
+		for _, a := range pp.allowed {
+			dp.AllowedIPs = append(dp.AllowedIPs, a.String())
 		}
-		if excluded(to) {
-			continue
+		if pp.dial {
+			dp.Endpoint = ep
+			dp.Keepalive = pp.keepalive
 		}
-		allowed, err := OutboundAllowedIPs(n, link)
-		if err != nil {
-			return nil, err
-		}
-		ep := to.DialEndpoint()
-		ka := link.Keepalive
-		if ka == 0 && n.Role == RoleClient {
-			ka = 5
-		}
-		out.Peers = append(out.Peers, DesiredPeer{
-			PublicKey:  to.PublicKey,
-			Endpoint:   ep,
-			AllowedIPs: allowed,
-			Keepalive:  ka,
-		})
-	}
-
-	// Inbound peers: nodes that link TO us need AllowedIPs = their advertised routes.
-	seenPub := make(map[string]struct{})
-	for _, p := range out.Peers {
-		seenPub[p.PublicKey] = struct{}{}
-	}
-	for _, link := range mesh.Links {
-		if link.ToNodeID != nodeID {
-			continue
-		}
-		from := mesh.FindNode(link.FromNodeID)
-		if from == nil {
-			return nil, fmt.Errorf("link from unknown node %q", link.FromNodeID)
-		}
-		if _, ok := seenPub[from.PublicKey]; ok {
-			continue
-		}
-		if excluded(from) {
-			continue
-		}
-		allowed, err := InboundAllowedIPs(from)
-		if err != nil {
-			return nil, err
-		}
-		out.Peers = append(out.Peers, DesiredPeer{
-			PublicKey:  from.PublicKey,
-			AllowedIPs: allowed,
-		})
-		seenPub[from.PublicKey] = struct{}{}
+		out.Peers = append(out.Peers, dp)
 	}
 
 	for _, fw := range mesh.Forwards {

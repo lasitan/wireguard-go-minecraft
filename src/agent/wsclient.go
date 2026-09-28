@@ -198,11 +198,16 @@ func (c *wsClient) collect() wire.Stats {
 	rx, tx, ips := c.counter.Snapshot()
 	st := wire.Stats{UnixMilli: time.Now().UnixMilli(), RxBytes: rx, TxBytes: tx}
 	for _, p := range c.dev.PeerStats() {
+		rtt := p.HandshakeRTTNano / 1000
+		if rtt > 1<<32-1 {
+			rtt = 0
+		}
 		st.Peers = append(st.Peers, wire.PeerStat{
-			PublicKey:         p.PublicKey,
-			RxBytes:           p.RxBytes,
-			TxBytes:           p.TxBytes,
-			LastHandshakeNano: p.LastHandshakeNano,
+			PublicKey:          p.PublicKey,
+			RxBytes:            p.RxBytes,
+			TxBytes:            p.TxBytes,
+			LastHandshakeNano:  p.LastHandshakeNano,
+			HandshakeRTTMicros: uint32(rtt),
 		})
 	}
 	for _, s := range ips {

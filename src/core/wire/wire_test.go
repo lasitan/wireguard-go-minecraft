@@ -52,7 +52,7 @@ func TestStatsRoundTrip(t *testing.T) {
 		UnixMilli: 1700000000000,
 		RxBytes:   100,
 		TxBytes:   200,
-		Peers:     []PeerStat{{PublicKey: pk, RxBytes: 1, TxBytes: 2, LastHandshakeNano: 3}},
+		Peers:     []PeerStat{{PublicKey: pk, RxBytes: 1, TxBytes: 2, LastHandshakeNano: 3, HandshakeRTTMicros: 4200}},
 		IPs: []IPStat{
 			{IP: netip.MustParseAddr("10.10.0.2"), RxBytes: 5, TxBytes: 6},
 			{IP: netip.MustParseAddr("fd00::2"), RxBytes: 7, TxBytes: 8},
@@ -65,6 +65,19 @@ func TestStatsRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(in, out) {
 		t.Fatalf("got %+v want %+v", out, in)
+	}
+}
+
+func TestStatsWithoutRTTSection(t *testing.T) {
+	var pk [32]byte
+	in := Stats{UnixMilli: 1, Peers: []PeerStat{{PublicKey: pk, RxBytes: 1, HandshakeRTTMicros: 9}}}
+	b := in.Marshal()
+	var out Stats
+	if err := out.Unmarshal(b[:len(b)-2-4]); err != nil {
+		t.Fatalf("legacy agent payload must parse: %v", err)
+	}
+	if len(out.Peers) != 1 || out.Peers[0].HandshakeRTTMicros != 0 {
+		t.Fatalf("got %+v", out)
 	}
 }
 

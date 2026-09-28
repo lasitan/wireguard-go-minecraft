@@ -21,6 +21,7 @@ type SettingsPatch struct {
 	EnrollToken   *string          `json:"enrollToken,omitempty"`
 	VPNSubnet     *string          `json:"vpnSubnet,omitempty"`
 	TransportJSON *json.RawMessage `json:"transportJson,omitempty"`
+	RelayPort     *int             `json:"relayPort,omitempty"`
 }
 
 // NewEnrollToken returns a random URL-safe token for agents to join with.
@@ -84,6 +85,13 @@ func (s *Store) UpdateSettings(p SettingsPatch) error {
 		}
 		updates[metaTransportJSON] = string(*p.TransportJSON)
 	}
+	if p.RelayPort != nil {
+		v, err := normalizeRelayPort(*p.RelayPort)
+		if err != nil {
+			return err
+		}
+		updates[metaRelayPort] = v
+	}
 	if len(updates) == 0 {
 		return nil
 	}
@@ -97,6 +105,12 @@ func (s *Store) UpdateSettings(p SettingsPatch) error {
 	for k, v := range updates {
 		if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES(?, ?)
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value`, k, v); err != nil {
+			return err
+		}
+	}
+	if _, ok := updates[metaRelayPort]; ok {
+		// Agents' relay endpoints change with it.
+		if _, err := tx.Exec(`UPDATE meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = ?`, metaRevision); err != nil {
 			return err
 		}
 	}

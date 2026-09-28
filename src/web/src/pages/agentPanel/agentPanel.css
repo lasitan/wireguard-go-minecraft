@@ -365,6 +365,7 @@ button.mini.ghost { background: #fff; color: var(--text); border: 1px solid var(
   to { opacity: 1; transform: translateX(0); }
 }
 .rule-main { flex: 1; min-width: 0; word-break: break-all; }
+.rule-via { font-size: 0.72rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .rule-badge {
   font-size: 0.64rem;
   font-weight: 700;

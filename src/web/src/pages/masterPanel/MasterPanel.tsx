@@ -2,7 +2,7 @@ import { state } from "../../core/state";
 import { goHome } from "../../app/FocusNav";
 import { patchMeta } from "../../app/MetaActions";
 import { logout } from "../../app/Session";
-import { randomEnrollToken, validateEnrollToken, validatePool } from "../../utils/validateSettings";
+import { randomEnrollToken, validateEnrollToken, validatePool, validateRelayPort } from "../../utils/validateSettings";
 import { SettingField } from "./SettingField";
 import { BootstrapInstallCard } from "./BootstrapInstallCard";
 import { TransportCard } from "./TransportCard";
@@ -53,6 +53,14 @@ export function MasterPanel() {
           value={state.meta?.vpnSubnet || ""}
           validate={validatePool}
           onSave={(v) => patchMeta({ vpnSubnet: v })}
+          mono
+        />
+        <SettingField
+          label="跨网段兜底中转端口"
+          hint="某网段找不到可用的暴露母卡时，节点临时经此端口中转；填 0 关闭。"
+          value={String(state.meta?.relayPort ?? 0)}
+          validate={validateRelayPort}
+          onSave={(v) => patchMeta({ relayPort: Number(v) })}
           mono
         />
         {!state.demo ? (

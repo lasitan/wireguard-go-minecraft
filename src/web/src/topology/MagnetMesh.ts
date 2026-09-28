@@ -21,12 +21,16 @@ export function applyMagnetPatch(mesh: Mesh, id: string, patch: NodePatch): Mesh
     }
     return next;
   });
-  if (patch.parentId !== undefined) {
-    const parent = nodes.find((n) => n.id === patch.parentId);
+  const parents = patch.parentIds ?? (patch.parentId !== undefined ? [patch.parentId] : undefined);
+  if (parents !== undefined) {
     const self = nodes.find((n) => n.id === id);
     links = links.filter((l) => l.fromNodeId !== id);
-    if (patch.parentId && isMother(parent) && !isMother(self)) {
-      links = [...links, { fromNodeId: id, toNodeId: patch.parentId, keepalive: KEEPALIVE }];
+    if (!isMother(self)) {
+      for (const pid of new Set(parents.filter(Boolean))) {
+        if (isMother(nodes.find((n) => n.id === pid))) {
+          links = [...links, { fromNodeId: id, toNodeId: pid, keepalive: KEEPALIVE }];
+        }
+      }
     }
   }
   return { ...mesh, nodes, links };

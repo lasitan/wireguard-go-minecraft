@@ -27,6 +27,23 @@ func dialedEndpoints(t *testing.T, s *Server, id string) []string {
 	return out
 }
 
+// subnetEndpoint is the endpoint of the peer carrying prefix on node id.
+func subnetEndpoint(t *testing.T, s *Server, id, prefix string) string {
+	t.Helper()
+	cfgs, err := s.store.DesiredForNodes([]string{id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range cfgs[id].Peers {
+		for _, a := range p.AllowedIPs {
+			if a == prefix {
+				return p.Endpoint
+			}
+		}
+	}
+	return ""
+}
+
 func TestMagnetAttachSwitchDetach(t *testing.T) {
 	s, c := newAPIFixture(t)
 	a, _ := s.store.Enroll("a", core.RoleClient, "", 0)
@@ -59,8 +76,11 @@ func TestMagnetAttachSwitchDetach(t *testing.T) {
 	if _, code := patch(b.ID, store.NodePatch{ParentID: str(m2.ID)}); code != 200 {
 		t.Fatalf("switch: %d", code)
 	}
-	if got := dialedEndpoints(t, s, b.ID); len(got) != 1 || got[0] != "5.6.7.8:9443" {
-		t.Fatalf("child endpoint after switch: %v", got)
+	if got := subnetEndpoint(t, s, b.ID, "10.10.0.0/24"); got != "5.6.7.8:9443" {
+		t.Fatalf("subnet route after switch goes via %q", got)
+	}
+	if got := dialedEndpoints(t, s, b.ID); len(got) != 2 {
+		t.Fatalf("child still connects to the other mother for same-subnet access: %v", got)
 	}
 	if _, code := patch(a.ID, store.NodePatch{ParentID: str(m2.ID)}); code != 400 {
 		t.Fatalf("mother attaching to mother: %d", code)
@@ -76,6 +96,42 @@ func TestMagnetAttachSwitchDetach(t *testing.T) {
 	for _, l := range mesh.Links {
 		if l.FromNodeID == b.ID {
 			t.Fatalf("child still attached after mother cleared: %+v", mesh.Links)
+		}
+	}
+}
+
+func TestMagnetMultipleMothers(t *testing.T) {
+	s, c := newAPIFixture(t)
+	m1, _ := s.store.Enroll("m1", core.RoleClient, "", 0)
+	m2, _ := s.store.Enroll("m2", core.RoleClient, "", 0)
+	kid, _ := s.store.Enroll("kid", core.RoleClient, "", 0)
+	patch := func(id string, p store.NodePatch) int {
+		var mesh core.Mesh
+		return c.do(http.MethodPatch, "/api/nodes?id="+id, p, &mesh)
+	}
+	if patch(m1.ID, store.NodePatch{ListenPort: u16(25590), Endpoint: str("1.1.1.1")}) != 200 ||
+		patch(m2.ID, store.NodePatch{ListenPort: u16(25591), Endpoint: str("2.2.2.2")}) != 200 {
+		t.Fatal("make mothers")
+	}
+	ids := []string{m1.ID, m2.ID}
+	if code := patch(kid.ID, store.NodePatch{ParentIDs: &ids}); code != 200 {
+		t.Fatalf("attach to two mothers: %d", code)
+	}
+	got := dialedEndpoints(t, s, kid.ID)
+	if len(got) != 2 {
+		t.Fatalf("child should dial both mothers: %v", got)
+	}
+	bad := []string{m1.ID, kid.ID}
+	if code := patch(kid.ID, store.NodePatch{ParentIDs: &bad}); code != 400 {
+		t.Fatalf("non-mother parent: %d", code)
+	}
+	none := []string{}
+	if code := patch(kid.ID, store.NodePatch{ParentIDs: &none}); code != 200 {
+		t.Fatalf("detach all: %d", code)
+	}
+	for _, l := range s.store.Snapshot().Links {
+		if l.FromNodeID == kid.ID {
+			t.Fatalf("links remain: %+v", l)
 		}
 	}
 }

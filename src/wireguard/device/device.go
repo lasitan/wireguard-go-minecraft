@@ -130,6 +130,7 @@ type PeerStat struct {
 	RxBytes           uint64
 	TxBytes           uint64
 	LastHandshakeNano int64
+	HandshakeRTTNano  int64 // 0 = never measured (we have not initiated yet)
 }
 
 // PeerStats returns counters for all configured peers.
@@ -143,6 +144,7 @@ func (device *Device) PeerStats() []PeerStat {
 			RxBytes:           peer.rxBytes.Load(),
 			TxBytes:           peer.txBytes.Load(),
 			LastHandshakeNano: peer.lastHandshakeNano.Load(),
+			HandshakeRTTNano:  peer.handshakeRTTNano.Load(),
 		})
 	}
 	return out

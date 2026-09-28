@@ -79,19 +79,6 @@ func ReplaceVPNRoute(routes []string, oldPrefix, newPrefix string) ([]string, er
 	return NormalizeRouteCIDRs(out)
 }
 
-// InboundAllowedIPs is what remote peers accept for traffic sourced from this node.
-func InboundAllowedIPs(n *Node) ([]string, error) {
-	return NormalizeRouteCIDRs(n.Routes)
-}
-
-// OutboundAllowedIPs is what this node sends through a dial peer.
-func OutboundAllowedIPs(local *Node, link Link) ([]string, error) {
-	if len(link.AllowedIPs) > 0 {
-		return NormalizeRouteCIDRs(link.AllowedIPs)
-	}
-	return NormalizeRouteCIDRs(local.Routes)
-}
-
 // EnsureDefaultRoutes fills empty Routes with the VPN prefix from Address. Returns true if changed.
 func EnsureDefaultRoutes(m *Mesh) bool {
 	changed := false

@@ -1,5 +1,7 @@
 export const ONLINE_MS = 45_000;
 export const MASTER_ID = "__master__";
+/** Gateway id in mesh.paths meaning "via Master's cross-subnet relay" (core.RelayNodeID). */
+export const RELAY_ID = "master";
 export const VIEW = { w: 1200, h: 720, cx: 600, cy: 360, radius: 240 };
 export const FOCUS_SCALE = 1.38;
 export const CAM_MS = 380;

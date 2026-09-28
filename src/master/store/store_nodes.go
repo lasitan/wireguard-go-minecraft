@@ -28,6 +28,8 @@ type NodePatch struct {
 	Endpoint *string `json:"endpoint,omitempty"`
 	// ParentID attaches the node under a mother; "" detaches.
 	ParentID *string `json:"parentId,omitempty"`
+	// ParentIDs attaches the node to several mothers at once (replaces ParentID's set).
+	ParentIDs *[]string `json:"parentIds,omitempty"`
 }
 
 func normalizeAddress(s string) (string, error) {
@@ -124,6 +126,11 @@ func (s *Store) PatchNode(id string, p NodePatch) (core.Node, error) {
 	}
 	if p.ParentID != nil {
 		if err := attachTo(&m, id, strings.TrimSpace(*p.ParentID)); err != nil {
+			return core.Node{}, err
+		}
+	}
+	if p.ParentIDs != nil {
+		if err := setParents(&m, id, *p.ParentIDs); err != nil {
 			return core.Node{}, err
 		}
 	}

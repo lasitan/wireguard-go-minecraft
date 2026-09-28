@@ -43,7 +43,7 @@ func (s *Server) handleNodesSwap(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	s.hub.PushAll()
+	s.pushAll()
 	writeJSON(w, http.StatusOK, s.store.Snapshot().WithoutPrivateKeys())
 }
 
@@ -67,7 +67,7 @@ func (s *Server) handleNodesReassignSubnet(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	s.hub.PushAll()
+	s.pushAll()
 	writeJSON(w, http.StatusOK, s.store.Snapshot().WithoutPrivateKeys())
 }
 
@@ -85,7 +85,7 @@ func (s *Server) handlePatchNode(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	s.hub.PushAll()
+	s.pushAll()
 	writeJSON(w, http.StatusOK, s.store.Snapshot().WithoutPrivateKeys())
 }
 
@@ -116,7 +116,7 @@ func (s *Server) handleNodeForwards(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		s.hub.PushAll()
+		s.pushAll()
 		writeJSON(w, http.StatusOK, out)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

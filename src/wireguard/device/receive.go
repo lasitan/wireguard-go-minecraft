@@ -418,6 +418,13 @@ func (device *Device) RoutineHandshake(id int) {
 				goto skip
 			}
 
+			peer.handshake.mutex.RLock()
+			sentAt := peer.handshake.lastSentHandshake
+			peer.handshake.mutex.RUnlock()
+			if rtt := time.Since(sentAt); rtt > 0 && rtt < RekeyTimeout {
+				peer.handshakeRTTNano.Store(int64(rtt))
+			}
+
 			peer.timersSessionDerived()
 			peer.timersHandshakeComplete()
 			peer.SendKeepalive()

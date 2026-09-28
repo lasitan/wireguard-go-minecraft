@@ -140,7 +140,7 @@ func ConfigLoop(
 	boot *config.AgentBootstrap,
 	stop <-chan struct{},
 ) {
-	ap := newApplier(dev, logger, iface, fwdPtr, fwdMu)
+	ap := newApplier(dev, logger, iface, fwdPtr, fwdMu, boot.MasterURL)
 	counter := ipcounter.NewIPCounter()
 	dev.SetTrafficCounter(counter)
 	defer dev.SetTrafficCounter(nil)
