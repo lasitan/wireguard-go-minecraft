@@ -117,7 +117,7 @@ func (peer *Peer) SendBuffers(buffers [][]byte) error {
 	peer.device.net.RLock()
 	defer peer.device.net.RUnlock()
 
-	if peer.device.isClosed() {
+	if peer.device.isClosed() || !peer.isRunning.Load() {
 		return nil
 	}
 
@@ -291,10 +291,43 @@ func (peer *Peer) Stop() {
 	// Signal that RoutineSequentialSender and RoutineSequentialReceiver should exit.
 	peer.queue.inbound.c <- nil
 	peer.queue.outbound.c <- nil
-	peer.stopping.Wait()
+	peer.waitStoppingAbortingDials()
 	peer.device.queue.encryption.wg.Done() // no more writes to encryption queue from us
 
 	peer.ZeroAndFlushAll()
+}
+
+// waitStoppingAbortingDials waits for the peer routines to exit. With a
+// connection-oriented bind the sender may be blocked dialing an unreachable
+// endpoint (while callers hold device locks), so keep aborting until it exits.
+func (peer *Peer) waitStoppingAbortingDials() {
+	aborter, ok := peer.device.net.bind.(conn.DialAborter)
+	if !ok {
+		peer.stopping.Wait()
+		return
+	}
+	peer.endpoint.Lock()
+	endpoint := peer.endpoint.val
+	peer.endpoint.Unlock()
+	if endpoint == nil {
+		peer.stopping.Wait()
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		peer.stopping.Wait()
+		close(done)
+	}()
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		aborter.AbortDial(endpoint)
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func (peer *Peer) SetEndpointFromPacket(endpoint conn.Endpoint) {

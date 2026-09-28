@@ -88,6 +88,7 @@ type TCPBind struct {
 	listener6 net.Listener
 	sessions  map[string]*tcpSession
 	dialMu    map[string]*sync.Mutex
+	dialAbort map[string]context.CancelFunc // in-flight Send dials by dst
 	// IPs that have connected inbound at least once. Send must not dial these
 	// back (NAT); wait for the peer to reconnect instead.
 	inboundIPs map[netip.Addr]struct{}
@@ -436,7 +437,12 @@ func (b *TCPBind) getOrDialSession(dst netip.AddrPort) (*tcpSession, error) {
 		return nil, ErrWaitingInboundReconnect
 	}
 
-	conn, err := b.dialWithRetries(dst, maxSendDialAttempts)
+	ctx, done := b.startDial(key)
+	if ctx == nil {
+		return nil, net.ErrClosed
+	}
+	defer done()
+	conn, err := b.dialWithRetries(ctx, dst, maxSendDialAttempts)
 	if err != nil {
 		return nil, err
 	}
@@ -551,12 +557,8 @@ func enableTCPKeepAlive(conn net.Conn) {
 	_ = tc.SetKeepAlivePeriod(tcpKeepAlivePeriod)
 }
 
-func (b *TCPBind) dialOnce(dst netip.AddrPort) (net.Conn, error) {
+func (b *TCPBind) dialOnce(ctx context.Context, dst netip.AddrPort) (net.Conn, error) {
 	cfg := b.getReconnectConfig()
-	ctx := b.dialContext()
-	if ctx == nil {
-		return nil, net.ErrClosed
-	}
 	dialer := &net.Dialer{Timeout: cfg.dialTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", dst.String())
 	if err != nil {
@@ -565,6 +567,9 @@ func (b *TCPBind) dialOnce(dst netip.AddrPort) (net.Conn, error) {
 	enableTCPKeepAlive(conn)
 	b.trackPending(conn)
 	defer b.untrackPending(conn)
+	// AbortDial must also cut a connection stuck in the MC handshake.
+	stopAbort := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopAbort()
 
 	if err := b.performMCCamouflageClient(conn, dst); err != nil {
 		_ = conn.Close()
@@ -576,17 +581,47 @@ func (b *TCPBind) dialOnce(dst netip.AddrPort) (net.Conn, error) {
 			return nil, fmt.Errorf("tonat announce: %w", err)
 		}
 	}
-	if b.isClosed() {
+	if b.isClosed() || ctx.Err() != nil {
 		_ = conn.Close()
 		return nil, net.ErrClosed
 	}
 	return conn, nil
 }
 
-func (b *TCPBind) dialContext() context.Context {
+// startDial registers a cancellable context for dialing key; done must be
+// called when the dial finishes. Returns nil when the bind is closed.
+func (b *TCPBind) startDial(key string) (context.Context, func()) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.ctx
+	if b.ctx == nil {
+		return nil, nil
+	}
+	ctx, cancel := context.WithCancel(b.ctx)
+	if b.dialAbort == nil {
+		b.dialAbort = make(map[string]context.CancelFunc)
+	}
+	b.dialAbort[key] = cancel
+	return ctx, func() {
+		b.mu.Lock()
+		delete(b.dialAbort, key)
+		b.mu.Unlock()
+		cancel()
+	}
+}
+
+// AbortDial cancels an in-flight dial to endpoint so a blocked Send returns
+// and the owning peer can stop without waiting out dial/handshake timeouts.
+func (b *TCPBind) AbortDial(endpoint Endpoint) {
+	te, ok := endpoint.(*TCPEndpoint)
+	if !ok {
+		return
+	}
+	b.mu.Lock()
+	cancel := b.dialAbort[te.dst.String()]
+	b.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 func (b *TCPBind) trackPending(c net.Conn) {
@@ -607,7 +642,7 @@ func (b *TCPBind) untrackPending(c net.Conn) {
 	}
 }
 
-func (b *TCPBind) dialWithRetries(dst netip.AddrPort, maxAttempts int) (net.Conn, error) {
+func (b *TCPBind) dialWithRetries(ctx context.Context, dst netip.AddrPort, maxAttempts int) (net.Conn, error) {
 	if maxAttempts <= 0 {
 		maxAttempts = maxSendDialAttempts
 	}
@@ -615,15 +650,15 @@ func (b *TCPBind) dialWithRetries(dst netip.AddrPort, maxAttempts int) (net.Conn
 	backoff := cfg.initial
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if b.isClosed() {
+		if b.isClosed() || ctx.Err() != nil {
 			return nil, net.ErrClosed
 		}
-		conn, err := b.dialOnce(dst)
+		conn, err := b.dialOnce(ctx, dst)
 		if err == nil {
 			return conn, nil
 		}
 		lastErr = err
-		if b.isClosed() {
+		if b.isClosed() || ctx.Err() != nil {
 			return nil, net.ErrClosed
 		}
 		if attempt == maxAttempts-1 {
@@ -637,6 +672,9 @@ func (b *TCPBind) dialWithRetries(dst netip.AddrPort, maxAttempts int) (net.Conn
 		}
 		select {
 		case <-done:
+			timer.Stop()
+			return nil, net.ErrClosed
+		case <-ctx.Done():
 			timer.Stop()
 			return nil, net.ErrClosed
 		case <-timer.C:

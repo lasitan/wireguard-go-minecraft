@@ -64,6 +64,12 @@ type BindSocketToInterface interface {
 	BindSocketToInterface6(interfaceIndex uint32, blackhole bool) error
 }
 
+// DialAborter is implemented by connection-oriented Bind objects whose Send
+// may block dialing. AbortDial makes a Send blocked on endpoint return.
+type DialAborter interface {
+	AbortDial(Endpoint)
+}
+
 // PeekLookAtSocketFd is implemented by Bind objects that support having their
 // file descriptor peeked at. Used by wireguard-android.
 type PeekLookAtSocketFd interface {
