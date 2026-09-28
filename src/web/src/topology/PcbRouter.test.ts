@@ -73,20 +73,6 @@ describe("routePcbBundle", () => {
     expect(p2.length).toBeGreaterThan(1);
     expect(orthogonalOrChamfer(p1)).toBe(true);
     expect(orthogonalOrChamfer(p2)).toBe(true);
-    if (pathsCross(p1, p2)) {
-      // eslint-disable-next-line no-console
-      console.log("CROSS p1", paths.get("e1"));
-      // eslint-disable-next-line no-console
-      console.log("CROSS p2", paths.get("e2"));
-      for (let i = 1; i < p1.length; i++) {
-        for (let j = 1; j < p2.length; j++) {
-          if (segmentsCross(p1[i - 1], p1[i], p2[j - 1], p2[j])) {
-            // eslint-disable-next-line no-console
-            console.log("seg", p1[i - 1], p1[i], "x", p2[j - 1], p2[j]);
-          }
-        }
-      }
-    }
     expect(pathsCross(p1, p2)).toBe(false);
 
     for (const pts of [p1, p2]) {

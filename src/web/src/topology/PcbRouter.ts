@@ -190,52 +190,109 @@ export function routePcbBundle(
 
   const isBlocked = (i: number, j: number, start: Cell, goal: Cell): boolean => {
     if (i < 0 || j < 0 || i > iMax || j > jMax) return true;
-    if ((i === start.i && j === start.j) || (i === goal.i && j === goal.j)) return false;
     const k = cellKey(i, j);
-    if (blockedCells.has(k)) return true;
+    // Reserved cells always block — shared ports are freed after marking so
+    // a new edge may sit on them, but never cut through another trace's body.
     if (reserved.has(k)) return true;
+    if ((i === start.i && j === start.j) || (i === goal.i && j === goal.j)) return false;
+    if (blockedCells.has(k)) return true;
     return false;
   };
 
-  /** Push start/goal off obstacle interiors onto the nearest free rim cell. */
+  const cellFree = (i: number, j: number): boolean => {
+    if (i < 0 || j < 0 || i > iMax || j > jMax) return false;
+    const k = cellKey(i, j);
+    return !blockedCells.has(k) && !reserved.has(k);
+  };
+
+  /** Sample the ortho segment so same-cell rounding cannot hide a crossing. */
+  const corridorFree = (from: Pt, to: Pt): boolean => {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.01) return true;
+    const steps = Math.max(1, Math.ceil(len / (CELL * 0.5)));
+    const fromC = toCell(from.x, from.y);
+    const toC = toCell(to.x, to.y);
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      const c = toCell(from.x + dx * t, from.y + dy * t);
+      if (c.i === fromC.i && c.j === fromC.j) continue;
+      if (c.i === toC.i && c.j === toC.j) continue;
+      if (!cellFree(c.i, c.j)) return false;
+    }
+    return true;
+  };
+
+  /** Manhattan stub from port cell to snap cell must stay on free cells. */
+  const stubFree = (port: Cell, snap: Cell): boolean => {
+    // Prefer matching the snap's column first (vertical then horizontal), else the other L.
+    const tryOrder = (firstAxis: "h" | "v"): boolean => {
+      let ci = port.i;
+      let cj = port.j;
+      if (firstAxis === "v") {
+        while (cj !== snap.j) {
+          cj += snap.j > cj ? 1 : -1;
+          if (!cellFree(ci, cj) && !(ci === snap.i && cj === snap.j)) return false;
+        }
+        while (ci !== snap.i) {
+          ci += snap.i > ci ? 1 : -1;
+          if (!cellFree(ci, cj) && !(ci === snap.i && cj === snap.j)) return false;
+        }
+      } else {
+        while (ci !== snap.i) {
+          ci += snap.i > ci ? 1 : -1;
+          if (!cellFree(ci, cj) && !(ci === snap.i && cj === snap.j)) return false;
+        }
+        while (cj !== snap.j) {
+          cj += snap.j > cj ? 1 : -1;
+          if (!cellFree(ci, cj) && !(ci === snap.i && cj === snap.j)) return false;
+        }
+      }
+      return true;
+    };
+    if (port.i === snap.i && port.j === snap.j) return true;
+    return tryOrder("v") || tryOrder("h");
+  };
+
+  /** Push start/goal onto a free cell whose stub back to the port stays clear. */
   const snapPort = (x: number, y: number, towardX: number, towardY: number): Cell => {
-    let c = toCell(x, y);
-    const k0 = cellKey(c.i, c.j);
-    if (!blockedCells.has(k0) && !reserved.has(k0)) return c;
+    const port = toCell(x, y);
     const tdx = towardX - x;
     const tdy = towardY - y;
+    const accept = (cand: Cell) => cellFree(cand.i, cand.j) && stubFree(port, cand);
+
+    if (accept(port)) return port;
+
     const prefer: Cell[] = [];
     if (Math.abs(tdx) >= Math.abs(tdy)) {
-      prefer.push({ i: c.i + (tdx >= 0 ? 1 : -1), j: c.j });
-      prefer.push({ i: c.i, j: c.j + (tdy >= 0 ? 1 : -1) });
-      prefer.push({ i: c.i, j: c.j + (tdy >= 0 ? -1 : 1) });
+      prefer.push({ i: port.i + (tdx >= 0 ? 1 : -1), j: port.j });
+      prefer.push({ i: port.i, j: port.j + (tdy >= 0 ? 1 : -1) });
+      prefer.push({ i: port.i, j: port.j + (tdy >= 0 ? -1 : 1) });
+      prefer.push({ i: port.i + (tdx >= 0 ? -1 : 1), j: port.j });
     } else {
-      prefer.push({ i: c.i, j: c.j + (tdy >= 0 ? 1 : -1) });
-      prefer.push({ i: c.i + (tdx >= 0 ? 1 : -1), j: c.j });
-      prefer.push({ i: c.i + (tdx >= 0 ? -1 : 1), j: c.j });
+      prefer.push({ i: port.i, j: port.j + (tdy >= 0 ? 1 : -1) });
+      prefer.push({ i: port.i + (tdx >= 0 ? 1 : -1), j: port.j });
+      prefer.push({ i: port.i + (tdx >= 0 ? -1 : 1), j: port.j });
+      prefer.push({ i: port.i, j: port.j + (tdy >= 0 ? -1 : 1) });
     }
-    for (let r = 1; r <= 8; r++) {
+    for (let r = 1; r <= 12; r++) {
       for (const base of prefer) {
         const cand = {
-          i: c.i + (base.i - c.i) * r,
-          j: c.j + (base.j - c.j) * r,
+          i: port.i + (base.i - port.i) * r,
+          j: port.j + (base.j - port.j) * r,
         };
-        const k = cellKey(cand.i, cand.j);
-        if (cand.i < 0 || cand.j < 0 || cand.i > iMax || cand.j > jMax) continue;
-        if (!blockedCells.has(k) && !reserved.has(k)) return cand;
+        if (accept(cand)) return cand;
       }
-      // Full ring search
       for (let di = -r; di <= r; di++) {
         for (let dj = -r; dj <= r; dj++) {
           if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue;
-          const cand = { i: c.i + di, j: c.j + dj };
-          const k = cellKey(cand.i, cand.j);
-          if (cand.i < 0 || cand.j < 0 || cand.i > iMax || cand.j > jMax) continue;
-          if (!blockedCells.has(k) && !reserved.has(k)) return cand;
+          const cand = { i: port.i + di, j: port.j + dj };
+          if (accept(cand)) return cand;
         }
       }
     }
-    return c;
+    return port;
   };
 
   const reconstruct = (parent: Map<number, number>, goalK: number, start: Cell): Cell[] => {
@@ -371,7 +428,6 @@ export function routePcbBundle(
 
   const cellsToWorld = (cells: Cell[], x1: number, y1: number, x2: number, y2: number): Pt[] => {
     if (!cells.length) return [{ x: x1, y: y1 }, { x: x2, y: y2 }];
-    // Expand any non-orthogonal cell jumps into manhattan bends.
     const expanded: Cell[] = [cells[0]];
     for (let n = 1; n < cells.length; n++) {
       const a = expanded[expanded.length - 1];
@@ -379,19 +435,9 @@ export function routePcbBundle(
       if (a.i !== b.i && a.j !== b.j) expanded.push({ i: b.i, j: a.j });
       expanded.push(b);
     }
-    const world = expanded.map(toWorld);
-    const outPts: Pt[] = [{ x: x1, y: y1 }];
-    const first = world[0];
-    if (Math.abs(x1 - first.x) > 0.01 && Math.abs(y1 - first.y) > 0.01) {
-      outPts.push({ x: first.x, y: y1 });
-    }
-    for (const p of world) outPts.push(p);
-    const last = world[world.length - 1];
-    if (Math.abs(x2 - last.x) > 0.01 && Math.abs(y2 - last.y) > 0.01) {
-      outPts.push({ x: last.x, y: y2 });
-    }
-    outPts.push({ x: x2, y: y2 });
-    return simplifyOrthogonal(outPts);
+    // Stay on grid centres. Port stubs that share a rounded cell with another
+    // trace would otherwise paint a geometric crossing.
+    return simplifyOrthogonal(expanded.map(toWorld));
   };
 
   let laneIndex = 0;
@@ -401,35 +447,40 @@ export function routePcbBundle(
     let cells = astar(start, goal);
     if (!cells) cells = outerDetour(start, goal, laneIndex++);
     if (!cells) {
-      // Last resort: still A*-only via far corner — never raw L through reserved.
       cells = outerDetour(start, goal, laneIndex + 17);
       laneIndex++;
     }
-    if (!cells) {
-      // Give up on geometry rather than cross: draw a port-local stub so the
-      // edge remains visible without traversing the board.
-      cells = [start, goal];
-    }
-    const portStart = toCell(req.x1, req.y1);
-    const portGoal = toCell(req.x2, req.y2);
-    const stubCells: Cell[] = [];
-    const addStub = (a: Cell, b: Cell) => {
-      let i = a.i;
-      let j = a.j;
-      stubCells.push({ i, j });
-      while (i !== b.i) {
-        i += b.i > i ? 1 : -1;
-        stubCells.push({ i, j });
-      }
-      while (j !== b.j) {
-        j += b.j > j ? 1 : -1;
-        stubCells.push({ i, j });
-      }
+    if (!cells) cells = [start, goal];
+
+    const worldPts = cellsToWorld(cells, req.x1, req.y1, req.x2, req.y2);
+
+    // Rasterize the *displayed* polyline onto the grid so stubs cannot drift
+    // through another trace's cells without being reserved.
+    const raster: Cell[] = [];
+    const addCell = (i: number, j: number) => {
+      const last = raster[raster.length - 1];
+      if (last && last.i === i && last.j === j) return;
+      raster.push({ i, j });
     };
-    addStub(portStart, start);
-    addStub(goal, portGoal);
-    markCells([...stubCells, ...cells], true);
-    out.set(req.id, pathDFromPoints(cellsToWorld(cells, req.x1, req.y1, req.x2, req.y2)));
+    for (let s = 1; s < worldPts.length; s++) {
+      const a = worldPts[s - 1];
+      const b = worldPts[s];
+      const ca = toCell(a.x, a.y);
+      const cb = toCell(b.x, b.y);
+      let i = ca.i;
+      let j = ca.j;
+      addCell(i, j);
+      while (i !== cb.i) {
+        i += cb.i > i ? 1 : -1;
+        addCell(i, j);
+      }
+      while (j !== cb.j) {
+        j += cb.j > j ? 1 : -1;
+        addCell(i, j);
+      }
+    }
+    markCells(raster.length ? raster : cells, true);
+    out.set(req.id, pathDFromPoints(worldPts));
   }
   return out;
 }
