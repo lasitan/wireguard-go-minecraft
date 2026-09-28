@@ -93,6 +93,7 @@ type TCPBind struct {
 	// back (NAT); wait for the peer to reconnect instead.
 	inboundIPs map[netip.Addr]struct{}
 	mcConfig   mcCamouflageConfig
+	camoShared camoSharedConfig
 	reconnect  reconnectConfig
 
 	recvCh chan tcpPacket
@@ -138,8 +139,9 @@ type mcCamouflageConfig struct {
 }
 
 type transportConfigFile struct {
-	TCP tcpConfigFile `json:"tcp"`
-	MC  mcConfigFile  `json:"mc"`
+	TCP         tcpConfigFile  `json:"tcp"`
+	MC          mcConfigFile   `json:"mc"`
+	Camouflage  camoConfigFile `json:"camouflage"`
 }
 
 type tcpConfigFile struct {
@@ -217,10 +219,11 @@ func (b *TCPBind) Open(uport uint16) ([]ReceiveFunc, uint16, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	mcConfig, err := loadMCCamouflageConfig(fileCfg.MC)
+	shared, mcConfig, err := loadCamouflageConfig(fileCfg)
 	if err != nil {
 		return nil, 0, err
 	}
+	b.camoShared = shared
 	b.mcConfig = mcConfig
 	b.reconnect = loadReconnectConfig(fileCfg.TCP)
 
@@ -577,7 +580,7 @@ func (b *TCPBind) dialOnce(ctx context.Context, dst netip.AddrPort) (net.Conn, e
 	stopAbort := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopAbort()
 
-	if err := b.performMCCamouflageClient(conn, dst); err != nil {
+	if err := b.performCamouflageClient(conn, dst); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
@@ -754,7 +757,7 @@ func (b *TCPBind) acceptLoop(listener net.Listener) {
 			}
 			continue
 		}
-		toNATFromMC, err := b.performMCCamouflageServer(conn)
+		toNATFromMC, err := b.performCamouflageServer(conn)
 		if err != nil {
 			_ = conn.Close()
 			continue
@@ -1145,7 +1148,7 @@ func reloadOpenBinds() {
 	if err != nil {
 		return
 	}
-	mc, err := loadMCCamouflageConfig(fileCfg.MC)
+	shared, mc, err := loadCamouflageConfig(fileCfg)
 	if err != nil {
 		return
 	}
@@ -1154,6 +1157,7 @@ func reloadOpenBinds() {
 		b := k.(*TCPBind)
 		b.mu.Lock()
 		if b.isOpen {
+			b.camoShared = shared
 			b.mcConfig = mc
 			b.reconnect = rc
 		}

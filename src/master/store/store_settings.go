@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -17,8 +18,9 @@ const DefaultServerListenPort uint16 = 25590
 // SettingsPatch updates Master-wide settings edited from the web UI.
 // Nil fields are left unchanged.
 type SettingsPatch struct {
-	EnrollToken *string `json:"enrollToken,omitempty"`
-	VPNSubnet   *string `json:"vpnSubnet,omitempty"`
+	EnrollToken   *string          `json:"enrollToken,omitempty"`
+	VPNSubnet     *string          `json:"vpnSubnet,omitempty"`
+	TransportJSON *json.RawMessage `json:"transportJson,omitempty"`
 }
 
 // NewEnrollToken returns a random URL-safe token for agents to join with.
@@ -72,6 +74,15 @@ func (s *Store) UpdateSettings(p SettingsPatch) error {
 			return err
 		}
 		updates[metaVPNSubnet] = v
+	}
+	if p.TransportJSON != nil {
+		if len(*p.TransportJSON) == 0 {
+			return fmt.Errorf("transportJson must not be empty")
+		}
+		if !json.Valid(*p.TransportJSON) {
+			return fmt.Errorf("transportJson: invalid JSON")
+		}
+		updates[metaTransportJSON] = string(*p.TransportJSON)
 	}
 	if len(updates) == 0 {
 		return nil

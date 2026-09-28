@@ -126,11 +126,13 @@ export type Meta = {
   listen: string;
   defaultIface?: string;
   defaultPoll?: string;
+  transport?: unknown;
 };
 
 export type MetaPatch = {
   enrollToken?: string;
   vpnSubnet?: string;
+  transportJson?: string;
 };
 
 export type UpdateCommands = {

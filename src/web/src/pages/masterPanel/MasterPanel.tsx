@@ -5,6 +5,7 @@ import { logout } from "../../app/Session";
 import { randomEnrollToken, validateEnrollToken, validatePool } from "../../utils/validateSettings";
 import { SettingField } from "./SettingField";
 import { BootstrapInstallCard } from "./BootstrapInstallCard";
+import { TransportCard } from "./TransportCard";
 import { UpdateCard } from "./UpdateCard";
 import "./masterPanel.css";
 
@@ -23,6 +24,7 @@ export function MasterPanel() {
       <div className="drawer-body">
         <UpdateCard />
         <BootstrapInstallCard />
+        <TransportCard />
         <div className="detail">
           <span>Listen</span>
           <b>{state.meta?.listen || "—"}</b>

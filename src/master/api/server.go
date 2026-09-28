@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net"
@@ -153,11 +154,16 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+		s.hub.PushAll()
 	}
 	settings, err := s.store.Settings()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	var transport any
+	if len(settings.TransportJSON) > 0 {
+		_ = json.Unmarshal(settings.TransportJSON, &transport)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enrollToken":  settings.EnrollToken,
@@ -165,6 +171,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		"listen":       s.cfg.Listen,
 		"defaultIface": settings.DefaultIface,
 		"defaultPoll":  settings.DefaultPoll,
+		"transport":    transport,
 	})
 }
 

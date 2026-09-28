@@ -61,6 +61,10 @@ func OpenStore(dataDir string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := s.ensureTransportDefault(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	rdb, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+pragmas+"&_pragma=query_only(1)")
 	if err != nil {
 		_ = db.Close()
@@ -190,22 +194,7 @@ func (s *Store) ensureSeeds() error {
 		metaVPNSubnet:    DefaultVPNSubnet,
 		metaDefaultIface: "wg0",
 		metaDefaultPoll:  "10s",
-		metaTransportJSON: `{
-  "tcp": {
-    "dialTimeout": "3s",
-    "reconnectInitialBackoff": "1s",
-    "reconnectMaxBackoff": "60s",
-    "rxIdleTimeout": "5s"
-  },
-  "mc": {
-    "enabled": true,
-    "handshakeTimeout": "10s",
-    "deepCamouflage": true,
-    "loginUsername": "Steve",
-    "loginPluginChannel": "minecraft:register",
-    "loginPluginSecret": "change-me-shared-secret"
-  }
-}`,
+		metaTransportJSON: DefaultTransportJSON,
 	}
 	for k, v := range defaults {
 		var existing string

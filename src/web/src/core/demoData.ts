@@ -131,5 +131,10 @@ export function demoMeta(): Meta {
     listen: ":8443",
     defaultIface: "wg0",
     defaultPoll: "10s",
+    transport: JSON.parse(`{
+      "tcp":{"dialTimeout":"3s","reconnectInitialBackoff":"1s","reconnectMaxBackoff":"60s","rxIdleTimeout":"5s"},
+      "camouflage":{"profile":"minecraft","deep":true,"handshakeTimeout":"10s","loginUsername":"Steve","loginPluginChannel":"minecraft:register","loginPluginSecret":"dev-preview-secret","serverName":"Dedicated Server"},
+      "mc":{"enabled":true,"deepCamouflage":true,"loginPluginSecret":"dev-preview-secret"}
+    }`),
   };
 }

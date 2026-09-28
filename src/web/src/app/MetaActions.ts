@@ -10,6 +10,9 @@ export async function patchMeta(patch: MetaPatch): Promise<void> {
       ...state.meta,
       ...(patch.enrollToken !== undefined ? { enrollToken: patch.enrollToken.trim() } : {}),
       ...(patch.vpnSubnet !== undefined ? { vpnSubnet: maskPool(patch.vpnSubnet) } : {}),
+      ...(patch.transportJson !== undefined
+        ? { transport: JSON.parse(patch.transportJson) as unknown }
+        : {}),
     };
   } else {
     state.meta = await PatchMeta(patch);
