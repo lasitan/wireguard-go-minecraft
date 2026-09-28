@@ -7,10 +7,11 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
-const updateUsage = "Usage: wireguard-go update [--check] [--force]"
+const updateUsage = "Usage: wireguard-go update [--check] [--force] [--proxy=URL]"
 
 // ApplyFunc installs rel over the running executable exe (platform specific).
 type ApplyFunc func(ctx context.Context, rel *Release, exe string) error
@@ -19,12 +20,19 @@ type ApplyFunc func(ctx context.Context, rel *Release, exe string) error
 // unless --check, elevate and install the newer build via apply.
 func RunCommand(args []string, ensureElevated func() error, apply ApplyFunc) error {
 	check, force := false, false
+	manifestPath := ""
 	for _, a := range args {
-		switch a {
-		case "--check", "-c":
+		switch {
+		case a == "--check" || a == "-c":
 			check = true
-		case "--force", "-f":
+		case a == "--force" || a == "-f":
 			force = true
+		case strings.HasPrefix(a, "--proxy="):
+			if p := strings.TrimSpace(strings.TrimPrefix(a, "--proxy=")); p != "" {
+				_ = os.Setenv(ProxyEnv, p)
+			}
+		case strings.HasPrefix(a, "--release="):
+			manifestPath = strings.TrimPrefix(a, "--release=")
 		default:
 			return fmt.Errorf("unknown flag %q\n%s", a, updateUsage)
 		}
@@ -32,11 +40,14 @@ func RunCommand(args []string, ensureElevated func() error, apply ApplyFunc) err
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
-	lookup, lcancel := context.WithTimeout(ctx, 30*time.Second)
-	defer lcancel()
-	rel, err := Latest(lookup)
-	if err != nil {
-		return fmt.Errorf("check %s: %w", ReleasesURL, err)
+	rel := loadManifest(manifestPath)
+	if rel == nil {
+		lookup, lcancel := context.WithTimeout(ctx, 30*time.Second)
+		defer lcancel()
+		var err error
+		if rel, err = Latest(lookup); err != nil {
+			return fmt.Errorf("check %s: %w", ReleasesURL, err)
+		}
 	}
 
 	cur := Current()
@@ -78,6 +89,25 @@ func DownloadAsset(ctx context.Context, rel *Release, name, dir string) (string,
 	}
 	fmt.Fprintf(os.Stderr, "wireguard-go: 下载 %s\n", Proxied(a.URL))
 	return Download(ctx, a, dir, os.Stderr)
+}
+
+// loadManifest reads and removes a manifest written by SpawnDetached.
+func loadManifest(path string) *Release {
+	if path == "" {
+		return nil
+	}
+	b, err := os.ReadFile(path)
+	_ = os.Remove(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "wireguard-go: 读取版本清单失败，改为在线查询：%v\n", err)
+		return nil
+	}
+	rel, err := ParseManifest(b)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "wireguard-go: %v，改为在线查询\n", err)
+		return nil
+	}
+	return rel
 }
 
 func updateHint() string {

@@ -1,16 +1,20 @@
 import { useState } from "react";
 import type { Node, NodeStats } from "../../core/models";
 import { state } from "../../core/state";
-import { patchNode, setNodeParents } from "../../app/NodeActions";
+import { patchNode } from "../../app/NodeActions";
 import { focusTarget } from "../../app/FocusNav";
-import { attachedMothers, isMother } from "../../topology/MagnetStacks";
+import { attachedMothers, clusterMembers, isMother, servingMothers } from "../../topology/MagnetStacks";
 import { dialEndpoint } from "../../utils/dialEndpoint";
+import { isOnline } from "../../utils/isOnline";
 import { shortName } from "../../utils/shortName";
 import { validateEndpoint, validateListenPort } from "../../utils/validateMagnet";
 import { InlineField } from "./InlineField";
 import "./magnetSection.css";
 
-/** Listen port (mother card), dial address, and which mothers this card is attached to. */
+/**
+ * Listen port (mother card), dial address, and a read-only view of the card's
+ * magnet relations. Attaching and clustering happen by dragging on the topology.
+ */
 export function MagnetSection({
   node,
   stats,
@@ -23,18 +27,16 @@ export function MagnetSection({
   const [busy, setBusy] = useState(false);
   const nodes = state.mesh?.nodes || [];
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const nameOf = (id: string) => shortName(byId.get(id) || { id, role: "", address: "" });
   const mother = isMother(node);
   const kids = state.stacks.childrenOf.get(node.id) || [];
   const parentId = state.stacks.parentOf.get(node.id) || "";
   const attached = state.mesh ? attachedMothers(state.mesh, node.id) : [];
-  const mothers = nodes.filter((n) => isMother(n) && n.id !== node.id);
+  const serving = state.mesh ? servingMothers(state.mesh, node.id) : [];
+  const members = state.mesh && node.cluster ? clusterMembers(state.mesh, node.id) : [];
+  const standby = state.mesh?.standby || {};
   const ep = dialEndpoint(node);
   const rttOf = new Map((stats?.peers || []).filter((p) => p.nodeId && p.rttMs).map((p) => [p.nodeId!, p.rttMs!]));
-
-  const toggleParent = (id: string, on: boolean) => {
-    const next = on ? [...attached, id] : attached.filter((m) => m !== id);
-    void act(() => setNodeParents(node.id, next)).catch(() => undefined);
-  };
 
   const act = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -53,6 +55,9 @@ export function MagnetSection({
     if (!port && kids.length && !window.confirm(`取消母卡会释放下方 ${kids.length} 张子卡，确定？`)) {
       return Promise.reject(new Error("cancelled"));
     }
+    if (members.length > 1 && !window.confirm(`监听端口会同步到集群内全部 ${members.length} 台机器，确定？`)) {
+      return Promise.reject(new Error("cancelled"));
+    }
     return act(() => patchNode(node.id, { listenPort: port }));
   };
 
@@ -63,8 +68,8 @@ export function MagnetSection({
         <span key={mother ? "m" : parentId ? "c" : "f"} className={`magnet-role${mother ? " mother" : parentId ? " child" : ""}`}>
           {mother
             ? `母卡 · ${kids.length} 张子卡`
-            : attached.length > 1
-              ? `子卡 · ${attached.length} 张母卡`
+            : serving.length > 1
+              ? `子卡 · ${serving.length} 张母卡`
               : parentId
                 ? "子卡"
                 : "独立"}
@@ -100,10 +105,10 @@ export function MagnetSection({
           <div className="ov-row">
             <span className="ov-label">子卡</span>
             <div className="magnet-kids">
-              {kids.length === 0 ? <span className="muted">拖动其他卡片到本卡下方即可吸附</span> : null}
+              {kids.length === 0 ? <span className="muted">暂无</span> : null}
               {kids.map((id) => (
                 <button key={id} type="button" className="magnet-kid" onClick={() => void focusTarget(id)}>
-                  {shortName(byId.get(id) || { id, role: "", address: "" })}
+                  {nameOf(id)}
                 </button>
               ))}
             </div>
@@ -116,35 +121,55 @@ export function MagnetSection({
           <div className="ov-row">
             <span className="ov-label">吸附到</span>
             <div className="magnet-parents">
-              {mothers.length === 0 ? <span className="muted">还没有母卡</span> : null}
-              {mothers.map((m) => {
-                const on = attached.includes(m.id);
-                const rtt = rttOf.get(m.id);
+              {serving.length === 0 ? <span className="muted">未吸附</span> : null}
+              {serving.map((id) => {
+                const m = byId.get(id);
+                const rtt = rttOf.get(id);
                 return (
-                  <label key={m.id} className={`magnet-parent${on ? " on" : ""}`}>
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      disabled={busy}
-                      onChange={(e) => toggleParent(m.id, e.target.checked)}
-                    />
-                    <span className="magnet-parent-name">{shortName(m)}</span>
-                    <span className="magnet-parent-ep muted">{dialEndpoint(m) || "无地址"}</span>
-                    {on && rtt ? <span className="magnet-parent-rtt">{rtt.toFixed(0)} ms</span> : null}
-                    {on && m.id === parentId && attached.length > 1 ? <span className="magnet-auto">最快</span> : null}
-                  </label>
+                  <button key={id} type="button" className={`magnet-parent${id === parentId ? " on" : ""}`} onClick={() => void focusTarget(id)}>
+                    <span className="magnet-parent-name">{nameOf(id)}</span>
+                    <span className="magnet-parent-ep muted">{m ? dialEndpoint(m) || "无地址" : ""}</span>
+                    {!attached.includes(id) ? <span className="magnet-auto">集群</span> : null}
+                    {rtt ? <span className="magnet-parent-rtt">{rtt.toFixed(0)} ms</span> : null}
+                    {id === parentId && serving.length > 1 ? <span className="magnet-auto">当前</span> : null}
+                  </button>
                 );
               })}
-              {attached.some((id) => !dialEndpoint(byId.get(id) || { id, role: "", address: "" })) ? (
+              {serving.some((id) => !dialEndpoint(byId.get(id) || { id, role: "", address: "" })) ? (
                 <div className="magnet-warn">有母卡暂无可用连接地址，本节点还连不上它</div>
               ) : null}
             </div>
           </div>
-          <p className="tiny muted magnet-hint">
-            可同时吸附多张母卡：本网段流量走延迟最低的一张（Master 按隧道握手 RTT 自动切换），其余母卡也能直接把流量转发给本节点。拓扑图中按住 Ctrl/Shift 拖到母卡下方即可追加。
-          </p>
         </div>
       </div>
+
+      {members.length > 1 ? (
+        <div className="ov-row">
+          <span className="ov-label">集群</span>
+          <div className="magnet-kids">
+            {members.map((id) => {
+              const m = byId.get(id);
+              const down = !!m && (m.disabled || !isOnline(m));
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={`magnet-kid${id === node.id ? " self" : ""}${down ? " down" : ""}`}
+                  title={standby[id] ? `离线，已由 ${nameOf(standby[id])} 接管` : undefined}
+                  onClick={() => void focusTarget(id)}
+                >
+                  {nameOf(id)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      <p className="tiny muted magnet-hint">
+        磁吸只能在拓扑图中拖动卡片调整：拖到母卡下方吸附（按住 Ctrl/Shift 追加），拖出即解除；拖到同类卡片左右两侧组成集群，拖离即退出。
+        集群内任一台修改监听端口、路由、吸附或端口转发都会同步到其他成员；成员离线时，子卡自动切到其他成员，指向它的端口转发也会转给在线成员。
+      </p>
     </section>
   );
 }

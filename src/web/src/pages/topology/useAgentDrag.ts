@@ -3,15 +3,15 @@ import { DRAG_CLICK_PX } from "../../core/constants";
 import { clientToSvg } from "../../camera/SvgCoords";
 import { notify, state } from "../../core/state";
 import { setNodePosition } from "../../topology/SyncPlacedNodes";
-import { findMagnetTarget } from "../../topology/MagnetLayout";
-import { attachedMothers, isMother } from "../../topology/MagnetStacks";
+import { CLUSTER_PITCH, clusterSlot, findClusterTarget, findMagnetTarget } from "../../topology/MagnetLayout";
+import { attachedMothers, clusterMembers, isMother } from "../../topology/MagnetStacks";
 import {
   hitPlacedNode,
   nodeVpnPrefix,
   subnetZones,
   zoneAt,
 } from "../../topology/SubnetGroups";
-import { attachNode, reassignNodeSubnet, setNodeParents, swapNodeAddresses } from "../../app/NodeActions";
+import { attachNode, reassignNodeSubnet, setNodeCluster, setNodeParents, swapNodeAddresses } from "../../app/NodeActions";
 import { focusTarget } from "../../app/FocusNav";
 
 type DragState = {
@@ -34,7 +34,9 @@ function magnetAttachChanged(target: string | null, parentAtStart: string | null
  * Pointer drag for agents. Short press → focus; drag → reposition. Plain
  * cards snap under a mother card on release (attach / switch); holding
  * Ctrl/Shift adds that mother instead of switching. Dragging an attached card
- * out of its stack detaches it from that mother only.
+ * out of its stack detaches it from that mother only. Dropping a card right
+ * beside another card of the same kind joins its cluster; dragging a cluster
+ * member away from its siblings leaves the cluster.
  */
 export function useAgentDrag() {
   const drag = useRef<DragState | null>(null);
@@ -79,7 +81,8 @@ export function useAgentDrag() {
     const x = pt.x - d.grabDx;
     const y = pt.y - d.grabDy;
     setNodePosition(d.id, x, y);
-    if (d.canSnap) state.magnetTarget = findMagnetTarget(x, y, d.id);
+    state.magnetTarget = d.canSnap ? findMagnetTarget(x, y, d.id) : null;
+    state.clusterTarget = state.magnetTarget ? null : findClusterTarget(x, y, d.id);
     notify();
   }
 
@@ -101,8 +104,10 @@ export function useAgentDrag() {
 
     const svg = e.currentTarget.ownerSVGElement;
     const magnetTarget = d.canSnap ? state.magnetTarget : null;
+    const clusterTarget = state.clusterTarget;
     state.draggingId = null;
     state.magnetTarget = null;
+    state.clusterTarget = null;
 
     const runSubnet = () => {
       const mesh = state.mesh;
@@ -143,6 +148,23 @@ export function useAgentDrag() {
       notify();
     };
     const mesh = state.mesh;
+    const self = mesh?.nodes.find((n) => n.id === d.id);
+
+    if (mesh && clusterTarget) {
+      const anchor = state.nodePositions[clusterTarget.id];
+      if (anchor) {
+        const slot = clusterSlot(anchor, clusterTarget.side);
+        setNodePosition(d.id, slot.x, slot.y);
+      }
+      notify();
+      if (!clusterMembers(mesh, clusterTarget.id).includes(d.id)) {
+        const target = mesh.nodes.find((n) => n.id === clusterTarget.id);
+        const warn = `加入集群后，本卡的磁吸、路由与端口转发配置将改为与「${target?.name || clusterTarget.id}」一致。继续？`;
+        if (window.confirm(warn)) setNodeCluster(d.id, clusterTarget.id).catch(fail);
+      }
+      return;
+    }
+
     const addMode = e.ctrlKey || e.metaKey || e.shiftKey;
     if (d.canSnap && mesh && addMode && magnetTarget) {
       const current = attachedMothers(mesh, d.id);
@@ -157,10 +179,24 @@ export function useAgentDrag() {
       if (magnetTarget) {
         attachNode(d.id, magnetTarget).catch(fail);
       } else {
-        const rest = attachedMothers(mesh, d.id).filter((m) => m !== d.parentAtStart);
+        const gone = d.parentAtStart ? clusterMembers(mesh, d.parentAtStart) : [];
+        const rest = attachedMothers(mesh, d.id).filter((m) => !gone.includes(m));
         setNodeParents(d.id, rest).catch(fail);
       }
       return;
+    }
+
+    if (mesh && self?.cluster && !magnetTarget) {
+      const me = state.nodePositions[d.id];
+      const nearSibling = clusterMembers(mesh, d.id).some((id) => {
+        const p = id !== d.id ? state.nodePositions[id] : undefined;
+        return !!p && !!me && Math.hypot(p.x - me.x, p.y - me.y) < CLUSTER_PITCH * 1.8;
+      });
+      if (!nearSibling) {
+        notify();
+        setNodeCluster(d.id, "").catch(fail);
+        return;
+      }
     }
 
     notify();

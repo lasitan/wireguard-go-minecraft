@@ -24,6 +24,9 @@ type Mesh struct {
 	Paths PathChoices `json:"paths,omitempty"`
 	// Relay is Master's built-in fallback relay (nil = disabled); Master-owned.
 	Relay *Relay `json:"relay,omitempty"`
+	// Standby maps an offline cluster member to the online member that takes
+	// over its forwards; Master-owned.
+	Standby map[string]string `json:"standby,omitempty"`
 }
 
 // RelayNodeID stands for Master's relay wherever a gateway node id is expected.
@@ -69,6 +72,9 @@ type Node struct {
 	Routes []string `json:"routes,omitempty"`
 	// AddressChangedAt decides IP-conflict precedence: the later change loses.
 	AddressChangedAt time.Time `json:"addressChangedAt,omitempty"`
+	// Cluster groups side-by-side magnet cards: members share config, and a
+	// card attached to one member mother is served by every member.
+	Cluster string `json:"cluster,omitempty"`
 
 	// Server-observed fields (never accepted from admin mesh edits).
 	PublicV4       string    `json:"publicV4,omitempty"`

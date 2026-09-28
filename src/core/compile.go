@@ -160,6 +160,9 @@ func CompileDesiredWithPlan(mesh *Mesh, plan *Plan, nodeID string, defaults Desi
 		if dest == nil {
 			return nil, fmt.Errorf("forward dest unknown node %q", fw.DestNodeID)
 		}
+		if sb := mesh.FindNode(mesh.Standby[dest.ID]); sb != nil && !excluded(sb) {
+			dest = sb
+		}
 		if excluded(dest) {
 			continue
 		}

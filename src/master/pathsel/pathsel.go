@@ -121,13 +121,21 @@ func (s *Selector) Tick(now time.Time) {
 		}
 		return r.Millis, true
 	}
-	next := Choose(m.Paths, cands, rtt, s.Alive)
+	alive := s.Alive
+	if alive == nil {
+		alive = func(string) bool { return true }
+	}
+	next := Choose(m.Paths, cands, rtt, alive)
 	changed, err := s.Store.SetPaths(next)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "wireguard-go master: path selection: %v\n", err)
 		return
 	}
-	if changed && s.Push != nil {
+	sbChanged, err := s.Store.SetStandby(core.ClusterStandby(&m, alive))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "wireguard-go master: cluster standby: %v\n", err)
+	}
+	if (changed || sbChanged) && s.Push != nil {
 		s.Push()
 	}
 }

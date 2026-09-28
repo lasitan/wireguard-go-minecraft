@@ -30,6 +30,8 @@ type NodePatch struct {
 	ParentID *string `json:"parentId,omitempty"`
 	// ParentIDs attaches the node to several mothers at once (replaces ParentID's set).
 	ParentIDs *[]string `json:"parentIds,omitempty"`
+	// ClusterWith joins the cluster of that node and adopts its config; "" leaves.
+	ClusterWith *string `json:"clusterWith,omitempty"`
 }
 
 func normalizeAddress(s string) (string, error) {
@@ -134,6 +136,24 @@ func (s *Store) PatchNode(id string, p NodePatch) (core.Node, error) {
 			return core.Node{}, err
 		}
 	}
+	what := clusterSync{
+		port:    p.ListenPort != nil,
+		routes:  p.Routes != nil,
+		parents: p.ParentID != nil || p.ParentIDs != nil,
+	}
+	if what != (clusterSync{}) {
+		if err := syncCluster(&m, id, what); err != nil {
+			return core.Node{}, err
+		}
+	}
+	if p.ClusterWith != nil {
+		if peer := strings.TrimSpace(*p.ClusterWith); peer == "" {
+			leaveCluster(n)
+		} else if err := joinCluster(&m, id, peer); err != nil {
+			return core.Node{}, err
+		}
+	}
+	pruneClusters(&m)
 	out := *n
 	m.Revision++
 	if err := validateMesh(m); err != nil {
@@ -221,6 +241,9 @@ func (s *Store) PutNodeForwards(id string, fwds []core.Forward) ([]core.Forward,
 		}
 	}
 	m.Forwards = append(rest, clean...)
+	if err := syncCluster(&m, id, clusterSync{forwards: true}); err != nil {
+		return nil, err
+	}
 	m.Revision++
 	if err := validateMesh(m); err != nil {
 		return nil, err

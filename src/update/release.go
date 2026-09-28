@@ -22,6 +22,9 @@ const (
 	// ProxyEnv prefixes GitHub download URLs (e.g. https://ghfast.top/) for
 	// hosts that cannot reach github.com directly.
 	ProxyEnv = "WG_MC_GH_PROXY"
+
+	// CNProxy is the GitHub mirror used for hosts located in mainland China.
+	CNProxy = "https://ghfast.top/"
 )
 
 var latestURL = "https://api.github.com/repos/" + Repo + "/releases/latest"
@@ -101,6 +104,34 @@ func Latest(ctx context.Context) (*Release, error) {
 		})
 	}
 	return rel, nil
+}
+
+type manifest struct {
+	Release
+	Assets []Asset `json:"assets"`
+}
+
+// Manifest serialises r including its assets, for handing a release the
+// Master already fetched to an updater that cannot reach api.github.com.
+func (r *Release) Manifest() ([]byte, error) {
+	return json.Marshal(manifest{Release: *r, Assets: r.Assets})
+}
+
+// ParseManifest is the inverse of Release.Manifest.
+func ParseManifest(b []byte) (*Release, error) {
+	var m manifest
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, fmt.Errorf("decode release manifest: %w", err)
+	}
+	if m.Tag == "" || len(m.Assets) == 0 {
+		return nil, fmt.Errorf("release manifest is incomplete")
+	}
+	rel := m.Release
+	rel.Assets = m.Assets
+	if rel.Version == "" {
+		rel.Version = Normalize(rel.Tag)
+	}
+	return &rel, nil
 }
 
 func (r *Release) Asset(name string) (Asset, bool) {

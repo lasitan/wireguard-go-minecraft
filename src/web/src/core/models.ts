@@ -15,6 +15,8 @@ export type Node = {
   publicV6?: string;
   geoCountry?: string;
   geoCountryCode?: string;
+  /** Side-by-side magnet cluster id: members share config and fail over for each other. */
+  cluster?: string;
 };
 
 export type NodePatch = {
@@ -30,6 +32,8 @@ export type NodePatch = {
   parentId?: string;
   /** Attach to several mother cards at once (replaces the whole set). */
   parentIds?: string[];
+  /** Join that card's cluster and adopt its config; "" leaves the cluster. */
+  clusterWith?: string;
 };
 
 /** Mother card id → attached child ids (in attach order), and the reverse. */
@@ -126,6 +130,8 @@ export type Mesh = {
   paths?: Record<string, Record<string, string>>;
   /** Present when Master's cross-subnet relay is enabled. */
   relay?: { publicKey: string; port: number };
+  /** Offline cluster member → live member currently covering its forwards. */
+  standby?: Record<string, string>;
 };
 
 export type Meta = {

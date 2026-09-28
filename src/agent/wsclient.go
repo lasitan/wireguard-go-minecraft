@@ -149,7 +149,7 @@ func (c *wsClient) run(ctx context.Context) (connected bool, err error) {
 			var cmd wire.UpdateCmd
 			_ = cmd.Unmarshal(f.Payload)
 			ack := wire.UpdateAck{OK: true}
-			note, err := update.SpawnDetached(cmd.Force)
+			note, err := update.SpawnDetached(update.SpawnOptions{Force: cmd.Force, Proxy: cmd.Proxy, Release: cmd.Release})
 			if err != nil {
 				ack.OK, ack.Message = false, err.Error()
 			} else {

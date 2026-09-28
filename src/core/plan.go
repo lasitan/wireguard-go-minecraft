@@ -117,7 +117,7 @@ func PlanKey(mesh *Mesh) string {
 	for i := range mesh.Nodes {
 		n := &mesh.Nodes[i]
 		w(n.ID, n.PublicKey, n.Address, strconv.Itoa(int(n.ListenPort)), n.Endpoint, n.PublicV4,
-			strconv.FormatBool(n.Disabled), n.AddressChangedAt.UTC().Format(time.RFC3339Nano))
+			strconv.FormatBool(n.Disabled), n.AddressChangedAt.UTC().Format(time.RFC3339Nano), n.Cluster)
 		w(n.Routes...)
 		h.Write([]byte{1})
 	}
@@ -180,6 +180,15 @@ func PlanMesh(mesh *Mesh) *Plan {
 		p.nodes[RelayNodeID] = &planNode{n: &Node{ID: RelayNodeID, PublicKey: mesh.Relay.PublicKey}, exposed: true}
 	}
 
+	// Cluster mothers serve each other's children, so a dead member fails over
+	// through normal gateway selection.
+	clusterMothers := map[string][]string{}
+	for _, id := range p.order {
+		if pn := p.nodes[id]; pn.mother && pn.n.Cluster != "" {
+			clusterMothers[pn.n.Cluster] = append(clusterMothers[pn.n.Cluster], id)
+		}
+	}
+
 	// Explicit links: magnet attachments (child -> mother) and generic dial links.
 	attached := map[string][]string{}
 	type genericLink struct {
@@ -194,6 +203,9 @@ func PlanMesh(mesh *Mesh) *Plan {
 		}
 		if !from.mother && to.mother {
 			attached[from.n.ID] = appendUnique(attached[from.n.ID], to.n.ID)
+			for _, m := range clusterMothers[to.n.Cluster] {
+				attached[from.n.ID] = appendUnique(attached[from.n.ID], m)
+			}
 			continue
 		}
 		generic = append(generic, genericLink{from: from.n.ID, to: to.n.ID, link: l})

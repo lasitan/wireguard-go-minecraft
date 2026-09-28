@@ -18,7 +18,7 @@ var (
 // RequestUpdate asks a connected agent to start its self-updater and waits
 // for it to confirm. The upgrade itself finishes after the agent restarts and
 // reconnects with the new version.
-func (h *Hub) RequestUpdate(nodeID string, force bool) (wire.UpdateAck, error) {
+func (h *Hub) RequestUpdate(nodeID string, cmd wire.UpdateCmd) (wire.UpdateAck, error) {
 	s := h.shard(nodeID)
 	s.mu.RLock()
 	c := s.conns[nodeID]
@@ -32,7 +32,7 @@ func (h *Hub) RequestUpdate(nodeID string, force bool) (wire.UpdateAck, error) {
 	case <-c.updAck: // drop a stale ack from an earlier timed-out request
 	default:
 	}
-	c.enqueue(c.frame(wire.TypeUpdate, wire.UpdateCmd{Force: force}.Marshal()))
+	c.enqueue(c.frame(wire.TypeUpdate, cmd.Marshal()))
 	t := time.NewTimer(hubUpdateAckTimeout)
 	defer t.Stop()
 	select {

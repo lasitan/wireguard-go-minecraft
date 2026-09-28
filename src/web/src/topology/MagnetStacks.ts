@@ -17,13 +17,31 @@ export function attachedMothers(mesh: Mesh, id: string): string[] {
   return out;
 }
 
-/** Master's gateway for `id` into its own subnet, when it is one of the attached mothers. */
-export function homeMother(mesh: Mesh, id: string, attached = attachedMothers(mesh, id)): string {
+/** Ids in the same cluster as `id` (itself included); just [id] when unclustered. */
+export function clusterMembers(mesh: Mesh, id: string): string[] {
+  const c = mesh.nodes.find((n) => n.id === id)?.cluster;
+  if (!c) return [id];
+  return mesh.nodes.filter((n) => n.cluster === c).map((n) => n.id);
+}
+
+/** Attached mothers plus their cluster siblings (Master serves a card from all of them). */
+export function servingMothers(mesh: Mesh, id: string): string[] {
+  const out: string[] = [];
+  for (const m of attachedMothers(mesh, id)) {
+    for (const s of clusterMembers(mesh, m)) {
+      if (!out.includes(s) && isMother(mesh.nodes.find((n) => n.id === s))) out.push(s);
+    }
+  }
+  return out;
+}
+
+/** Master's gateway for `id` into its own subnet, when it is one of the serving mothers. */
+export function homeMother(mesh: Mesh, id: string, serving = servingMothers(mesh, id)): string {
   const node = mesh.nodes.find((n) => n.id === id);
   const own = node ? vpnPrefixFromAddress(node.address) : "";
   const chosen = own ? mesh.paths?.[id]?.[own] : undefined;
-  if (chosen && attached.includes(chosen)) return chosen;
-  return attached[0] || "";
+  if (chosen && serving.includes(chosen)) return chosen;
+  return serving[0] || "";
 }
 
 /**
@@ -37,12 +55,9 @@ export function buildMagnetStacks(mesh: Mesh): MagnetStacks {
     const home = homeMother(mesh, n.id);
     if (!home) continue;
     parentOf.set(n.id, home);
-  }
-  for (const l of mesh.links || []) {
-    if (parentOf.get(l.fromNodeId) !== l.toNodeId) continue;
-    const list = childrenOf.get(l.toNodeId) || [];
-    if (!list.includes(l.fromNodeId)) list.push(l.fromNodeId);
-    childrenOf.set(l.toNodeId, list);
+    const list = childrenOf.get(home) || [];
+    list.push(n.id);
+    childrenOf.set(home, list);
   }
   return { parentOf, childrenOf };
 }

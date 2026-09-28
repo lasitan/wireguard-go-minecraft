@@ -2,8 +2,10 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 
+	"golang.zx2c4.com/wireguard/src/core/wire"
 	"golang.zx2c4.com/wireguard/src/master/hub"
 	"golang.zx2c4.com/wireguard/src/update"
 )
@@ -63,7 +65,7 @@ func (s *Server) upgradeMaster(force bool) *upgradeResult {
 	if !force && st.Latest != "" && !update.Newer(st.Latest, st.Current) {
 		return &upgradeResult{OK: false, Message: "已是最新版本"}
 	}
-	note, err := update.SpawnDetached(force)
+	note, err := update.SpawnDetached(update.SpawnOptions{Force: force})
 	if err != nil {
 		return &upgradeResult{OK: false, Message: err.Error()}
 	}
@@ -73,12 +75,20 @@ func (s *Server) upgradeMaster(force bool) *upgradeResult {
 func (s *Server) upgradeAgents(ids []string, force bool) []upgradeResult {
 	out := make([]upgradeResult, len(ids))
 	m := s.store.Snapshot()
+	var manifest []byte
+	if rel := s.updates.Status().Release; rel != nil && len(rel.Assets) > 0 {
+		manifest, _ = rel.Manifest()
+	}
 	sem := make(chan struct{}, upgradeFanout)
 	var wg sync.WaitGroup
 	for i, id := range ids {
 		name := id
-		if n := m.FindNode(id); n != nil && n.Name != "" {
-			name = n.Name
+		cmd := wire.UpdateCmd{Force: force, Release: manifest}
+		if n := m.FindNode(id); n != nil {
+			if n.Name != "" {
+				name = n.Name
+			}
+			cmd.Proxy = updateProxyFor(n.GeoCountryCode)
 		}
 		wg.Add(1)
 		go func() {
@@ -89,7 +99,7 @@ func (s *Server) upgradeAgents(ids []string, force bool) []upgradeResult {
 				out[i] = upgradeResult{NodeID: id, Name: name, Message: hub.ErrUpdateNoAck.Error()}
 				return
 			}
-			ack, err := s.hub.RequestUpdate(id, force)
+			ack, err := s.hub.RequestUpdate(id, cmd)
 			res := upgradeResult{NodeID: id, Name: name, OK: err == nil && ack.OK, Message: ack.Message}
 			if err != nil {
 				res.Message = err.Error()
@@ -99,6 +109,14 @@ func (s *Server) upgradeAgents(ids []string, force bool) []upgradeResult {
 	}
 	wg.Wait()
 	return out
+}
+
+// updateProxyFor picks the GitHub mirror for agents geolocated in mainland China.
+func updateProxyFor(country string) string {
+	if strings.EqualFold(strings.TrimSpace(country), "CN") {
+		return update.CNProxy
+	}
+	return ""
 }
 
 func (s *Server) outdatedAgentIDs() []string {

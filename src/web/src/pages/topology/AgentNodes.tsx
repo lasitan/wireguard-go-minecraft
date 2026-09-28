@@ -31,7 +31,10 @@ export function AgentNodes({
         const delay = jitterDelay(p.node.id);
         const mother = isMother(p.node);
         const attached = state.stacks.parentOf.has(p.node.id);
-        const inStack = attached || state.stacks.childrenOf.has(p.node.id);
+        const inStack = attached || state.stacks.childrenOf.has(p.node.id) || !!p.node.cluster;
+        const standbyId = state.mesh?.standby?.[p.node.id];
+        const standbyNode = standbyId ? placed.find((q) => q.node.id === standbyId)?.node : undefined;
+        const standbyBy = standbyNode ? shortName(standbyNode) : "";
         const wrapClass = [
           "node-wrap",
           inStack ? "" : "is-jitter",
@@ -39,7 +42,8 @@ export function AgentNodes({
           conflict ? "is-conflict" : "",
           mother ? "is-mother" : "",
           attached ? "is-attached" : "",
-          state.magnetTarget === p.node.id ? "magnet-hot" : "",
+          state.magnetTarget === p.node.id || state.clusterTarget?.id === p.node.id ? "magnet-hot" : "",
+          p.node.cluster ? "is-clustered" : "",
         ]
           .filter(Boolean)
           .join(" ");
@@ -69,6 +73,14 @@ export function AgentNodes({
             <foreignObject x={-78} y={-34} width={156} height={68}>
               <div className={cardClass}>
                 {mother ? <span className="mother-badge">母卡 :{p.node.listenPort}</span> : null}
+                {p.node.cluster ? (
+                  <span
+                    className={`cluster-badge${standbyBy ? " down" : ""}`}
+                    title={standbyBy ? `离线，转发已由 ${standbyBy} 接管` : "集群成员"}
+                  >
+                    {standbyBy ? `${standbyBy} 接管` : "集群"}
+                  </span>
+                ) : null}
                 <span className="dot" />
                 <div className="node-text">
                   <div className="node-name">{shortName(p.node)}</div>

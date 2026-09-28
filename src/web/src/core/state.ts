@@ -25,6 +25,8 @@ export type AppState = {
   draggingId: string | null;
   /** Mother card the dragged card would snap to on release. */
   magnetTarget: string | null;
+  /** Card the dragged card would join side by side (cluster) on release. */
+  clusterTarget: { id: string; side: -1 | 1 } | null;
   /** Web-triggered upgrades keyed by node id, or "master". */
   upgrades: Record<string, UpgradeStatus>;
   busy: boolean;
@@ -48,6 +50,7 @@ export const state: AppState = {
   stacks: { parentOf: new Map(), childrenOf: new Map() },
   draggingId: null,
   magnetTarget: null,
+  clusterTarget: null,
   upgrades: {},
   busy: false,
 };

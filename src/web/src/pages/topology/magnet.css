@@ -20,6 +20,28 @@
   to { opacity: 1; transform: scale(1); }
 }
 
+/* Side-by-side cluster member. */
+.cluster-badge {
+  position: absolute;
+  left: 7px;
+  bottom: 6px;
+  max-width: 76px;
+  padding: 1px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: #fff;
+  background: #6b7cff;
+  box-shadow: 0 3px 8px rgba(107, 124, 255, 0.3);
+  animation: mother-badge-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.cluster-badge.down { background: var(--warn, #d9822b); }
+.node-wrap.is-clustered .node-card { border-style: solid; border-color: rgba(107, 124, 255, 0.55); }
+.magnet-rail.cluster-joint path { stroke-width: 2.5; }
+
 /* Sockets: mother has one at the bottom edge, an attached card at the top. */
 .node-wrap.is-mother .node-card::after,
 .node-wrap.is-attached .node-card::before {

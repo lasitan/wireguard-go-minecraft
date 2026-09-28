@@ -119,6 +119,28 @@ export async function setNodeParents(id: string, parentIds: string[]): Promise<v
   }
 }
 
+/** Join `peerId`'s side-by-side cluster ("" = leave), optimistic like setNodeParents. */
+export async function setNodeCluster(id: string, peerId: string): Promise<void> {
+  const before = state.mesh;
+  if (!before) return;
+  const patch: NodePatch = { clusterWith: peerId };
+  if (state.demo) {
+    demoApplyPatch(id, patch);
+    notify();
+    return;
+  }
+  state.mesh = applyMagnetPatch(before, id, patch);
+  notify();
+  try {
+    state.mesh = await PatchNode(id, patch);
+  } catch (e) {
+    state.mesh = before;
+    throw e;
+  } finally {
+    notify();
+  }
+}
+
 export async function patchNode(id: string, patch: NodePatch): Promise<void> {
   if (state.demo) {
     demoApplyPatch(id, patch);

@@ -162,6 +162,7 @@ func (s *Store) addMissingNodeColumns() error {
 		{"geo_country", "TEXT NOT NULL DEFAULT ''"},
 		{"geo_country_code", "TEXT NOT NULL DEFAULT ''"},
 		{"geo_updated_at", "TEXT NOT NULL DEFAULT ''"},
+		{"cluster_id", "TEXT NOT NULL DEFAULT ''"},
 	}
 	for _, c := range cols {
 		if have[c.name] {
@@ -307,7 +308,7 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 	fmt.Sscanf(revStr, "%d", &m.Revision)
 
 	rows, err := s.db.Query(`SELECT id, name, role, public_key, private_key, address, listen_port, endpoint, mtu, token, iface_name, poll_interval, transport_json, last_seen,
-		enabled, routes_json, address_changed_at, public_v4, public_v6, geo_country, geo_country_code, geo_updated_at FROM nodes ORDER BY rowid`)
+		enabled, routes_json, address_changed_at, public_v4, public_v6, geo_country, geo_country_code, geo_updated_at, cluster_id FROM nodes ORDER BY rowid`)
 	if err != nil {
 		return m, err
 	}
@@ -317,7 +318,7 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 		var listenPort, mtu, enabled int
 		var transport, lastSeen, routes, addrChanged, geoUpdated string
 		if err := rows.Scan(&n.ID, &n.Name, &n.Role, &n.PublicKey, &n.PrivateKey, &n.Address, &listenPort, &n.Endpoint, &mtu, &n.Token, &n.Interface, &n.PollInterval, &transport, &lastSeen,
-			&enabled, &routes, &addrChanged, &n.PublicV4, &n.PublicV6, &n.GeoCountry, &n.GeoCountryCode, &geoUpdated); err != nil {
+			&enabled, &routes, &addrChanged, &n.PublicV4, &n.PublicV6, &n.GeoCountry, &n.GeoCountryCode, &geoUpdated, &n.Cluster); err != nil {
 			return m, err
 		}
 		n.ListenPort = uint16(listenPort)
@@ -370,6 +371,7 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 	}
 	m.Paths = s.pathsLocked()
 	m.Relay = s.meshRelayLocked()
+	m.Standby = s.standbyLocked()
 	return m, nil
 }
 
@@ -413,6 +415,7 @@ func (s *Store) replaceMeshLocked(m core.Mesh) error {
 	if _, err := tx.Exec(`DELETE FROM nodes`); err != nil {
 		return err
 	}
+	pruneClusters(&m)
 	for _, n := range m.Nodes {
 		tr := ""
 		if len(n.Transport) > 0 {
@@ -427,10 +430,10 @@ func (s *Store) replaceMeshLocked(m core.Mesh) error {
 			enabled = 0
 		}
 		if _, err := tx.Exec(`INSERT INTO nodes(id, name, role, public_key, private_key, address, listen_port, endpoint, mtu, token, iface_name, poll_interval, transport_json, last_seen,
-			enabled, routes_json, address_changed_at, public_v4, public_v6, geo_country, geo_country_code, geo_updated_at)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			enabled, routes_json, address_changed_at, public_v4, public_v6, geo_country, geo_country_code, geo_updated_at, cluster_id)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			n.ID, n.Name, n.Role, n.PublicKey, n.PrivateKey, n.Address, int(n.ListenPort), n.Endpoint, n.MTU, n.Token, n.Interface, n.PollInterval, tr, formatTime(n.LastSeen),
-			enabled, string(routes), formatTime(n.AddressChangedAt), n.PublicV4, n.PublicV6, n.GeoCountry, n.GeoCountryCode, formatTime(n.GeoUpdatedAt)); err != nil {
+			enabled, string(routes), formatTime(n.AddressChangedAt), n.PublicV4, n.PublicV6, n.GeoCountry, n.GeoCountryCode, formatTime(n.GeoUpdatedAt), n.Cluster); err != nil {
 			return err
 		}
 	}

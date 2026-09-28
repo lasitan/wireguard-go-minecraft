@@ -81,7 +81,10 @@
   transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 .magnet-parent.on { border-color: var(--accent); background: #fff4e8; }
-.magnet-parent input { margin: 0; }
+button.magnet-parent { width: 100%; font: inherit; font-size: 0.78rem; color: var(--text); text-align: left; }
+button.magnet-parent:hover { border-color: var(--accent); }
+.magnet-kid.self { border-color: #6b7cff; color: #4453d6; }
+.magnet-kid.down { color: var(--muted); text-decoration: line-through; }
 .magnet-parent-name { font-weight: 650; }
 .magnet-parent-ep {
   flex: 1;

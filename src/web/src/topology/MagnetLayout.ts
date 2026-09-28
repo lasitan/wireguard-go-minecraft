@@ -69,6 +69,40 @@ export function stackChildren(motherId: string, exclude?: string | null): string
   return exclude ? kids.filter((k) => k !== exclude) : kids;
 }
 
+/** Horizontal distance between side-by-side (clustered) cards. */
+export const CLUSTER_PITCH = CARD_HALF_W * 2 + 22;
+
+/** Where a card lands when it joins `anchor` on the given side. */
+export function clusterSlot(anchor: Pt, side: -1 | 1): Pt {
+  return { x: anchor.x + side * CLUSTER_PITCH, y: anchor.y };
+}
+
+/**
+ * Free card of the same kind (mother / plain) that (x, y) sits right beside:
+ * dropping there forms or joins a cluster. Cards stacked under a mother are
+ * laid out by their stack and never act as cluster anchors.
+ */
+export function findClusterTarget(x: number, y: number, selfId: string): { id: string; side: -1 | 1 } | null {
+  const self = state.placed.find((p) => p.node.id === selfId)?.node;
+  if (!self) return null;
+  let best: { id: string; side: -1 | 1 } | null = null;
+  let bestErr = Infinity;
+  for (const p of state.placed) {
+    if (p.node.id === selfId || isMother(p.node) !== isMother(self)) continue;
+    if (state.stacks.parentOf.has(p.node.id)) continue;
+    const dy = Math.abs(y - p.y);
+    const dx = x - p.x;
+    if (dy > (CARD_BOTTOM - CARD_TOP) * 0.6) continue;
+    if (Math.abs(dx) < CARD_HALF_W * 0.9 || Math.abs(dx) > CLUSTER_PITCH + CARD_HALF_W * 0.8) continue;
+    const err = dy + Math.abs(Math.abs(dx) - CLUSTER_PITCH);
+    if (err < bestErr) {
+      bestErr = err;
+      best = { id: p.node.id, side: dx < 0 ? -1 : 1 };
+    }
+  }
+  return best;
+}
+
 /**
  * Mother whose stack column contains (x, y): vertically from the mother's top
  * down to one free slot below the stack; horizontally the mother + dodged column.
