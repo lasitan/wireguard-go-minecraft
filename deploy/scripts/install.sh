@@ -93,13 +93,58 @@ else
 fi
 
 say "完成：$(wireguard-go --version 2>/dev/null | head -n1)"
-if [[ -z "$CURRENT" ]]; then
+
+json_str() {
+  # Escape for JSON string values (enroll keys are restricted; URLs are trusted from Master UI).
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  printf '%s' "$s"
+}
+
+apply_agent_bootstrap() {
+  [[ "${WG_MC_BOOTSTRAP:-}" == "agent" ]] || return 0
+  local url="${WG_MC_MASTER_URL:-}"
+  local key="${WG_MC_ENROLL_KEY:-}"
+  [[ -n "$url" && -n "$key" ]] || die "WG_MC_BOOTSTRAP=agent 需要 WG_MC_MASTER_URL 与 WG_MC_ENROLL_KEY"
+  local conf="/etc/wireguard/wireguard-go-agent.json"
+  local iface="${WG_MC_IFACE:-wg0}"
+  local role="${WG_MC_ROLE:-client}"
+  mkdir -p /etc/wireguard
+  if [[ -f "$conf" && "${WG_MC_FORCE:-0}" != "1" ]]; then
+    say "保留已有 $conf（WG_MC_FORCE=1 可覆盖）"
+  else
+    {
+      printf '{\n  "masterUrl": "%s",\n  "key": "%s"' "$(json_str "$url")" "$(json_str "$key")"
+      if [[ "$role" == "server" ]]; then
+        printf ',\n  "role": "server"'
+        if [[ -n "${WG_MC_ENDPOINT:-}" ]]; then
+          printf ',\n  "endpoint": "%s"' "$(json_str "$WG_MC_ENDPOINT")"
+        fi
+        if [[ -n "${WG_MC_LISTEN_PORT:-}" ]]; then
+          printf ',\n  "listenPort": %s' "$WG_MC_LISTEN_PORT"
+        fi
+      fi
+      printf '\n}\n'
+    } >"$conf"
+    chmod 600 "$conf"
+    say "已写入 $conf"
+  fi
+  say "注册开机自启并启动 Agent（$iface）…"
+  wireguard-go install "$iface" || die "wireguard-go install 失败"
+  say "Agent 已安装并指向 Master $url，启动后会自动入网"
+}
+
+apply_agent_bootstrap
+
+if [[ -z "$CURRENT" && "${WG_MC_BOOTSTRAP:-}" != "agent" ]]; then
   cat >&2 <<'EOF'
 
 下一步：
   Master： 编辑 /etc/wireguard/wireguard-go-master.json 后执行  sudo wireguard-go install master
   Agent：  编辑 /etc/wireguard/wireguard-go-agent.json（masterUrl + key）后执行  sudo wireguard-go install
           作为服务端（其他客户端都连本机）再加 "role": "server"，可选 "endpoint": "公网IP:25590"
+  或在 Master Web「一键安装 Agent」复制整行命令（含配置）
 以后升级： sudo wireguard-go update
 EOF
 fi

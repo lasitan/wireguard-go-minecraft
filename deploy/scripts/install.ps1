@@ -85,13 +85,43 @@ if (($machinePath -split ';') -notcontains $dir) {
 }
 
 Say "done: $(& $dest --version)"
-if (-not $current) {
+
+function Apply-AgentBootstrap {
+    if ($env:WG_MC_BOOTSTRAP -ne 'agent') { return }
+    $url = "$env:WG_MC_MASTER_URL".Trim()
+    $key = "$env:WG_MC_ENROLL_KEY".Trim()
+    if (-not $url -or -not $key) { Die 'WG_MC_BOOTSTRAP=agent requires WG_MC_MASTER_URL and WG_MC_ENROLL_KEY' }
+    $conf = Join-Path $dir 'wireguard-go-agent.json'
+    $iface = if ($env:WG_MC_IFACE) { $env:WG_MC_IFACE } else { 'wg0' }
+    $role = if ($env:WG_MC_ROLE) { $env:WG_MC_ROLE.ToLower() } else { 'client' }
+    if ((Test-Path $conf) -and $env:WG_MC_FORCE -ne '1') {
+        Say "kept existing $conf (WG_MC_FORCE=1 to overwrite)"
+    } else {
+        $cfg = [ordered]@{ masterUrl = $url; key = $key }
+        if ($role -eq 'server') {
+            $cfg['role'] = 'server'
+            if ($env:WG_MC_ENDPOINT) { $cfg['endpoint'] = $env:WG_MC_ENDPOINT.Trim() }
+            if ($env:WG_MC_LISTEN_PORT) { $cfg['listenPort'] = [int]$env:WG_MC_LISTEN_PORT }
+        }
+        [IO.File]::WriteAllText($conf, (($cfg | ConvertTo-Json) + "`n"), (New-Object Text.UTF8Encoding $false))
+        Say "wrote $conf"
+    }
+    Say "registering autostart service ($iface)…"
+    & $dest install $iface
+    if ($LASTEXITCODE -ne 0) { Die "wireguard-go install failed" }
+    Say "agent configured for Master $url; it will enroll on start"
+}
+
+Apply-AgentBootstrap
+
+if (-not $current -and $env:WG_MC_BOOTSTRAP -ne 'agent') {
     Write-Host @"
 
 Next steps:
   Master: wireguard-go install master, then edit $env:ProgramData\wireguard\wireguard-go-master.json
   Agent:  wireguard-go install, then set masterUrl + key in $env:ProgramData\wireguard\wireguard-go-agent.json
           (server node: also add "role": "server", optionally "endpoint": "PUBLIC_IP:25590")
+  Or copy the one-line command from Master Web (install + configure)
 Upgrade later: wireguard-go update
 "@
 }

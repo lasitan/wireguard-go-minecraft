@@ -4,6 +4,7 @@ import { patchMeta } from "../../app/MetaActions";
 import { logout } from "../../app/Session";
 import { randomEnrollToken, validateEnrollToken, validatePool } from "../../utils/validateSettings";
 import { SettingField } from "./SettingField";
+import { BootstrapInstallCard } from "./BootstrapInstallCard";
 import { UpdateCard } from "./UpdateCard";
 import "./masterPanel.css";
 
@@ -21,6 +22,7 @@ export function MasterPanel() {
       </div>
       <div className="drawer-body">
         <UpdateCard />
+        <BootstrapInstallCard />
         <div className="detail">
           <span>Listen</span>
           <b>{state.meta?.listen || "—"}</b>

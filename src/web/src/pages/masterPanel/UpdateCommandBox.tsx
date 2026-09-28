@@ -1,19 +1,33 @@
 import { useEffect, useRef, useState } from "react";
 import type { UpdateCommands } from "../../core/models";
 
-const TABS: { key: keyof UpdateCommands; label: string; hint: string }[] = [
+type CmdTab = { key: keyof UpdateCommands; label: string; hint: string };
+
+const UPDATE_TABS: CmdTab[] = [
   { key: "installed", label: "已安装", hint: "在已安装的 Master / Agent 上执行，自动下载并重启服务" },
   { key: "linux", label: "Linux", hint: "全新安装或升级；有 dpkg 时安装 .deb，否则安装二进制" },
   { key: "linuxCn", label: "国内镜像", hint: "通过 ghfast.top 镜像下载，适合无法直连 GitHub 的机器" },
   { key: "windows", label: "Windows", hint: "在「以管理员身份运行」的 PowerShell 中执行" },
 ];
 
-export function UpdateCommandBox({ commands }: { commands: UpdateCommands }) {
-  const [tab, setTab] = useState(0);
+export function UpdateCommandBox({
+  commands,
+  tabs = UPDATE_TABS,
+  defaultTab = 0,
+}: {
+  commands: UpdateCommands;
+  tabs?: CmdTab[];
+  defaultTab?: number;
+}) {
+  const [tab, setTab] = useState(defaultTab);
   const [copied, setCopied] = useState(false);
   const resetRef = useRef(0);
-  const cur = TABS[tab];
+  const cur = tabs[tab] ?? tabs[0];
   const cmd = commands[cur.key];
+
+  useEffect(() => {
+    setTab(defaultTab);
+  }, [defaultTab, tabs]);
 
   useEffect(() => () => window.clearTimeout(resetRef.current), []);
 
@@ -26,9 +40,9 @@ export function UpdateCommandBox({ commands }: { commands: UpdateCommands }) {
 
   return (
     <div className="cmd-box">
-      <div className="cmd-tabs" style={{ ["--seg-count" as string]: TABS.length }} role="tablist">
+      <div className="cmd-tabs" style={{ ["--seg-count" as string]: tabs.length }} role="tablist">
         <span className="cmd-ink" style={{ transform: `translateX(${tab * 100}%)` }} aria-hidden />
-        {TABS.map((t, i) => (
+        {tabs.map((t, i) => (
           <button
             key={t.key}
             type="button"

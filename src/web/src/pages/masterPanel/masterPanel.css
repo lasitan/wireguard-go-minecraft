@@ -1,3 +1,46 @@
+/* —— One-line agent install —— */
+.bootstrap-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem 0.8rem 0.55rem;
+  margin-bottom: 1rem;
+  background: #f8fafc;
+  animation: update-in 0.3s ease;
+}
+.bootstrap-head { margin-bottom: 0.35rem; }
+.bootstrap-title { font-size: 1rem; letter-spacing: -0.01em; }
+.bootstrap-lead { margin: 0 0 0.65rem; line-height: 1.45; }
+.bootstrap-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+}
+.bootstrap-check input { margin-top: 0.15rem; }
+.bootstrap-endpoint {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.3s ease, opacity 0.25s ease, margin 0.25s ease;
+  margin-bottom: 0;
+}
+.bootstrap-endpoint.show {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  margin-bottom: 0.55rem;
+}
+.bootstrap-endpoint > .bootstrap-ep-label { overflow: hidden; min-height: 0; }
+.bootstrap-ep-label { display: flex; flex-direction: column; gap: 0.25rem; }
+.bootstrap-ep-label input {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
 /* —— Version / update card —— */
 .update-card {
   border: 1px solid var(--border);

@@ -89,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/meta", s.handleMeta)
 	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/version/upgrade", s.handleUpgrade)
+	mux.HandleFunc("/api/install/agent", s.handleAgentInstallCommands)
 
 	sub := ui.FS()
 	fileServer := http.FileServer(http.FS(sub))

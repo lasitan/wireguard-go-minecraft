@@ -168,6 +168,13 @@ export type VersionInfo = {
   outdatedAgents: OutdatedAgent[];
 };
 
+export type AgentInstallCommands = {
+  masterUrl: string;
+  linux: string;
+  linuxCn: string;
+  windows: string;
+};
+
 export type UpgradeRequest = { master?: boolean; nodeIds?: string[]; outdated?: boolean; force?: boolean };
 export type UpgradeResult = { nodeId?: string; name?: string; ok: boolean; message: string };
 export type UpgradeResponse = { master?: UpgradeResult; agents: UpgradeResult[] };
