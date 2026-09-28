@@ -265,6 +265,7 @@ again:
 	b.done = make(chan struct{})
 	b.ctx, b.cancel = context.WithCancel(context.Background())
 	b.isOpen = true
+	openBinds.Store(b, struct{}{})
 
 	if b.listener4 != nil {
 		b.wg.Add(1)
@@ -303,6 +304,7 @@ func (b *TCPBind) Close() error {
 	listener6 := b.listener6
 	sessions := b.sessions
 
+	openBinds.Delete(b)
 	b.isOpen = false
 	b.listener4 = nil
 	b.listener6 = nil
@@ -1072,18 +1074,48 @@ func loadReconnectConfig(fileCfg tcpConfigFile) reconnectConfig {
 var (
 	transportOverrideMu sync.RWMutex
 	transportOverride   []byte // if set, prefer over local wireguard-go-transport.json
+
+	// openBinds lets a Master transport push reach binds opened before it
+	// arrived; without a listen_port change they are never reopened.
+	openBinds sync.Map // *TCPBind -> struct{}
 )
 
-// SetTransportConfigJSON installs an in-memory transport config (from Master desired).
-// Pass nil/empty to clear and fall back to the local file.
+// SetTransportConfigJSON installs an in-memory transport config (from Master desired)
+// and applies it to already open binds. Pass nil/empty to clear and fall back to the local file.
 func SetTransportConfigJSON(data []byte) {
 	transportOverrideMu.Lock()
-	defer transportOverrideMu.Unlock()
+	changed := !bytes.Equal(transportOverride, data)
 	if len(data) == 0 {
 		transportOverride = nil
+	} else {
+		transportOverride = append([]byte(nil), data...)
+	}
+	transportOverrideMu.Unlock()
+	if changed {
+		reloadOpenBinds()
+	}
+}
+
+func reloadOpenBinds() {
+	fileCfg, err := loadTransportConfigFile()
+	if err != nil {
 		return
 	}
-	transportOverride = append([]byte(nil), data...)
+	mc, err := loadMCCamouflageConfig(fileCfg.MC)
+	if err != nil {
+		return
+	}
+	rc := loadReconnectConfig(fileCfg.TCP)
+	openBinds.Range(func(k, _ any) bool {
+		b := k.(*TCPBind)
+		b.mu.Lock()
+		if b.isOpen {
+			b.mcConfig = mc
+			b.reconnect = rc
+		}
+		b.mu.Unlock()
+		return true
+	})
 }
 
 func loadTransportConfigFile() (transportConfigFile, error) {
