@@ -21,11 +21,17 @@ function validateCamo(c: TransportCamouflage): string {
 }
 
 export function TransportCard() {
-  const initial = useMemo(() => parseTransport(state.meta?.transport), [state.meta?.transport]);
-  const [camo, setCamo] = useState(initial.camouflage);
+  // The 8s poll hands us a fresh meta object each time; only its content matters.
+  const serverKey = JSON.stringify(state.meta?.transport ?? null);
+  const server = useMemo(() => parseTransport(state.meta?.transport).camouflage, [serverKey]);
+  const [camo, setCamo] = useState(server);
+  const [synced, setSynced] = useState(server);
+  const dirty = JSON.stringify(camo) !== JSON.stringify(synced);
   useEffect(() => {
-    setCamo(parseTransport(state.meta?.transport).camouflage);
-  }, [state.meta?.transport]);
+    setSynced(server);
+    // Keep unsaved edits; adopt the server value only when nothing is pending.
+    setCamo((cur) => (JSON.stringify(cur) === JSON.stringify(synced) ? server : cur));
+  }, [server]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -38,7 +44,9 @@ export function TransportCard() {
     try {
       const transportJson = buildTransportJson(next, state.meta?.transport);
       await patchMeta({ transportJson });
-      setCamo(parseTransport(state.meta?.transport).camouflage);
+      const saved = parseTransport(state.meta?.transport).camouflage;
+      setSynced(saved);
+      setCamo(saved);
       setMsg("已保存；Agent 下次拉取配置后生效");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "保存失败");
@@ -130,7 +138,8 @@ export function TransportCard() {
         </>
       ) : null}
       {err ? <p className="transport-err">{err}</p> : null}
-      {msg ? <p className="transport-msg">{msg}</p> : null}
+      {msg && !dirty ? <p className="transport-msg">{msg}</p> : null}
+      {dirty && !err ? <p className="transport-msg">有未保存的修改</p> : null}
       <button
         type="button"
         className="primary"

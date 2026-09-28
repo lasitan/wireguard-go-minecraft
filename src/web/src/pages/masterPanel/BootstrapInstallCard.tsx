@@ -5,6 +5,12 @@ import { state } from "../../core/state";
 import { GetAgentInstallCommands } from "../../api/GetAgentInstallCommands";
 import { UpdateCommandBox } from "./UpdateCommandBox";
 
+const INSTALL_TABS = [
+  { key: "linux" as const, label: "Linux", hint: "需要 curl 与 sudo；有 dpkg 时装 .deb，否则装二进制" },
+  { key: "linuxCn" as const, label: "国内镜像", hint: "经 ghfast.top 下载，适合无法直连 GitHub 的机器" },
+  { key: "windows" as const, label: "Windows", hint: "以管理员身份打开 PowerShell，粘贴整行执行" },
+];
+
 export function BootstrapInstallCard() {
   const [asServer, setAsServer] = useState(false);
   const [endpoint, setEndpoint] = useState("");
@@ -75,11 +81,7 @@ export function BootstrapInstallCard() {
       {box ? (
         <UpdateCommandBox
           commands={box}
-          tabs={[
-            { key: "linux", label: "Linux", hint: "需要 curl 与 sudo；有 dpkg 时装 .deb，否则装二进制" },
-            { key: "linuxCn", label: "国内镜像", hint: "经 ghfast.top 下载，适合无法直连 GitHub 的机器" },
-            { key: "windows", label: "Windows", hint: "以管理员身份打开 PowerShell，粘贴整行执行" },
-          ]}
+          tabs={INSTALL_TABS}
           defaultTab={0}
         />
       ) : (

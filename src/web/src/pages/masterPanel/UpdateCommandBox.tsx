@@ -25,9 +25,11 @@ export function UpdateCommandBox({
   const cur = tabs[tab] ?? tabs[0];
   const cmd = commands[cur.key];
 
+  // Callers may pass a fresh tabs array every render; reset only when the set changes.
+  const tabsKey = tabs.map((t) => t.key).join(",");
   useEffect(() => {
     setTab(defaultTab);
-  }, [defaultTab, tabs]);
+  }, [defaultTab, tabsKey]);
 
   useEffect(() => () => window.clearTimeout(resetRef.current), []);
 
