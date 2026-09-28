@@ -25,6 +25,9 @@ func BootstrapPath() string {
 	return filepath.Join(config.ConfDir(), config.AgentFileName)
 }
 
+// LoadBootstrap reads the local agent bootstrap file. It does not contact Master;
+// enroll and config sync happen in ConfigLoop so a slow network at boot does not
+// leave the tunnel running with zero peers until a manual restart.
 func LoadBootstrap() (*config.AgentBootstrap, error) {
 	path := BootstrapPath()
 	var b config.AgentBootstrap
@@ -37,16 +40,11 @@ func LoadBootstrap() (*config.AgentBootstrap, error) {
 	if b.APIKey() == "" {
 		return nil, fmt.Errorf("%s: key is required (API secret from Master)", path)
 	}
-	// Persist normalized form (only masterUrl + key).
 	norm := b.Normalized()
 	if err := config.SaveJSON(path, norm, 0600); err != nil {
 		return nil, err
 	}
-	b = norm
-	if err := ensureEnrolled(&b); err != nil {
-		return nil, err
-	}
-	return &b, nil
+	return &norm, nil
 }
 
 func ensureEnrolled(b *config.AgentBootstrap) error {
@@ -157,6 +155,20 @@ func ConfigLoop(
 	ws := &wsClient{boot: boot, dev: dev, counter: counter, ap: ap}
 	backoff := wsBackoffMin
 	for ctx.Err() == nil {
+		if err := ensureEnrolled(boot); err != nil {
+			fmt.Fprintf(os.Stderr, "wireguard-go: waiting for Master (%v)\n", err)
+			if !sleepCtx(ctx, jitter(backoff)) {
+				return
+			}
+			if backoff < wsBackoffMax {
+				backoff *= 2
+				if backoff > wsBackoffMax {
+					backoff = wsBackoffMax
+				}
+			}
+			continue
+		}
+		backoff = wsBackoffMin
 		connected, err := ws.run(ctx)
 		if ctx.Err() != nil {
 			return
