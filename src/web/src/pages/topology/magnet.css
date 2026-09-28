@@ -53,13 +53,19 @@
 /* Joints between stacked cards. */
 .magnet-rails { transition: opacity 0.28s ease; pointer-events: none; }
 .magnet-rail { animation: magnet-rail-in 0.32s ease both; }
-.magnet-rail line { stroke-width: 3; stroke-linecap: round; transition: stroke 0.28s ease; }
+.magnet-rail path {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke 0.28s ease;
+}
 .magnet-rail circle { transition: fill 0.28s ease; }
-.magnet-rail.status-green line { stroke: var(--edge-green); }
+.magnet-rail.status-green path { stroke: var(--edge-green); }
 .magnet-rail.status-green circle { fill: var(--edge-green); }
-.magnet-rail.status-red line { stroke: var(--edge-red); }
+.magnet-rail.status-red path { stroke: var(--edge-red); }
 .magnet-rail.status-red circle { fill: var(--edge-red); }
-.magnet-rail.status-grey line { stroke: var(--edge-grey); }
+.magnet-rail.status-grey path { stroke: var(--edge-grey); }
 .magnet-rail.status-grey circle { fill: var(--edge-grey); }
 @keyframes magnet-rail-in {
   from { opacity: 0; }
@@ -77,6 +83,8 @@
   animation: magnet-ghost-dash 1s linear infinite;
 }
 .magnet-ghost-rail {
+  fill: none;
+  stroke-linejoin: round;
   stroke: var(--accent);
   stroke-width: 2;
   stroke-dasharray: 3 4;

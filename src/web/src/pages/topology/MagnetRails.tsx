@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import type { PlacedNode } from "../../core/models";
 import { state } from "../../core/state";
 import { CARD_BOTTOM, CARD_TOP } from "../../topology/MagnetLayout";
+import { pcbStackRouteD, pcbStackRoutePoints } from "../../topology/PcbRoute";
 import { isOnline } from "../../utils/isOnline";
 
 /** Short magnetic joints between a mother card and each card stacked below it. */
@@ -16,11 +17,13 @@ export function MagnetRails({ placed }: { placed: PlacedNode[] }) {
       const status = kid.node.disabled ? "grey" : isOnline(kid.node) ? "green" : "red";
       const y1 = above.y + CARD_BOTTOM;
       const y2 = kid.y + CARD_TOP;
+      const pts = pcbStackRoutePoints(above.x, y1, kid.x, y2);
+      const end = pts[pts.length - 1];
       rails.push(
         <g key={`${motherId}:${kidId}`} className={`magnet-rail status-${status}`}>
-          <line x1={above.x} y1={y1} x2={kid.x} y2={y2} />
+          <path d={pcbStackRouteD(above.x, y1, kid.x, y2)} />
           <circle cx={above.x} cy={y1} r={3} />
-          <circle cx={kid.x} cy={y2} r={3} />
+          <circle cx={end.x} cy={end.y} r={3} />
         </g>,
       );
       above = kid;

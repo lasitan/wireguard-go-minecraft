@@ -202,6 +202,8 @@ export type TopologyEdge = {
   y1: number;
   x2: number;
   y2: number;
+  /** Orthogonal (PCB-style) polyline. */
+  pathD: string;
   kind: EdgeKind;
   status: EdgeStatus;
   /** When green, dashes animate toward Master along this orientation. */

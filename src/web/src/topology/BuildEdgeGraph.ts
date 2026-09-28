@@ -9,6 +9,7 @@ import type {
   TopologyEdge,
 } from "../core/models";
 import { isOnline } from "../utils/isOnline";
+import { pcbRouteD } from "./PcbRoute";
 
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
@@ -124,6 +125,7 @@ export function BuildEdgeGraph(
       fromId: aId,
       toId: bId,
       ...o,
+      pathD: pcbRouteD(o.x1, o.y1, o.x2, o.y2),
       kind,
       status,
       flowTowardMaster: status === "green",
@@ -156,6 +158,7 @@ export function BuildEdgeGraph(
       fromId: p.node.id,
       toId: MASTER_ID,
       ...o,
+      pathD: pcbRouteD(o.x1, o.y1, o.x2, o.y2),
       kind: "dashed",
       status,
       flowTowardMaster: status === "green",
