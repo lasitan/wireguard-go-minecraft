@@ -5,7 +5,13 @@ import { notify, state } from "../../core/state";
 import { setNodePosition } from "../../topology/SyncPlacedNodes";
 import { findMagnetTarget } from "../../topology/MagnetLayout";
 import { isMother } from "../../topology/MagnetStacks";
-import { attachNode } from "../../app/NodeActions";
+import {
+  hitPlacedNode,
+  nodeVpnPrefix,
+  subnetZones,
+  zoneAt,
+} from "../../topology/SubnetGroups";
+import { attachNode, reassignNodeSubnet, swapNodeAddresses } from "../../app/NodeActions";
 import { focusTarget } from "../../app/FocusNav";
 
 type DragState = {
@@ -16,10 +22,13 @@ type DragState = {
   grabDx: number;
   grabDy: number;
   moved: boolean;
-  /** Mother the card was attached to when the drag began. */
   parentAtStart: string | null;
   canSnap: boolean;
 };
+
+function magnetAttachChanged(target: string | null, parentAtStart: string | null): boolean {
+  return !(target === parentAtStart || (!target && !parentAtStart));
+}
 
 /**
  * Pointer drag for agents. Short press → focus; drag → reposition. Plain
@@ -88,15 +97,57 @@ export function useAgentDrag() {
       void focusTarget(d.id);
       return;
     }
-    const target = d.canSnap ? state.magnetTarget : null;
+
+    const svg = e.currentTarget.ownerSVGElement;
+    const magnetTarget = d.canSnap ? state.magnetTarget : null;
     state.draggingId = null;
     state.magnetTarget = null;
-    notify();
-    if (target === d.parentAtStart || (!target && !d.parentAtStart)) return;
-    attachNode(d.id, target || "").catch((err: Error) => {
-      state.err = err.message;
+
+    const runSubnet = () => {
+      const mesh = state.mesh;
+      const placed = state.placed;
+      if (!mesh || !svg || placed.length === 0) return;
+      const zones = subnetZones(mesh, placed);
+      if (!zones) return;
+
+      const pt = clientToSvg(svg, e.clientX, e.clientY);
+      const nodeX = pt.x - d.grabDx;
+      const nodeY = pt.y - d.grabDy;
+      const selfPrefix = nodeVpnPrefix(d.id, mesh);
+      if (!selfPrefix) return;
+
+      const hitId = hitPlacedNode(e.clientX, e.clientY, svg, placed);
+      if (hitId && hitId !== d.id) {
+        const otherPrefix = nodeVpnPrefix(hitId, mesh);
+        if (otherPrefix && otherPrefix !== selfPrefix) {
+          void swapNodeAddresses(d.id, hitId).catch((err: Error) => {
+            state.err = err.message;
+            notify();
+          });
+          return;
+        }
+      }
+
+      const zone = zoneAt(nodeX, nodeY, zones);
+      if (zone && zone.prefix !== selfPrefix && (!hitId || hitId === d.id)) {
+        void reassignNodeSubnet(d.id, zone.prefix).catch((err: Error) => {
+          state.err = err.message;
+          notify();
+        });
+      }
+    };
+
+    if (d.canSnap && magnetAttachChanged(magnetTarget, d.parentAtStart)) {
       notify();
-    });
+      attachNode(d.id, magnetTarget || "").catch((err: Error) => {
+        state.err = err.message;
+        notify();
+      });
+      return;
+    }
+
+    notify();
+    runSubnet();
   }
 
   return { onPointerDown, onPointerMove, onPointerUp };

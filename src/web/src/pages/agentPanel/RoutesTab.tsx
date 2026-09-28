@@ -31,7 +31,7 @@ export function RoutesTab({ node, onError }: { node: Node; onError: (msg: string
   return (
     <>
       <p className="tab-intro muted">
-        把这些网段通过本节点路由进 VPN（子网路由器）。其他节点会把它们加入该节点的 AllowedIPs，本节点自动开启 IP 转发。
+        路由表决定本机经 VPN 可访问的网段（写入出站 AllowedIPs）。入网时已包含自身 VPN 前缀；添加另一 VPN 网段后可跨网段通信。额外 CIDR 也可用于子网路由器（经本机转发时自动开启 IP 转发）。
       </p>
       <div className="add-row">
         <input

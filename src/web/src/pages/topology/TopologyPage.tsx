@@ -11,6 +11,7 @@ import { HubNode } from "./HubNode";
 import { MagnetGhost } from "./MagnetGhost";
 import { MagnetRails } from "./MagnetRails";
 import { MeshEdges } from "./MeshEdges";
+import { SubnetZones } from "./SubnetZones";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { UpdatePill } from "./UpdatePill";
 import { useCameraGestures } from "./useCameraGestures";
@@ -57,6 +58,7 @@ export function TopologyPage() {
           fill="transparent"
         />
         <MeshEdges edges={edges} />
+        <SubnetZones mesh={m} placed={placed} />
         <MagnetRails placed={placed} />
         <AgentNodes placed={placed} conflicts={conflicts} />
         <HubNode />

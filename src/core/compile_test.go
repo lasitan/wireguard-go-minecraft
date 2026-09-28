@@ -15,9 +15,9 @@ func policyMesh() Mesh {
 	return Mesh{
 		Revision: 1,
 		Nodes: []Node{
-			{ID: tSrv, Role: RoleServer, PublicKey: "S", PrivateKey: "s", Address: "10.10.0.1/24", Token: "a"},
-			{ID: tC1, Role: RoleClient, PublicKey: "C1", PrivateKey: "c1", Address: "10.10.0.2/24", Token: "b"},
-			{ID: tC2, Role: RoleClient, PublicKey: "C2", PrivateKey: "c2", Address: "10.10.0.3/24", Token: "c"},
+			{ID: tSrv, Role: RoleServer, PublicKey: "S", PrivateKey: "s", Address: "10.10.0.1/24", Routes: []string{"10.10.0.0/24"}, Token: "a"},
+			{ID: tC1, Role: RoleClient, PublicKey: "C1", PrivateKey: "c1", Address: "10.10.0.2/24", Routes: []string{"10.10.0.0/24"}, Token: "b"},
+			{ID: tC2, Role: RoleClient, PublicKey: "C2", PrivateKey: "c2", Address: "10.10.0.3/24", Routes: []string{"10.10.0.0/24"}, Token: "c"},
 		},
 		Links: []Link{{FromNodeID: tC1, ToNodeID: tSrv}, {FromNodeID: tC2, ToNodeID: tSrv}},
 		Forwards: []Forward{
@@ -51,7 +51,7 @@ func TestCompileDisabled(t *testing.T) {
 
 func TestCompileRoutes(t *testing.T) {
 	m := policyMesh()
-	m.Nodes[1].Routes = []string{"192.168.50.0/24"}
+	m.Nodes[1].Routes = []string{"10.10.0.0/24", "192.168.50.0/24"}
 
 	c1, err := CompileDesired(&m, tC1, DesiredDefaults{})
 	if err != nil {
@@ -70,8 +70,12 @@ func TestCompileRoutes(t *testing.T) {
 			got = p.AllowedIPs
 		}
 	}
-	if len(got) != 2 || got[0] != "10.10.0.2/32" || got[1] != "192.168.50.0/24" {
+	if len(got) != 2 || got[0] != "10.10.0.0/24" || got[1] != "192.168.50.0/24" {
 		t.Fatalf("server allowed for C1: %v", got)
+	}
+	c1Peer := c1.Peers[0].AllowedIPs
+	if len(c1Peer) != 2 || c1Peer[0] != "10.10.0.0/24" || c1Peer[1] != "192.168.50.0/24" {
+		t.Fatalf("client outbound allowed: %v", c1Peer)
 	}
 }
 
@@ -118,8 +122,8 @@ func TestCompileDesiredClientAndServer(t *testing.T) {
 	mesh := Mesh{
 		Revision: 3,
 		Nodes: []Node{
-			{ID: serverID, Role: RoleServer, PublicKey: "SApub", PrivateKey: "SApriv", Address: "10.10.0.1/24", ListenPort: 25590, Endpoint: "1.2.3.4:25590", Token: "t1"},
-			{ID: clientID, Role: RoleClient, PublicKey: "CApub", PrivateKey: "CApriv", Address: "10.10.0.7/24", Token: "t2"},
+			{ID: serverID, Role: RoleServer, PublicKey: "SApub", PrivateKey: "SApriv", Address: "10.10.0.1/24", Routes: []string{"10.10.0.0/24"}, ListenPort: 25590, Endpoint: "1.2.3.4:25590", Token: "t1"},
+			{ID: clientID, Role: RoleClient, PublicKey: "CApub", PrivateKey: "CApriv", Address: "10.10.0.7/24", Routes: []string{"10.10.0.0/24"}, Token: "t2"},
 		},
 		Links: []Link{
 			{FromNodeID: clientID, ToNodeID: serverID},
@@ -137,13 +141,13 @@ func TestCompileDesiredClientAndServer(t *testing.T) {
 	if client.NodeID != clientID {
 		t.Fatalf("client nodeId: %q", client.NodeID)
 	}
-	if client.Role != RoleClient || client.IPForward {
+	if client.Role != RoleClient || !client.IPForward {
 		t.Fatalf("client role/ipforward: %+v", client)
 	}
 	if len(client.Peers) != 1 || client.Peers[0].Endpoint != "1.2.3.4:25590" {
 		t.Fatalf("client peers: %+v", client.Peers)
 	}
-	if client.Peers[0].AllowedIPs[0] != "10.10.0.1/32" {
+	if len(client.Peers[0].AllowedIPs) != 1 || client.Peers[0].AllowedIPs[0] != "10.10.0.0/24" {
 		t.Fatalf("client allowed: %v", client.Peers[0].AllowedIPs)
 	}
 	if len(client.Forwards) != 0 {

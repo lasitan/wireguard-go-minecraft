@@ -79,6 +79,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/mesh", s.handleMesh)
 	mux.HandleFunc("/api/nodes", s.handleNodes)
+	mux.HandleFunc("/api/nodes/swap", s.handleNodesSwap)
+	mux.HandleFunc("/api/nodes/reassign-subnet", s.handleNodesReassignSubnet)
 	mux.HandleFunc("/api/nodes/forwards", s.handleNodeForwards)
 	mux.HandleFunc("/api/nodes/stats", s.handleNodeStats)
 	mux.HandleFunc("/api/nodes/traffic", s.handleNodeTraffic)

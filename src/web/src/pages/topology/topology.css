@@ -30,6 +30,24 @@
 }
 
 
+/* —— Multi-subnet zones (only when ≥2 VPN prefixes) —— */
+.subnet-zones {
+  pointer-events: none;
+}
+.subnet-zone rect {
+  fill: rgba(99, 102, 241, 0.06);
+  stroke: rgba(99, 102, 241, 0.22);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+}
+.subnet-zone-label {
+  fill: rgba(99, 102, 241, 0.55);
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+  user-select: none;
+}
+
 /* —— Edges: solid = active rule, dashed = indirect; traffic-light status —— */
 /* Dim/undim on the group so individual lines never get their own opacity layer. */
 .mesh-edges {

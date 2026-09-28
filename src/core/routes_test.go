@@ -1,0 +1,38 @@
+package core
+
+import "testing"
+
+func TestReplaceVPNRoute(t *testing.T) {
+	got, err := ReplaceVPNRoute([]string{"10.10.0.0/24", "192.168.1.0/24"}, "10.10.0.0/24", "10.20.0.0/24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "10.20.0.0/24" || got[1] != "192.168.1.0/24" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestOutboundRequiresLocalRoutes(t *testing.T) {
+	m := policyMesh()
+	m.Nodes[1].Routes = nil
+	m.Nodes[2].Routes = nil
+	c1, err := CompileDesired(&m, tC1, DesiredDefaults{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c1.Peers) != 1 || len(c1.Peers[0].AllowedIPs) != 0 {
+		t.Fatalf("client with no routes should not send prefixes: %v", c1.Peers[0].AllowedIPs)
+	}
+}
+
+func TestCrossSubnetOutbound(t *testing.T) {
+	m := policyMesh()
+	m.Nodes[1].Routes = []string{"10.10.0.0/24", "10.20.0.0/24"}
+	c1, err := CompileDesired(&m, tC1, DesiredDefaults{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c1.Peers[0].AllowedIPs) != 2 {
+		t.Fatalf("expected both prefixes: %v", c1.Peers[0].AllowedIPs)
+	}
+}

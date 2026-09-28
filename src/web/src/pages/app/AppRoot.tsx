@@ -3,6 +3,7 @@ import { TOKEN_KEY } from "../../core/constants";
 import { demoMesh, demoMeta } from "../../core/demoData";
 import { state, subscribe } from "../../core/state";
 import { refresh, startPoll } from "../../app/Session";
+import { hydrateNodePositions } from "../../topology/NodePositionStore";
 import { LoginPage } from "../login/LoginPage";
 import { TopologyPage } from "../topology/TopologyPage";
 
@@ -14,6 +15,7 @@ export function AppRoot() {
     if (state.demo) {
       if (!state.mesh) state.mesh = demoMesh();
       if (!state.meta) state.meta = demoMeta();
+      hydrateNodePositions(state.mesh);
       startPoll();
       bump();
       return;
@@ -31,7 +33,10 @@ export function AppRoot() {
   }, []);
 
   if (state.demo) {
-    if (!state.mesh) state.mesh = demoMesh();
+    if (!state.mesh) {
+      state.mesh = demoMesh();
+      hydrateNodePositions(state.mesh);
+    }
     if (!state.meta) state.meta = demoMeta();
     return <TopologyPage />;
   }

@@ -364,6 +364,12 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 		f.DestPort = uint16(port)
 		m.Forwards = append(m.Forwards, f)
 	}
+	if core.EnsureDefaultRoutes(&m) {
+		m.Revision++
+		if err := s.replaceMeshLocked(m); err != nil {
+			return m, err
+		}
+	}
 	return m, nil
 }
 
@@ -484,6 +490,10 @@ func (s *Store) Enroll(name, role, endpoint string, listenPort uint16) (core.Nod
 	if err != nil {
 		return core.Node{}, err
 	}
+	enrollRoutes := []string{}
+	if pfx, err := core.VPNPrefixFromAddress(addr); err == nil {
+		enrollRoutes = []string{pfx}
+	}
 	n := core.Node{
 		ID:           id,
 		Name:         name,
@@ -497,6 +507,7 @@ func (s *Store) Enroll(name, role, endpoint string, listenPort uint16) (core.Nod
 		Interface:    settings.DefaultIface,
 		PollInterval: settings.DefaultPoll,
 		LastSeen:     time.Now().UTC(),
+		Routes:       enrollRoutes,
 
 		AddressChangedAt: time.Now().UTC(),
 	}

@@ -23,6 +23,54 @@ func nodeIDParam(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return id, true
 }
 
+func (s *Server) handleNodesSwap(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var body struct {
+		A string `json:"a"`
+		B string `json:"b"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if err := s.store.SwapNodeAddresses(strings.TrimSpace(body.A), strings.TrimSpace(body.B)); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	s.hub.PushAll()
+	writeJSON(w, http.StatusOK, s.store.Snapshot().WithoutPrivateKeys())
+}
+
+func (s *Server) handleNodesReassignSubnet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var body struct {
+		ID     string `json:"id"`
+		Prefix string `json:"prefix"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		return
+	}
+	if err := s.store.ReassignNodeSubnet(strings.TrimSpace(body.ID), strings.TrimSpace(body.Prefix)); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	s.hub.PushAll()
+	writeJSON(w, http.StatusOK, s.store.Snapshot().WithoutPrivateKeys())
+}
+
 func (s *Server) handlePatchNode(w http.ResponseWriter, r *http.Request) {
 	id, ok := nodeIDParam(w, r)
 	if !ok {

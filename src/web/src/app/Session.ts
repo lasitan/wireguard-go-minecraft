@@ -7,6 +7,7 @@ import { homeCam } from "../camera/CameraMath";
 import { MASTER_ID, TOKEN_KEY } from "../core/constants";
 import { demoMesh, demoMeta, touchDemoHeartbeats } from "../core/demoData";
 import { notify, state } from "../core/state";
+import { hydrateNodePositions } from "../topology/NodePositionStore";
 import { goHome } from "./FocusNav";
 import { startVersionPoll, stopVersionPoll } from "./VersionCheck";
 
@@ -22,12 +23,14 @@ export async function refresh() {
   if (state.demo) {
     state.mesh = demoMesh();
     state.meta = demoMeta();
+    hydrateNodePositions(state.mesh);
     notify();
     return;
   }
   const [mesh, meta] = await Promise.all([GetMesh(), GetMeta()]);
   state.mesh = mesh;
   state.meta = meta;
+  hydrateNodePositions(mesh);
   const lost =
     state.selectedId &&
     state.selectedId !== MASTER_ID &&

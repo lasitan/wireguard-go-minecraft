@@ -3,6 +3,7 @@ import type { Mesh, PlacedNode } from "../core/models";
 import { state } from "../core/state";
 import { motherAnchor, slotPos, stackChildren } from "./MagnetLayout";
 import { buildMagnetStacks, isMother } from "./MagnetStacks";
+import { schedulePersistNodePositions } from "./NodePositionStore";
 import { forgetTween, tweenPos } from "./PositionTween";
 
 /** Default ring layout for a node index. */
@@ -15,9 +16,14 @@ export function defaultNodePos(index: number, total: number): { x: number; y: nu
 }
 
 function prune(live: Set<string>) {
+  let removed = false;
   for (const id of Object.keys(state.nodePositions)) {
-    if (!live.has(id)) delete state.nodePositions[id];
+    if (!live.has(id)) {
+      delete state.nodePositions[id];
+      removed = true;
+    }
   }
+  if (removed) schedulePersistNodePositions();
   for (const id of Object.keys(state.displayPos)) {
     if (!live.has(id)) {
       delete state.displayPos[id];
@@ -67,4 +73,5 @@ export function setNodePosition(id: string, x: number, y: number) {
     hit.x = x;
     hit.y = y;
   }
+  schedulePersistNodePositions();
 }

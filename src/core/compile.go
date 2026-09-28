@@ -18,17 +18,6 @@ func hostFromAddress(addr string) (string, error) {
 	return addr, nil
 }
 
-func hostAsSlash32(addr string) (string, error) {
-	host, err := hostFromAddress(addr)
-	if err != nil {
-		return "", err
-	}
-	if strings.Contains(host, ":") {
-		return host + "/128", nil
-	}
-	return host + "/32", nil
-}
-
 // ConflictLosers returns node ids whose VPN host IP duplicates another node's.
 // The node that changed its address earliest keeps the IP; later changers lose.
 // Ties (or missing timestamps) fall back to mesh order (earlier enrolled wins).
@@ -72,30 +61,6 @@ func ConflictLosers(mesh *Mesh) map[string]bool {
 		}
 	}
 	return losers
-}
-
-// peerAllowedIPs is the node's own /32 plus its advertised subnet routes.
-func peerAllowedIPs(n *Node, base []string) ([]string, error) {
-	allowed := append([]string(nil), base...)
-	if len(allowed) == 0 {
-		slash32, err := hostAsSlash32(n.Address)
-		if err != nil {
-			return nil, fmt.Errorf("node %s address: %w", n.ID, err)
-		}
-		allowed = []string{slash32}
-	}
-	seen := make(map[string]struct{}, len(allowed))
-	for _, a := range allowed {
-		seen[a] = struct{}{}
-	}
-	for _, r := range n.Routes {
-		if _, ok := seen[r]; ok {
-			continue
-		}
-		seen[r] = struct{}{}
-		allowed = append(allowed, r)
-	}
-	return allowed, nil
 }
 
 // DesiredDefaults are mesh-wide defaults applied when a node omits overrides.
@@ -174,7 +139,7 @@ func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*Desir
 		if excluded(to) {
 			continue
 		}
-		allowed, err := peerAllowedIPs(to, link.AllowedIPs)
+		allowed, err := OutboundAllowedIPs(n, link)
 		if err != nil {
 			return nil, err
 		}
@@ -191,8 +156,7 @@ func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*Desir
 		})
 	}
 
-	// Inbound peers: nodes that link TO us (server side) need their public keys
-	// with AllowedIPs = their /32 so cryptokey routing and forwards work.
+	// Inbound peers: nodes that link TO us need AllowedIPs = their advertised routes.
 	seenPub := make(map[string]struct{})
 	for _, p := range out.Peers {
 		seenPub[p.PublicKey] = struct{}{}
@@ -211,7 +175,7 @@ func CompileDesired(mesh *Mesh, nodeID string, defaults DesiredDefaults) (*Desir
 		if excluded(from) {
 			continue
 		}
-		allowed, err := peerAllowedIPs(from, nil)
+		allowed, err := InboundAllowedIPs(from)
 		if err != nil {
 			return nil, err
 		}
