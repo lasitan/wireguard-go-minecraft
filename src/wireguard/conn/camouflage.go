@@ -14,13 +14,13 @@ import (
 )
 
 const (
-	camoProfileNone       = "none"
-	camoProfileMinecraft  = "minecraft"
-	camoProfileSource     = "source"
-	camoProfileTerraria   = "terraria"
-	camoProfileSteam      = "steam"
-	camoProfileBedrock    = "bedrock"
-	camoProfileFiveM      = "fivem"
+	camoProfileNone      = "none"
+	camoProfileMinecraft = "minecraft"
+	camoProfileSource    = "source"
+	camoProfileTerraria  = "terraria"
+	camoProfileSteam     = "steam"
+	camoProfileBedrock   = "bedrock"
+	camoProfileFiveM     = "fivem"
 )
 
 type camoSharedConfig struct {

@@ -22,8 +22,8 @@ func buildSourceInfoResponse(serverName string) []byte {
 	b.WriteByte(17) // protocol
 	writeSourceCString(&b, serverName)
 	writeSourceCString(&b, "survival")
-	b.WriteByte(0) // players
-	b.WriteByte(32) // max
+	b.WriteByte(0)   // players
+	b.WriteByte(32)  // max
 	b.WriteByte('d') // dedicated
 	writeSourceCString(&b, "csgo")
 	writeSourceCString(&b, "Counter-Strike 2")

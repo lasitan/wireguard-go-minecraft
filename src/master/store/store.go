@@ -189,11 +189,11 @@ func (s *Store) ensureSeeds() error {
 		return err
 	}
 	defaults := map[string]string{
-		metaRevision:     "0",
-		metaEnrollToken:  enroll,
-		metaVPNSubnet:    DefaultVPNSubnet,
-		metaDefaultIface: "wg0",
-		metaDefaultPoll:  "10s",
+		metaRevision:      "0",
+		metaEnrollToken:   enroll,
+		metaVPNSubnet:     DefaultVPNSubnet,
+		metaDefaultIface:  "wg0",
+		metaDefaultPoll:   "10s",
 		metaTransportJSON: DefaultTransportJSON,
 	}
 	for k, v := range defaults {

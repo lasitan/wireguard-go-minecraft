@@ -139,9 +139,9 @@ type mcCamouflageConfig struct {
 }
 
 type transportConfigFile struct {
-	TCP         tcpConfigFile  `json:"tcp"`
-	MC          mcConfigFile   `json:"mc"`
-	Camouflage  camoConfigFile `json:"camouflage"`
+	TCP        tcpConfigFile  `json:"tcp"`
+	MC         mcConfigFile   `json:"mc"`
+	Camouflage camoConfigFile `json:"camouflage"`
 }
 
 type tcpConfigFile struct {
