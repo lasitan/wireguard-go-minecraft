@@ -1,8 +1,8 @@
 import { VIEW } from "../core/constants";
 import type { Mesh, PlacedNode } from "../core/models";
 import { state } from "../core/state";
-import { slotPos, stackChildren } from "./MagnetLayout";
-import { buildMagnetStacks } from "./MagnetStacks";
+import { motherAnchor, slotPos, stackChildren } from "./MagnetLayout";
+import { buildMagnetStacks, isMother } from "./MagnetStacks";
 import { forgetTween, tweenPos } from "./PositionTween";
 
 /** Default ring layout for a node index. */
@@ -48,6 +48,9 @@ export function syncPlacedNodes(mesh: Mesh): PlacedNode[] {
       const kids = stackChildren(parent, dragging);
       const idx = kids.indexOf(node.id);
       target = slotPos(state.nodePositions[parent], idx, kids.length);
+    } else if (isMother(node) && node.id !== dragging) {
+      const kids = stackChildren(node.id, dragging);
+      target = motherAnchor(state.nodePositions[node.id], kids.length);
     }
     const pos = tweenPos(node.id, target, state.displayPos[node.id], node.id === dragging);
     state.displayPos[node.id] = pos;

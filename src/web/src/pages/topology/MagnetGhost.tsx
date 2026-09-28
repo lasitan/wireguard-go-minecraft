@@ -1,5 +1,5 @@
 import { state } from "../../core/state";
-import { CARD_BOTTOM, CARD_HALF_W, CARD_TOP, slotPos, stackChildren } from "../../topology/MagnetLayout";
+import { CARD_BOTTOM, CARD_HALF_W, CARD_TOP, motherAnchor, slotPos, stackChildren } from "../../topology/MagnetLayout";
 
 /** Dashed slot under the hovered mother card: where the dragged card will land. */
 export function MagnetGhost() {
@@ -9,7 +9,7 @@ export function MagnetGhost() {
   if (!target || !dragging || !mother) return null;
   const n = stackChildren(target, dragging).length;
   const slot = slotPos(mother, n, n);
-  const above = n === 0 ? mother : slotPos(mother, n - 1, n);
+  const above = n === 0 ? motherAnchor(mother, n) : slotPos(mother, n - 1, n);
   return (
     <g key={target} className="magnet-ghost">
       <line className="magnet-ghost-rail" x1={above.x} y1={above.y + CARD_BOTTOM} x2={slot.x} y2={slot.y + CARD_TOP} />

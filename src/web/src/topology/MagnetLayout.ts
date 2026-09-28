@@ -19,17 +19,26 @@ function cardCenterOverlapsMaster(anchorX: number, anchorY: number): boolean {
   return Math.hypot(anchorX - VIEW.cx, cy - VIEW.cy) < MASTER_EXCLUSION_R + 18;
 }
 
-/** Shared X for a vertical stack column; shifts left/right if slots would cover Master. */
+function dodgeColumnX(mother: Pt): number {
+  const toRight = VIEW.cx + MASTER_EXCLUSION_R + CARD_HALF_W * 0.9;
+  const toLeft = VIEW.cx - MASTER_EXCLUSION_R - CARD_HALF_W * 0.9;
+  return Math.abs(toRight - mother.x) <= Math.abs(toLeft - mother.x) ? toRight : toLeft;
+}
+
+/** Shared X for mother + vertical stack; shifts left/right if any card would cover Master. */
 export function stackColumnX(mother: Pt, slotCount: number): number {
-  let x = mother.x;
+  const x = mother.x;
+  if (cardCenterOverlapsMaster(x, mother.y)) return dodgeColumnX(mother);
   for (let i = 0; i <= slotCount; i++) {
     const y = mother.y + STACK_PITCH * (i + 1);
-    if (!cardCenterOverlapsMaster(x, y)) continue;
-    const toRight = VIEW.cx + MASTER_EXCLUSION_R + CARD_HALF_W * 0.9;
-    const toLeft = VIEW.cx - MASTER_EXCLUSION_R - CARD_HALF_W * 0.9;
-    return Math.abs(toRight - mother.x) <= Math.abs(toLeft - mother.x) ? toRight : toLeft;
+    if (cardCenterOverlapsMaster(x, y)) return dodgeColumnX(mother);
   }
   return x;
+}
+
+/** Render / hit-test anchor for a mother (stored Y, dodged X). */
+export function motherAnchor(mother: Pt, slotCount: number): Pt {
+  return { x: stackColumnX(mother, slotCount), y: mother.y };
 }
 
 /** Child slot index (0-based); always stacks downward. slotCount sizes the column dodge. */
@@ -42,8 +51,8 @@ export function slotPos(mother: Pt, index: number, slotCount = index): Pt {
 export function stackHitBounds(mother: Pt, slotCount: number) {
   const colX = stackColumnX(mother, slotCount);
   const padX = CARD_HALF_W * 1.4;
-  let minX = Math.min(mother.x, colX);
-  let maxX = Math.max(mother.x, colX);
+  let minX = colX;
+  let maxX = colX;
   let minY = mother.y + CARD_TOP - 12;
   let maxY = mother.y + CARD_BOTTOM + 24;
   for (let i = 0; i <= slotCount; i++) {
@@ -71,7 +80,7 @@ export function findMagnetTarget(x: number, y: number, selfId: string): string |
     if (p.node.id === selfId || !isMother(p.node)) continue;
     const pos = state.nodePositions[p.node.id] || p;
     const kids = stackChildren(p.node.id, selfId).length;
-    const colX = stackColumnX(pos, kids);
+    const colX = motherAnchor(pos, kids).x;
     const b = stackHitBounds(pos, kids);
     if (x < b.minX || x > b.maxX || y < b.minY || y > b.maxY) continue;
     const dx = Math.abs(x - colX);
