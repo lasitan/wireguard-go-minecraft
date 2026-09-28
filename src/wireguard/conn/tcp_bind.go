@@ -31,7 +31,7 @@ const tcpFrameHeaderSize = 2
 
 const (
 	transportConfigFileName = "wireguard-go-transport.json"
-	defaultMCProtocol       = 760
+	defaultMCProtocol       = 765 // 1.20.4, matches the advertised status version
 	defaultMCHandshakeTime  = 5 * time.Second
 	defaultDialTimeout      = 3 * time.Second
 	defaultReconnectInitial = time.Second
@@ -583,8 +583,10 @@ func (b *TCPBind) dialOnce(ctx context.Context, dst netip.AddrPort) (net.Conn, e
 	stopAbort := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopAbort()
 
-	if err := b.performCamouflageClient(conn, dst); err != nil {
-		_ = conn.Close()
+	raw := conn
+	conn, err = b.performCamouflageClient(conn, dst)
+	if err != nil {
+		_ = raw.Close()
 		return nil, err
 	}
 	if b.dialToNAT.Load() && !b.camouflageHidesVPN() {
@@ -760,9 +762,10 @@ func (b *TCPBind) acceptLoop(listener net.Listener) {
 			}
 			continue
 		}
-		toNATFromMC, err := b.performCamouflageServer(conn)
+		raw := conn
+		conn, toNATFromMC, err := b.performCamouflageServer(conn)
 		if err != nil {
-			_ = conn.Close()
+			_ = raw.Close()
 			continue
 		}
 		conn, sawMagic, err := peekToNATMagic(conn)

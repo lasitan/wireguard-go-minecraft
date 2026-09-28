@@ -79,6 +79,15 @@ export function TransportCard() {
             />
             深度伪装（完整握手 + 密钥认证后再传 VPN 数据）
           </label>
+          <label className="transport-check">
+            <input
+              type="checkbox"
+              checked={camo.secure}
+              disabled={busy}
+              onChange={(e) => setCamo({ ...camo, secure: e.target.checked })}
+            />
+            防中间人加密（双向密钥认证 + 全流加密，防机房解包/重放探测；所有节点需同为新版）
+          </label>
           <label className="transport-field">
             <span>共享密钥</span>
             <input

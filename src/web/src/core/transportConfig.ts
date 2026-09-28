@@ -10,6 +10,8 @@ export type CamoProfile =
 export type TransportCamouflage = {
   profile: CamoProfile;
   deep: boolean;
+  /** Mutually authenticated key exchange + whole-stream encryption (anti-MITM / DPI). */
+  secure: boolean;
   handshakeTimeout: string;
   loginUsername: string;
   loginPluginChannel: string;
@@ -23,11 +25,11 @@ export type TransportView = {
 };
 
 export const CAMO_PROFILES: { id: CamoProfile; label: string; hint: string }[] = [
-  { id: "none", label: "关闭伪装", hint: "纯 TCP 长度前缀，无游戏握手" },
-  { id: "minecraft", label: "Minecraft Java", hint: "状态查询 + 登录插件（深度伪装）" },
+  { id: "none", label: "关闭伪装", hint: "�?TCP 长度前缀，无游戏握手" },
+  { id: "minecraft", label: "Minecraft Java", hint: "状态查�?+ 登录插件（深度伪装）" },
   { id: "bedrock", label: "Minecraft Bedrock", hint: "RakNet 风格离线 Ping/Pong" },
   { id: "source", label: "Source / CS2", hint: "Source Engine A2S 查询" },
-  { id: "terraria", label: "Terraria", hint: "连接包 + 断开提示" },
+  { id: "terraria", label: "Terraria", hint: "连接�?+ 断开提示" },
   { id: "steam", label: "Steam（Rust / Valheim 等）", hint: "Steam 挑战/应答" },
   { id: "fivem", label: "FiveM / GTA", hint: "HTTP info.json 探针" },
 ];
@@ -35,6 +37,7 @@ export const CAMO_PROFILES: { id: CamoProfile; label: string; hint: string }[] =
 const defaultCamo = (): TransportCamouflage => ({
   profile: "minecraft",
   deep: true,
+  secure: true,
   handshakeTimeout: "10s",
   loginUsername: "Steve",
   loginPluginChannel: "minecraft:register",
@@ -53,6 +56,7 @@ export function parseTransport(raw: unknown): TransportView {
   else if (mc.enabled === false) camo.profile = "none";
   if (typeof c.deep === "boolean") camo.deep = c.deep;
   else if (typeof mc.deepCamouflage === "boolean") camo.deep = mc.deepCamouflage;
+  if (typeof c.secure === "boolean") camo.secure = c.secure;
   if (typeof c.handshakeTimeout === "string") camo.handshakeTimeout = c.handshakeTimeout;
   else if (typeof mc.handshakeTimeout === "string") camo.handshakeTimeout = mc.handshakeTimeout;
   if (typeof c.loginUsername === "string") camo.loginUsername = c.loginUsername;
@@ -81,6 +85,7 @@ export function buildTransportJson(camo: TransportCamouflage, prev?: unknown): s
   root.camouflage = {
     profile: camo.profile,
     deep: camo.deep,
+    secure: camo.secure,
     handshakeTimeout: camo.handshakeTimeout,
     loginUsername: camo.loginUsername,
     loginPluginChannel: camo.loginPluginChannel,

@@ -32,11 +32,13 @@ type camoSharedConfig struct {
 	pluginSecret  string
 	rejectMessage string
 	serverName    string
+	secure        bool
 }
 
 type camoConfigFile struct {
 	Profile            string `json:"profile"`
 	Deep               *bool  `json:"deep"`
+	Secure             *bool  `json:"secure"`
 	HandshakeTimeout   string `json:"handshakeTimeout"`
 	LoginUsername      string `json:"loginUsername"`
 	LoginPluginChannel string `json:"loginPluginChannel"`
@@ -118,6 +120,7 @@ func loadCamouflageConfig(fileCfg transportConfigFile) (camoSharedConfig, mcCamo
 		pluginSecret:  secret,
 		rejectMessage: reject,
 		serverName:    name,
+		secure:        cf.Secure == nil || *cf.Secure,
 	}
 	if profile == camoProfileMinecraft {
 		mc.enabled = true
@@ -139,48 +142,60 @@ func (b *TCPBind) getCamo() camoSharedConfig {
 	return b.camoShared
 }
 
-func (b *TCPBind) performCamouflageClient(conn net.Conn, dst netip.AddrPort) error {
+// performCamouflageClient runs the profile handshake and returns the conn to
+// carry frames on (stream-encrypted when secure camouflage is on).
+func (b *TCPBind) performCamouflageClient(conn net.Conn, dst netip.AddrPort) (net.Conn, error) {
 	cfg := b.getCamo()
+	var err error
 	switch cfg.profile {
 	case camoProfileNone:
-		return nil
+		return conn, nil
 	case camoProfileMinecraft:
 		return b.performMCCamouflageClient(conn, dst)
 	case camoProfileSource:
-		return b.performSourceCamouflageClient(conn, cfg)
+		err = b.performSourceCamouflageClient(conn, cfg)
 	case camoProfileTerraria:
-		return b.performTerrariaCamouflageClient(conn, cfg)
+		err = b.performTerrariaCamouflageClient(conn, cfg)
 	case camoProfileSteam:
-		return b.performSteamCamouflageClient(conn, cfg)
+		err = b.performSteamCamouflageClient(conn, cfg)
 	case camoProfileBedrock:
-		return b.performBedrockCamouflageClient(conn, cfg)
+		err = b.performBedrockCamouflageClient(conn, cfg)
 	case camoProfileFiveM:
-		return b.performFiveMCamouflageClient(conn, cfg)
+		err = b.performFiveMCamouflageClient(conn, cfg)
 	default:
-		return fmt.Errorf("unknown camouflage profile %q", cfg.profile)
+		return nil, fmt.Errorf("unknown camouflage profile %q", cfg.profile)
 	}
+	if err != nil || !cfg.secure {
+		return conn, err
+	}
+	return b.secureGenericClient(conn, cfg)
 }
 
-func (b *TCPBind) performCamouflageServer(conn net.Conn) (toNAT bool, err error) {
+func (b *TCPBind) performCamouflageServer(conn net.Conn) (net.Conn, bool, error) {
 	cfg := b.getCamo()
+	var err error
 	switch cfg.profile {
 	case camoProfileNone:
-		return false, nil
+		return conn, false, nil
 	case camoProfileMinecraft:
 		return b.performMCCamouflageServer(conn)
 	case camoProfileSource:
-		return false, b.performSourceCamouflageServer(conn, cfg)
+		err = b.performSourceCamouflageServer(conn, cfg)
 	case camoProfileTerraria:
-		return false, b.performTerrariaCamouflageServer(conn, cfg)
+		err = b.performTerrariaCamouflageServer(conn, cfg)
 	case camoProfileSteam:
-		return false, b.performSteamCamouflageServer(conn, cfg)
+		err = b.performSteamCamouflageServer(conn, cfg)
 	case camoProfileBedrock:
-		return false, b.performBedrockCamouflageServer(conn, cfg)
+		err = b.performBedrockCamouflageServer(conn, cfg)
 	case camoProfileFiveM:
-		return false, b.performFiveMCamouflageServer(conn, cfg)
+		err = b.performFiveMCamouflageServer(conn, cfg)
 	default:
-		return false, fmt.Errorf("unknown camouflage profile %q", cfg.profile)
+		return nil, false, fmt.Errorf("unknown camouflage profile %q", cfg.profile)
 	}
+	if err != nil || !cfg.secure {
+		return conn, false, err
+	}
+	return b.secureGenericServer(conn, cfg)
 }
 
 func camoAuthClient(conn net.Conn, secret string, challenge []byte) error {

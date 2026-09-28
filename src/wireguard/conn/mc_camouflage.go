@@ -10,12 +10,15 @@ import (
 	"crypto/hmac"
 	"crypto/md5"
 	cryptorand "crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"math/rand/v2"
 	"net"
 	"net/netip"
@@ -117,26 +120,289 @@ func randomMCStatusJSON() string {
 	return string(b)
 }
 
-func (b *TCPBind) performMCCamouflageClient(conn net.Conn, dst netip.AddrPort) error {
+func (b *TCPBind) performMCCamouflageClient(conn net.Conn, dst netip.AddrPort) (net.Conn, error) {
 	cfg := b.mcDeepConfig()
 	if !cfg.enabled {
-		return nil
+		return conn, nil
+	}
+	if b.getCamo().secure {
+		return b.performMCCamouflageClientSecure(conn, dst, cfg)
 	}
 	if !cfg.deep {
-		return b.performMCCamouflageClientShallow(conn, dst, cfg)
+		return conn, b.performMCCamouflageClientShallow(conn, dst, cfg)
 	}
-	return b.performMCCamouflageClientDeep(conn, dst, cfg)
+	return conn, b.performMCCamouflageClientDeep(conn, dst, cfg)
 }
 
-func (b *TCPBind) performMCCamouflageServer(conn net.Conn) (toNAT bool, err error) {
+func (b *TCPBind) performMCCamouflageServer(conn net.Conn) (net.Conn, bool, error) {
 	cfg := b.mcDeepConfig()
 	if !cfg.enabled {
-		return false, nil
+		return conn, false, nil
+	}
+	if b.getCamo().secure {
+		return b.performMCCamouflageServerSecure(conn, cfg)
 	}
 	if !cfg.deep {
-		return false, b.performMCCamouflageServerShallow(conn, cfg)
+		return conn, false, b.performMCCamouflageServerShallow(conn, cfg)
 	}
-	return b.performMCCamouflageServerDeep(conn, cfg)
+	toNAT, err := b.performMCCamouflageServerDeep(conn, cfg)
+	return conn, toNAT, err
+}
+
+// mcStatusPing is the server-list probe a real client sends before logging in.
+func mcStatusPingClient(conn net.Conn, host string, port uint16) error {
+	if err := writeMCPacket(conn, encodeMCHandshake(defaultMCProtocol, host, port, mcStateStatus)); err != nil {
+		return fmt.Errorf("mc status handshake: %w", err)
+	}
+	if err := writeMCPacket(conn, encodeMCStatusRequest()); err != nil {
+		return fmt.Errorf("mc status request: %w", err)
+	}
+	statusResp, err := readMCPacket(conn)
+	if err != nil {
+		return fmt.Errorf("mc status response: %w", err)
+	}
+	if err := decodeMCStatusResponse(statusResp); err != nil {
+		return fmt.Errorf("mc status invalid: %w", err)
+	}
+	pingTime := time.Now().UnixMilli()
+	if err := writeMCPacket(conn, encodeMCPing(pingTime)); err != nil {
+		return fmt.Errorf("mc ping: %w", err)
+	}
+	pong, err := readMCPacket(conn)
+	if err != nil {
+		return fmt.Errorf("mc pong: %w", err)
+	}
+	return decodeMCPong(pong, pingTime)
+}
+
+func mcStatusPingServer(conn net.Conn) error {
+	hs, err := readMCPacket(conn)
+	if err != nil {
+		return fmt.Errorf("mc status handshake: %w", err)
+	}
+	if err := decodeMCHandshake(hs, mcStateStatus); err != nil {
+		return fmt.Errorf("mc status handshake invalid: %w", err)
+	}
+	req, err := readMCPacket(conn)
+	if err != nil {
+		return fmt.Errorf("mc status request: %w", err)
+	}
+	if err := decodeMCStatusRequest(req); err != nil {
+		return fmt.Errorf("mc status request invalid: %w", err)
+	}
+	if err := writeMCPacket(conn, encodeMCStatusResponse(randomMCStatusJSON())); err != nil {
+		return fmt.Errorf("mc status response: %w", err)
+	}
+	ping, err := readMCPacket(conn)
+	if err != nil {
+		return fmt.Errorf("mc ping: %w", err)
+	}
+	t, err := decodeMCPing(ping)
+	if err != nil {
+		return fmt.Errorf("mc ping invalid: %w", err)
+	}
+	return writeMCPacket(conn, encodeMCPong(t))
+}
+
+// Secure login looks like an online-mode server: Login Start → Encryption
+// Request (our hello inside the RSA modulus) → Encryption Response (our reply
+// as the "encrypted shared secret") → everything encrypted from here on,
+// starting with Login Success, which doubles as the server's key confirmation.
+func (b *TCPBind) performMCCamouflageClientSecure(conn net.Conn, dst netip.AddrPort, cfg mcDeepConfig) (net.Conn, error) {
+	if err := conn.SetDeadline(time.Now().Add(cfg.timeout)); err != nil {
+		return nil, err
+	}
+	defer conn.SetDeadline(time.Time{})
+	host, port := dst.Addr().String(), dst.Port()
+	if err := mcStatusPingClient(conn, host, port); err != nil {
+		return nil, err
+	}
+	if err := writeMCPacket(conn, encodeMCHandshake(defaultMCProtocol, host, port, mcStateLogin)); err != nil {
+		return nil, fmt.Errorf("mc login handshake: %w", err)
+	}
+	if err := writeMCPacket(conn, encodeMCLoginStartUUID(cfg.loginUsername)); err != nil {
+		return nil, fmt.Errorf("mc login start: %w", err)
+	}
+	pkt, err := readMCPacket(conn)
+	if err != nil {
+		return nil, fmt.Errorf("mc encryption request: %w", err)
+	}
+	id, rest, err := mcPacketHead(pkt)
+	if err != nil {
+		return nil, err
+	}
+	switch id {
+	case mcIDEncryptionRequest:
+	case mcIDDisconnect:
+		return nil, fmt.Errorf("server rejected MC login (%s)", decodeMCDisconnectMessage(rest))
+	case mcIDLoginPluginRequest:
+		return nil, errors.New("peer runs legacy (unencrypted) camouflage; upgrade it or set camouflage.secure=false on every node")
+	default:
+		return nil, fmt.Errorf("unexpected packet id %d", id)
+	}
+	hello, err := decodeMCEncryptionRequest(rest)
+	if err != nil {
+		return nil, fmt.Errorf("mc encryption request invalid: %w", err)
+	}
+	psk := securePSK(cfg.pluginSecret)
+	reply, keys, err := secureClientReply(psk, hello, b.dialToNAT.Load())
+	if err != nil {
+		return nil, fmt.Errorf("mc encryption request: %w (possible MITM, or loginPluginSecret differs)", err)
+	}
+	token := make([]byte, secureBlobLen)
+	if _, err := cryptorand.Read(token); err != nil {
+		return nil, err
+	}
+	if err := writeMCPacket(conn, encodeMCEncryptionResponse(reply, token)); err != nil {
+		return nil, fmt.Errorf("mc encryption response: %w", err)
+	}
+	sc, err := newSecureConn(conn, keys, false)
+	if err != nil {
+		return nil, err
+	}
+	success, err := readMCPacket(sc)
+	if err != nil {
+		return nil, fmt.Errorf("mc login success: %w", err)
+	}
+	if err := decodeMCLoginSuccess(success, cfg.loginUsername); err != nil {
+		return nil, fmt.Errorf("mc login success invalid (possible MITM): %w", err)
+	}
+	return sc, nil
+}
+
+func (b *TCPBind) performMCCamouflageServerSecure(conn net.Conn, cfg mcDeepConfig) (net.Conn, bool, error) {
+	if err := conn.SetDeadline(time.Now().Add(cfg.timeout)); err != nil {
+		return nil, false, err
+	}
+	defer conn.SetDeadline(time.Time{})
+	if err := mcStatusPingServer(conn); err != nil {
+		return nil, false, err
+	}
+	hs, err := readMCPacket(conn)
+	if err != nil {
+		return nil, false, fmt.Errorf("mc login handshake: %w", err)
+	}
+	if err := decodeMCHandshake(hs, mcStateLogin); err != nil {
+		return nil, false, fmt.Errorf("mc login handshake invalid: %w", err)
+	}
+	start, err := readMCPacket(conn)
+	if err != nil {
+		return nil, false, fmt.Errorf("mc login start: %w", err)
+	}
+	if _, err := decodeMCLoginStart(start); err != nil {
+		return nil, false, fmt.Errorf("mc login start invalid: %w", err)
+	}
+	psk := securePSK(cfg.pluginSecret)
+	hello, priv, err := secureServerHello(psk)
+	if err != nil {
+		return nil, false, err
+	}
+	verify := make([]byte, 4)
+	if _, err := cryptorand.Read(verify); err != nil {
+		return nil, false, err
+	}
+	req, err := encodeMCEncryptionRequest(hello, verify)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := writeMCPacket(conn, req); err != nil {
+		return nil, false, fmt.Errorf("mc encryption request: %w", err)
+	}
+	resp, err := readMCPacket(conn)
+	if err != nil {
+		return nil, false, fmt.Errorf("mc encryption response: %w", err)
+	}
+	id, rest, err := mcPacketHead(resp)
+	if err != nil || id != mcIDEncryptionResponse {
+		return nil, false, sendMCDisconnect(conn, cfg.rejectMessage)
+	}
+	reply, err := decodeMCEncryptionResponse(rest)
+	if err != nil {
+		return nil, false, sendMCDisconnect(conn, cfg.rejectMessage)
+	}
+	keys, toNAT, err := secureServerFinish(psk, hello, priv, reply)
+	if err != nil {
+		// Same as a real server failing to decrypt: drop without a word.
+		return nil, false, err
+	}
+	sc, err := newSecureConn(conn, keys, true)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := writeMCPacket(sc, encodeMCLoginSuccess(cfg.loginUsername)); err != nil {
+		return nil, false, fmt.Errorf("mc login success: %w", err)
+	}
+	return sc, toNAT, nil
+}
+
+// encodeMCEncryptionRequest carries hello as the modulus of an RSA-1024 key.
+func encodeMCEncryptionRequest(hello, verifyToken []byte) ([]byte, error) {
+	der, err := x509.MarshalPKIXPublicKey(&rsa.PublicKey{N: new(big.Int).SetBytes(hello), E: 65537})
+	if err != nil {
+		return nil, err
+	}
+	var p bytes.Buffer
+	writeMCVarInt(&p, mcIDEncryptionRequest)
+	writeMCString(&p, "") // server id: empty since 1.7
+	writeMCByteArray(&p, der)
+	writeMCByteArray(&p, verifyToken)
+	return p.Bytes(), nil
+}
+
+func decodeMCEncryptionRequest(rest []byte) ([]byte, error) {
+	r := bytes.NewReader(rest)
+	if _, err := readMCString(r); err != nil {
+		return nil, err
+	}
+	der, err := readMCByteArray(r)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := readMCByteArray(r); err != nil {
+		return nil, err
+	}
+	pub, err := x509.ParsePKIXPublicKey(der)
+	if err != nil {
+		return nil, err
+	}
+	rk, ok := pub.(*rsa.PublicKey)
+	if !ok || rk.N.BitLen() != secureBlobLen*8 {
+		return nil, errors.New("unexpected server key")
+	}
+	return rk.N.FillBytes(make([]byte, secureBlobLen)), nil
+}
+
+func encodeMCEncryptionResponse(sharedSecret, verifyToken []byte) []byte {
+	var p bytes.Buffer
+	writeMCVarInt(&p, mcIDEncryptionResponse)
+	writeMCByteArray(&p, sharedSecret)
+	writeMCByteArray(&p, verifyToken)
+	return p.Bytes()
+}
+
+func decodeMCEncryptionResponse(rest []byte) ([]byte, error) {
+	r := bytes.NewReader(rest)
+	secret, err := readMCByteArray(r)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := readMCByteArray(r); err != nil {
+		return nil, err
+	}
+	if r.Len() != 0 || len(secret) != secureBlobLen {
+		return nil, errors.New("bad encryption response")
+	}
+	return secret, nil
+}
+
+// encodeMCLoginStartUUID is the 1.20.2+ Login Start: name + player UUID.
+func encodeMCLoginStartUUID(username string) []byte {
+	var payload bytes.Buffer
+	writeMCVarInt(&payload, mcIDLoginStart)
+	writeMCString(&payload, username)
+	uuid := offlinePlayerUUID(username)
+	payload.Write(uuid[:])
+	return payload.Bytes()
 }
 
 func (b *TCPBind) performMCCamouflageClientShallow(conn net.Conn, dst netip.AddrPort, cfg mcDeepConfig) error {
@@ -511,7 +777,8 @@ func decodeMCLoginStart(payload []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if r.Len() != 0 {
+	// 1.20.2+ clients append the player UUID.
+	if r.Len() != 0 && r.Len() != 16 {
 		return "", errors.New("unexpected trailing data in login start")
 	}
 	return username, nil
