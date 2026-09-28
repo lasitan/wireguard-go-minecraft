@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	Repo        = "lasitan/wireguard-go-minecraft"
+	Repo        = "lasitan/Lasitan-Cluster"
 	ReleasesURL = "https://github.com/" + Repo + "/releases"
 	rawBase     = "https://raw.githubusercontent.com/" + Repo + "/main"
 
@@ -21,7 +21,7 @@ const (
 
 	// ProxyEnv prefixes GitHub download URLs (e.g. https://ghfast.top/) for
 	// hosts that cannot reach github.com directly.
-	ProxyEnv = "WG_MC_GH_PROXY"
+	ProxyEnv = "LASITAN_GH_PROXY"
 
 	// CNProxy is the GitHub mirror used for hosts located in mainland China.
 	CNProxy = "https://ghfast.top/"
@@ -69,7 +69,7 @@ func Latest(ctx context.Context) (*Release, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "wireguard-mc/"+orDev(Current()))
+	req.Header.Set("User-Agent", "lasitan-cluster/"+orDev(Current()))
 	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
@@ -143,7 +143,7 @@ func (r *Release) Asset(name string) (Asset, bool) {
 	return Asset{}, false
 }
 
-// Proxied applies the WG_MC_GH_PROXY prefix to a GitHub download URL.
+// Proxied applies the LASITAN_GH_PROXY prefix to a GitHub download URL.
 func Proxied(url string) string {
 	p := strings.TrimSpace(os.Getenv(ProxyEnv))
 	if p == "" {

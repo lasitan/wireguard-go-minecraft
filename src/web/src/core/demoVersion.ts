@@ -2,8 +2,8 @@ import type { Mesh, VersionInfo } from "./models";
 import { demoLink } from "./demoStats";
 import { isNewerVersion } from "../utils/compareVersion";
 
-const REPO = "https://github.com/lasitan/wireguard-go-minecraft";
-const RAW = "https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/scripts";
+const REPO = "https://github.com/lasitan/Lasitan-Cluster";
+const RAW = "https://raw.githubusercontent.com/lasitan/Lasitan-Cluster/main/scripts";
 const DEMO_LATEST = "2.1.1";
 let DEMO_CURRENT = "2.1.0";
 
@@ -45,8 +45,8 @@ export function demoVersion(mesh: Mesh | null): VersionInfo {
     releasesUrl: REPO + "/releases",
     commands: {
       linux: `curl -fsSL ${RAW}/install.sh | sudo bash`,
-      linuxCn: `curl -fsSL https://ghfast.top/${RAW}/install.sh | sudo WG_MC_GH_PROXY=https://ghfast.top/ bash`,
-      installed: "sudo wireguard-go update",
+      linuxCn: `curl -fsSL https://ghfast.top/${RAW}/install.sh | sudo LASITAN_GH_PROXY=https://ghfast.top/ bash`,
+      installed: "sudo lasitan-cluster update",
       windows: `powershell -ExecutionPolicy Bypass -c "irm ${RAW}/install.ps1 | iex"`,
     },
     outdatedAgents: outdated,

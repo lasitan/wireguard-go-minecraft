@@ -38,7 +38,7 @@ const (
 	secureTagOff    = 49
 	secureTagLen    = 16
 	secureConfirmSz = 16
-	secureInfo      = "wgmc-secure-v1"
+	secureInfo      = "lasitan-secure-v1"
 )
 
 var errSecureAuth = errors.New("camouflage peer failed secret authentication")

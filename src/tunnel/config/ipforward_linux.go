@@ -20,7 +20,7 @@ func EnableIPForward(logger *device.Logger) error {
 			return fmt.Errorf("ipv4 ip_forward: %w", err)
 		}
 		logger.Verbosef("enabled net.ipv4.ip_forward")
-		fmt.Fprintln(os.Stderr, "wireguard-go: enabled net.ipv4.ip_forward")
+		fmt.Fprintln(os.Stderr, "lasitan-cluster: enabled net.ipv4.ip_forward")
 	}
 	return nil
 }

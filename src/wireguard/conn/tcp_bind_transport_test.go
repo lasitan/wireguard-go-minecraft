@@ -5,7 +5,7 @@ import "testing"
 // Agents open the bind before Master's transport config arrives; a later push
 // must reach the open bind or the MC login secret never matches the server.
 func TestTransportPushReachesOpenBind(t *testing.T) {
-	t.Setenv("WG_CONF_DIR", t.TempDir())
+	t.Setenv("LASITAN_CONF_DIR", t.TempDir())
 	SetTransportConfigJSON(nil)
 	t.Cleanup(func() { SetTransportConfigJSON(nil) })
 

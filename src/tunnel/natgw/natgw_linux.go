@@ -94,7 +94,7 @@ func (g *NatGateway) Start(dev *device.Device) error {
 
 	installNatInboundFilter(dev, g.runtime, g.cfg.UpstreamAddr, g.logger)
 
-	fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway ready on %s (%s); ToNAT clients auto-register; block nested %s\n",
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: NAT gateway ready on %s (%s); ToNAT clients auto-register; block nested %s\n",
 		g.iface, g.backend, g.cfg.UpstreamAddr.String())
 	g.logger.Verbosef("NAT gateway: forward+SNAT+nested-block via %s (dynamic ToNAT)", g.backend)
 	return nil

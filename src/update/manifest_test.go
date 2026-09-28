@@ -8,7 +8,7 @@ import (
 
 func TestManifestRoundTrip(t *testing.T) {
 	rel := &Release{Tag: "v2.1.0", Version: "2.1.0", Assets: []Asset{
-		{Name: "wireguard-go-linux-amd64", URL: "https://github.com/x/y/releases/download/v2.1.0/a", Size: 42, SHA256: "ab"},
+		{Name: "lasitan-cluster-linux-amd64", URL: "https://github.com/x/y/releases/download/v2.1.0/a", Size: 42, SHA256: "ab"},
 	}}
 	b, err := rel.Manifest()
 	if err != nil {
@@ -18,7 +18,7 @@ func TestManifestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, ok := got.Asset("wireguard-go-linux-amd64")
+	a, ok := got.Asset("lasitan-cluster-linux-amd64")
 	if !ok || got.Tag != rel.Tag || a != rel.Assets[0] {
 		t.Fatalf("round trip: %+v", got)
 	}

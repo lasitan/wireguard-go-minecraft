@@ -1,13 +1,13 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: wireguard-mc
-Source: https://github.com/WireGuard/wireguard-go
+Upstream-Name: lasitan-cluster
+Source: https://github.com/WireGuard/lasitan-cluster
 
 Files: *
 Copyright: Jason A. Donenfeld <Jason@zx2c4.com>
 License: MIT
 
 Files: debian/*
-Copyright: wireguard-mc maintainers
+Copyright: lasitan-cluster maintainers
 License: MIT
 
 License: MIT

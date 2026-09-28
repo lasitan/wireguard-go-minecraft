@@ -8,7 +8,7 @@ import (
 )
 
 // handleAgentInstallCommands returns one-line install+enroll commands for a
-// machine that has never run wireguard-mc (admin only).
+// machine that has never run lasitan-cluster (admin only).
 func (s *Server) handleAgentInstallCommands(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

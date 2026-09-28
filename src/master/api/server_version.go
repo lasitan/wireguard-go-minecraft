@@ -29,8 +29,8 @@ type versionView struct {
 func updateCommandSet() updateCommands {
 	return updateCommands{
 		Linux:     "curl -fsSL " + update.InstallScriptURL + " | sudo bash",
-		LinuxCN:   "curl -fsSL https://ghfast.top/" + update.InstallScriptURL + " | sudo WG_MC_GH_PROXY=https://ghfast.top/ bash",
-		Installed: "sudo wireguard-go update",
+		LinuxCN:   "curl -fsSL https://ghfast.top/" + update.InstallScriptURL + " | sudo LASITAN_GH_PROXY=https://ghfast.top/ bash",
+		Installed: "sudo lasitan-cluster update",
 		Windows:   `powershell -ExecutionPolicy Bypass -c "irm ` + update.InstallPS1URL + ` | iex"`,
 	}
 }

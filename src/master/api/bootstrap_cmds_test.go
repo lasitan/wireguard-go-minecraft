@@ -14,10 +14,10 @@ func TestAgentInstallCommandsAPI(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("status %d", code)
 	}
-	if !strings.Contains(out.Linux, "WG_MC_BOOTSTRAP=agent") || !strings.Contains(out.Linux, "WG_MC_ENROLL_KEY=") {
+	if !strings.Contains(out.Linux, "LASITAN_BOOTSTRAP=agent") || !strings.Contains(out.Linux, "LASITAN_ENROLL_KEY=") {
 		t.Fatalf("linux: %q", out.Linux)
 	}
-	if !strings.Contains(out.Linux, "WG_MC_ROLE='server'") && !strings.Contains(out.Linux, `WG_MC_ROLE='server'`) {
+	if !strings.Contains(out.Linux, "LASITAN_ROLE='server'") && !strings.Contains(out.Linux, `LASITAN_ROLE='server'`) {
 		t.Fatalf("server role missing: %q", out.Linux)
 	}
 	if !strings.Contains(out.Linux, "25590") {

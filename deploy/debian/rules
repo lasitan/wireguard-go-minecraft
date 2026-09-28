@@ -31,28 +31,28 @@ LDFLAGS := -s -w -X golang.zx2c4.com/wireguard/src/core/version.Version=$(VERSIO
 	dh $@
 
 override_dh_auto_clean:
-	rm -f wireguard-go
+	rm -f lasitan-cluster
 	dh_auto_clean
 
 override_dh_auto_build:
 	@command -v go >/dev/null || { echo "go toolchain missing in PATH (expected /usr/local/go)"; exit 1; }
 	go version
-	go build -trimpath -ldflags "$(LDFLAGS)" -o wireguard-go ./src
+	go build -trimpath -ldflags "$(LDFLAGS)" -o lasitan-cluster ./src
 
 override_dh_auto_test:
 	@echo "Skipping unit tests during package build"
 
 override_dh_auto_install:
-	install -d debian/wireguard-mc/usr/bin
-	install -m 0755 wireguard-go debian/wireguard-mc/usr/bin/wireguard-go
-	install -d debian/wireguard-mc/etc/wireguard
-	install -m 0644 deploy/examples/wireguard-go-master.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-master.json.example
-	install -m 0644 deploy/examples/wireguard-go-agent.json.example debian/wireguard-mc/etc/wireguard/wireguard-go-agent.json.example
-	install -d debian/wireguard-mc/usr/share/doc/wireguard-mc
-	install -m 0644 debian/README.Debian debian/wireguard-mc/usr/share/doc/wireguard-mc/README.Debian
-	install -d debian/wireguard-mc/lib/systemd/system
-	install -m 0644 debian/wireguard-go@.service debian/wireguard-mc/lib/systemd/system/wireguard-go@.service
-	install -m 0644 debian/wireguard-go-master.service debian/wireguard-mc/lib/systemd/system/wireguard-go-master.service
+	install -d debian/lasitan-cluster/usr/bin
+	install -m 0755 lasitan-cluster debian/lasitan-cluster/usr/bin/lasitan-cluster
+	install -d debian/lasitan-cluster/etc/lasitan-cluster
+	install -m 0644 deploy/examples/lasitan-cluster-master.json.example debian/lasitan-cluster/etc/lasitan-cluster/lasitan-cluster-master.json.example
+	install -m 0644 deploy/examples/lasitan-cluster-agent.json.example debian/lasitan-cluster/etc/lasitan-cluster/lasitan-cluster-agent.json.example
+	install -d debian/lasitan-cluster/usr/share/doc/lasitan-cluster
+	install -m 0644 debian/README.Debian debian/lasitan-cluster/usr/share/doc/lasitan-cluster/README.Debian
+	install -d debian/lasitan-cluster/lib/systemd/system
+	install -m 0644 debian/lasitan-cluster@.service debian/lasitan-cluster/lib/systemd/system/lasitan-cluster@.service
+	install -m 0644 debian/lasitan-cluster-master.service debian/lasitan-cluster/lib/systemd/system/lasitan-cluster-master.service
 
 override_dh_dwz:
 	@echo "Skipping dh_dwz for Go binary"

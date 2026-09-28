@@ -1,16 +1,16 @@
 # Example: edit configs under ./config then:
 #   docker compose up -d
 #
-# Image: set WG_MC_IMAGE or build locally with deploy/scripts/package-docker.sh
+# Image: set LASITAN_IMAGE or build locally with deploy/scripts/package-docker.sh
 services:
-  wireguard:
-    image: ${WG_MC_IMAGE:-ghcr.io/lasitan/wireguard-go-minecraft:latest}
+  lasitan-cluster:
+    image: ${LASITAN_IMAGE:-ghcr.io/lasitan/Lasitan-Cluster:latest}
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile
       args:
         GO_VERSION: ${GO_VERSION:-1.23.1}
-    container_name: wireguard-mc
+    container_name: lasitan-cluster
     restart: unless-stopped
     network_mode: host
     cap_add:
@@ -19,7 +19,7 @@ services:
     devices:
       - /dev/net/tun:/dev/net/tun
     volumes:
-      - ./config:/etc/wireguard
+      - ./config:/etc/lasitan-cluster
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-error}
     # Needed when using ToNAT / Nat gateway (B-side)

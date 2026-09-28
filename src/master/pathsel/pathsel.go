@@ -128,12 +128,12 @@ func (s *Selector) Tick(now time.Time) {
 	next := Choose(m.Paths, cands, rtt, alive)
 	changed, err := s.Store.SetPaths(next)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go master: path selection: %v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster master: path selection: %v\n", err)
 		return
 	}
 	sbChanged, err := s.Store.SetStandby(core.ClusterStandby(&m, alive))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go master: cluster standby: %v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster master: cluster standby: %v\n", err)
 	}
 	if (changed || sbChanged) && s.Push != nil {
 		s.Push()

@@ -158,7 +158,7 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "wireguard-go: hot-applying revision=%d role=%s (peers +%d -%d ~%d)\n",
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: hot-applying revision=%d role=%s (peers +%d -%d ~%d)\n",
 		d.Revision, d.Role, added, removed, updated)
 	if err := dev.IpcSetOperation(bufio.NewReader(&buf)); err != nil {
 		return nil, fmt.Errorf("apply desired uapi: %w", err)
@@ -179,14 +179,14 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		if add, del := diffRoutes(want, have); len(add)+len(del) > 0 {
 			if err := syncIfaceRoutes(iface, add, del, logger); err != nil {
 				logger.Errorf("tunnel routes: %v", err)
-				fmt.Fprintf(os.Stderr, "wireguard-go: warning: tunnel routes: %v\n", err)
+				fmt.Fprintf(os.Stderr, "lasitan-cluster: warning: tunnel routes: %v\n", err)
 			}
 		}
 	}
 	if d.IPForward {
 		if err := EnableIPForward(logger); err != nil {
 			logger.Verbosef("ip forward: %v", err)
-			fmt.Fprintf(os.Stderr, "wireguard-go: warning: enable ip forward: %v\n", err)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: warning: enable ip forward: %v\n", err)
 		}
 	}
 	return &ConfApplyResult{NetCfg: netCfg, Peers: peers}, nil

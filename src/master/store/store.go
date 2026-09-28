@@ -83,7 +83,7 @@ func OpenStore(dataDir string) (*Store, error) {
 	// One-time import of legacy mesh.json if DB has no nodes.
 	legacy := filepath.Join(dataDir, "mesh.json")
 	if err := s.importLegacyJSON(legacy); err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go master: legacy mesh.json import: %v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster master: legacy mesh.json import: %v\n", err)
 	}
 	return s, nil
 }
@@ -201,7 +201,7 @@ func (s *Store) ensureSeeds() error {
 		metaRevision:      "0",
 		metaEnrollToken:   enroll,
 		metaVPNSubnet:     DefaultVPNSubnet,
-		metaDefaultIface:  "wg0",
+		metaDefaultIface:  "lc0",
 		metaDefaultPoll:   "10s",
 		metaTransportJSON: DefaultTransportJSON,
 	}

@@ -1,4 +1,4 @@
-wireguard-go
+lasitan-cluster
 /dist/
 /*.deb
 /*-dbgsym_*.deb

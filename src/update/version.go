@@ -1,4 +1,4 @@
-// Package update checks GitHub Releases for newer wireguard-mc builds and
+// Package update checks GitHub Releases for newer lasitan-cluster builds and
 // replaces the running binary in place.
 package update
 
@@ -25,7 +25,7 @@ func Normalize(v string) string {
 }
 
 // Valid returns the normalized version when it parses as semver, else "".
-// Pre-2.0.3 agents send a protocol tag ("wg-mc-agent/2") instead.
+// Pre-2.0.3 agents send a protocol tag ("lasitan-agent/2") instead.
 func Valid(v string) string {
 	if _, ok := parse(v); !ok {
 		return ""

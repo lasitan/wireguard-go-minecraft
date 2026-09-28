@@ -59,6 +59,6 @@ func ensureWintunDLL() error {
 			return fmt.Errorf("install wintun.dll to %s: %w", dest, err2)
 		}
 	}
-	fmt.Fprintf(os.Stderr, "wireguard-go: released embedded wintun.dll → %s\n", dest)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: released embedded wintun.dll → %s\n", dest)
 	return nil
 }

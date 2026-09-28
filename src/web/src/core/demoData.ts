@@ -129,7 +129,7 @@ export function demoMeta(): Meta {
     enrollToken: "dev-preview-enroll-token",
     vpnSubnet: "100.96.0.0/24",
     listen: ":8443",
-    defaultIface: "wg0",
+    defaultIface: "lc0",
     defaultPoll: "10s",
     relayPort: 25599,
     transport: JSON.parse(`{

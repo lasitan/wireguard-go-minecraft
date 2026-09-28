@@ -295,7 +295,7 @@ func (s *StatsService) Run(stop <-chan struct{}) {
 	defer flush.Stop()
 	defer rollup.Stop()
 	if err := s.store.RollupAndPrune(time.Now()); err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go master: traffic rollup: %v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster master: traffic rollup: %v\n", err)
 	}
 	for {
 		select {
@@ -306,7 +306,7 @@ func (s *StatsService) Run(stop <-chan struct{}) {
 			s.FlushNow()
 		case <-rollup.C:
 			if err := s.store.RollupAndPrune(time.Now()); err != nil {
-				fmt.Fprintf(os.Stderr, "wireguard-go master: traffic rollup: %v\n", err)
+				fmt.Fprintf(os.Stderr, "lasitan-cluster master: traffic rollup: %v\n", err)
 			}
 		}
 	}
@@ -318,7 +318,7 @@ func (s *StatsService) FlushNow() {
 		return
 	}
 	if err := s.store.FlushTraffic(p, time.Now()); err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go master: traffic flush: %v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster master: traffic flush: %v\n", err)
 		// Put deltas back so they are retried on the next tick.
 		s.mu.Lock()
 		for id, d := range p {

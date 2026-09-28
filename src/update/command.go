@@ -11,12 +11,12 @@ import (
 	"time"
 )
 
-const updateUsage = "Usage: wireguard-go update [--check] [--force] [--proxy=URL]"
+const updateUsage = "Usage: lasitan-cluster update [--check] [--force] [--proxy=URL]"
 
 // ApplyFunc installs rel over the running executable exe (platform specific).
 type ApplyFunc func(ctx context.Context, rel *Release, exe string) error
 
-// RunCommand implements `wireguard-go update`: check GitHub Releases and,
+// RunCommand implements `lasitan-cluster update`: check GitHub Releases and,
 // unless --check, elevate and install the newer build via apply.
 func RunCommand(args []string, ensureElevated func() error, apply ApplyFunc) error {
 	check, force := false, false
@@ -51,15 +51,15 @@ func RunCommand(args []string, ensureElevated func() error, apply ApplyFunc) err
 	}
 
 	cur := Current()
-	fmt.Fprintf(os.Stderr, "wireguard-go: 当前版本 %s，最新版本 %s（%s）\n", orUnknown(cur), rel.Version, rel.URL)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: 当前版本 %s，最新版本 %s（%s）\n", orUnknown(cur), rel.Version, rel.URL)
 	newer := Newer(rel.Version, cur)
 	if !newer && !force {
-		fmt.Fprintln(os.Stderr, "wireguard-go: 已是最新版本")
+		fmt.Fprintln(os.Stderr, "lasitan-cluster: 已是最新版本")
 		return nil
 	}
 	if check {
 		if newer {
-			fmt.Fprintf(os.Stderr, "wireguard-go: 有可用更新，执行 `%s` 升级\n", updateHint())
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: 有可用更新，执行 `%s` 升级\n", updateHint())
 		}
 		return nil
 	}
@@ -77,7 +77,7 @@ func RunCommand(args []string, ensureElevated func() error, apply ApplyFunc) err
 	if err := apply(ctx, rel, exe); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "wireguard-go: 已升级到 %s\n", rel.Version)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: 已升级到 %s\n", rel.Version)
 	return nil
 }
 
@@ -87,7 +87,7 @@ func DownloadAsset(ctx context.Context, rel *Release, name, dir string) (string,
 	if !ok {
 		return "", fmt.Errorf("release %s has no asset %s", rel.Tag, name)
 	}
-	fmt.Fprintf(os.Stderr, "wireguard-go: 下载 %s\n", Proxied(a.URL))
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: 下载 %s\n", Proxied(a.URL))
 	return Download(ctx, a, dir, os.Stderr)
 }
 
@@ -99,12 +99,12 @@ func loadManifest(path string) *Release {
 	b, err := os.ReadFile(path)
 	_ = os.Remove(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go: 读取版本清单失败，改为在线查询：%v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: 读取版本清单失败，改为在线查询：%v\n", err)
 		return nil
 	}
 	rel, err := ParseManifest(b)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go: %v，改为在线查询\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: %v，改为在线查询\n", err)
 		return nil
 	}
 	return rel
@@ -112,9 +112,9 @@ func loadManifest(path string) *Release {
 
 func updateHint() string {
 	if runtime.GOOS == "windows" {
-		return "wireguard-go update"
+		return "lasitan-cluster update"
 	}
-	return "sudo wireguard-go update"
+	return "sudo lasitan-cluster update"
 }
 
 func orUnknown(v string) string {

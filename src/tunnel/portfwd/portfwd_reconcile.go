@@ -103,7 +103,7 @@ func (m *PortForwardManager) Reconcile(peers []spec.PeerHookConfig) error {
 	m.mu.Unlock()
 	for _, e := range stale {
 		m.closeEntry(e)
-		fmt.Fprintf(os.Stderr, "wireguard-go: stopped forward %s\n", e.key)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: stopped forward %s\n", e.key)
 	}
 
 	var errs []error

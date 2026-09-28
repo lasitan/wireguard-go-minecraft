@@ -74,10 +74,10 @@ func NewGeoIP(st *store.Store, dataDir, dbPath string, online bool) *GeoIP {
 		}
 		if db, err := maxminddb.Open(p); err == nil {
 			g.db = db
-			fmt.Fprintf(os.Stderr, "wireguard-go master: geoip database %s\n", p)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster master: geoip database %s\n", p)
 			break
 		} else if dbPath != "" {
-			fmt.Fprintf(os.Stderr, "wireguard-go master: geoip database %s: %v\n", p, err)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster master: geoip database %s: %v\n", p, err)
 		}
 	}
 	return g

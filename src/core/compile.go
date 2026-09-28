@@ -93,7 +93,7 @@ func CompileDesiredWithPlan(mesh *Mesh, plan *Plan, nodeID string, defaults Desi
 		ifaceName = defaults.InterfaceName
 	}
 	if ifaceName == "" {
-		ifaceName = "wg0"
+		ifaceName = "lc0"
 	}
 	poll := n.PollInterval
 	if poll == "" {

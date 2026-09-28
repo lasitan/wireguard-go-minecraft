@@ -9,7 +9,7 @@ import (
 // Removing a peer must not wait out dial/MC-handshake timeouts: the device
 // holds its locks while the sender is blocked in Send.
 func TestAbortDialUnblocksSend(t *testing.T) {
-	t.Setenv("WG_CONF_DIR", t.TempDir())
+	t.Setenv("LASITAN_CONF_DIR", t.TempDir())
 	SetTransportConfigJSON(nil)
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

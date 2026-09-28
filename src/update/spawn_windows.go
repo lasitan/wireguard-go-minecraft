@@ -20,7 +20,7 @@ func ServiceManaged() bool {
 }
 
 func spawnDetached(exe string, args []string) (string, error) {
-	logPath := filepath.Join(filepath.Dir(exe), "wireguard-go-update.log")
+	logPath := filepath.Join(filepath.Dir(exe), "lasitan-cluster-update.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return "", fmt.Errorf("open %s: %w", logPath, err)

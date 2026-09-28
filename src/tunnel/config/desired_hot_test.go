@@ -55,7 +55,7 @@ func allowedOf(t *testing.T, dev *device.Device, pubB64 string) []string {
 // A new revision must update peers in place: unchanged peers are the same
 // objects (sessions kept), only the delta is added/removed.
 func TestApplyDesiredConfigIsHot(t *testing.T) {
-	t.Setenv("WG_CONF_DIR", t.TempDir())
+	t.Setenv("LASITAN_CONF_DIR", t.TempDir())
 	conn.SetTransportConfigJSON(nil)
 	logger := device.NewLogger(device.LogLevelSilent, "")
 	dev := device.NewDevice(tuntest.NewChannelTUN().TUN(), conn.NewTCPBind(), logger)

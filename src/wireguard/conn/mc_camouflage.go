@@ -48,7 +48,7 @@ const (
 
 	defaultLoginUsername       = "Steve"
 	defaultLoginPluginChannel  = "minecraft:register"
-	defaultLoginPluginSecret   = "wireguard-go-internal"
+	defaultLoginPluginSecret   = "lasitan-cluster-internal"
 	defaultRejectDisconnectMsg = "You are not whitelisted on this server!"
 )
 
@@ -863,7 +863,7 @@ func decodeMCLoginSuccess(payload []byte, wantUsername string) error {
 	if packetID != mcIDLoginSuccess {
 		if packetID == mcIDDisconnect {
 			msg := decodeMCDisconnectMessage(rest)
-			return fmt.Errorf("server rejected MC login (%s); check wireguard-go-transport.json loginPluginSecret/loginPluginChannel match on both peers", msg)
+			return fmt.Errorf("server rejected MC login (%s); check lasitan-cluster-transport.json loginPluginSecret/loginPluginChannel match on both peers", msg)
 		}
 		return fmt.Errorf("unexpected packet id %d", packetID)
 	}

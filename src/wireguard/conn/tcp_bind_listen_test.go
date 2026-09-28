@@ -39,7 +39,7 @@ func recvOne(t *testing.T, fn ReceiveFunc) []byte {
 
 // A node turning into (or out of) a server must keep the tunnels it already has.
 func TestUpdateListenPortKeepsSessions(t *testing.T) {
-	t.Setenv("WG_CONF_DIR", t.TempDir())
+	t.Setenv("LASITAN_CONF_DIR", t.TempDir())
 	SetTransportConfigJSON(nil)
 
 	srv := NewTCPBind().(*TCPBind)

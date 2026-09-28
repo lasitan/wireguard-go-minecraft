@@ -26,7 +26,7 @@ func TestVersionAPI(t *testing.T) {
 	newAgent, _ := s.store.Enroll("new", core.RoleClient, "", 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	for _, a := range []struct{ token, ver string }{{oldAgent.Token, "wg-mc-agent/2"}, {newAgent.Token, "2.0.3"}} {
+	for _, a := range []struct{ token, ver string }{{oldAgent.Token, "lasitan-agent/2"}, {newAgent.Token, "2.0.3"}} {
 		ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(c.base, "http")+"/api/agent/ws", nil)
 		if err != nil {
 			t.Fatal(err)

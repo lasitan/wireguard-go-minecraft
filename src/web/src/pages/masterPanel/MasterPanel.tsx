@@ -31,7 +31,7 @@ export function MasterPanel() {
         </div>
         <div className="detail">
           <span>默认网卡</span>
-          <b>{state.meta?.defaultIface || "wg0"}</b>
+          <b>{state.meta?.defaultIface || "lc0"}</b>
         </div>
         <div className="detail">
           <span>轮询</span>

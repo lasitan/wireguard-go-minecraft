@@ -22,7 +22,7 @@ export function LoginPage() {
     <main className="login-wrap">
       <div className="login-card">
         <h2>Master 控制台</h2>
-        <p className="muted">使用 wireguard-go-master.json 中的 adminPassword</p>
+        <p className="muted">使用 lasitan-cluster-master.json 中的 adminPassword</p>
         <form onSubmit={onSubmit}>
           <label>密码</label>
           <input type="password" name="password" required autoFocus />

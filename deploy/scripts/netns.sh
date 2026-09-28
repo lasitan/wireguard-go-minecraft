@@ -26,7 +26,7 @@
 # Please ensure that you have installed the newest version of the WireGuard
 # tools from the WireGuard project and before running these tests as:
 #
-# ./netns.sh <path to wireguard-go>
+# ./netns.sh <path to lasitan-cluster>
 
 set -e
 
@@ -360,7 +360,7 @@ ip2 link del wg2
 
 # Test that Netlink/IPC is working properly by doing things that usually cause split responses
 
-n0 $program wg0
+n0 $program lc0
 sleep 5
 config=( "[Interface]" "PrivateKey=$(wg genkey)" "[Peer]" "PublicKey=$(wg genkey)" )
 for a in {1..255}; do
@@ -368,15 +368,15 @@ for a in {1..255}; do
         config+=( "AllowedIPs=$a.$b.0.0/16,$a::$b/128" )
     done
 done
-n0 wg setconf wg0 <(printf '%s\n' "${config[@]}")
+n0 wg setconf lc0 <(printf '%s\n' "${config[@]}")
 i=0
-for ip in $(n0 wg show wg0 allowed-ips); do
+for ip in $(n0 wg show lc0 allowed-ips); do
     ((++i))
 done
 ((i == 255*256*2+1))
-ip0 link del wg0
+ip0 link del lc0
 
-n0 $program wg0
+n0 $program lc0
 config=( "[Interface]" "PrivateKey=$(wg genkey)" )
 for a in {1..40}; do
     config+=( "[Peer]" "PublicKey=$(wg genkey)" )
@@ -384,7 +384,7 @@ for a in {1..40}; do
         config+=( "AllowedIPs=$a.$b.0.0/16" )
     done
 done
-n0 wg setconf wg0 <(printf '%s\n' "${config[@]}")
+n0 wg setconf lc0 <(printf '%s\n' "${config[@]}")
 i=0
 while read -r line; do
     j=0
@@ -393,19 +393,19 @@ while read -r line; do
     done
     ((j == 53))
     ((++i))
-done < <(n0 wg show wg0 allowed-ips)
+done < <(n0 wg show lc0 allowed-ips)
 ((i == 40))
-ip0 link del wg0
+ip0 link del lc0
 
-n0 $program wg0
+n0 $program lc0
 config=( )
 for i in {1..29}; do
     config+=( "[Peer]" "PublicKey=$(wg genkey)" )
 done
 config+=( "[Peer]" "PublicKey=$(wg genkey)" "AllowedIPs=255.2.3.4/32,abcd::255/128" )
-n0 wg setconf wg0 <(printf '%s\n' "${config[@]}")
-n0 wg showconf wg0 > /dev/null
-ip0 link del wg0
+n0 wg setconf lc0 <(printf '%s\n' "${config[@]}")
+n0 wg showconf lc0 > /dev/null
+ip0 link del lc0
 
 ! n0 wg show doesnotexist || false
 

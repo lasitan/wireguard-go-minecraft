@@ -116,7 +116,7 @@ func enrollWithKey(b *config.AgentBootstrap) error {
 	if err := config.SaveJSON(BootstrapPath(), b.Normalized(), 0600); err != nil {
 		return fmt.Errorf("persist bootstrap: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "wireguard-go: enrolled as %s node %s (%s)\n", out.Role, out.NodeID, out.Address)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: enrolled as %s node %s (%s)\n", out.Role, out.NodeID, out.Address)
 	return nil
 }
 
@@ -156,7 +156,7 @@ func ConfigLoop(
 	backoff := wsBackoffMin
 	for ctx.Err() == nil {
 		if err := ensureEnrolled(boot); err != nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: waiting for Master (%v)\n", err)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: waiting for Master (%v)\n", err)
 			if !sleepCtx(ctx, jitter(backoff)) {
 				return
 			}
@@ -175,9 +175,9 @@ func ConfigLoop(
 		}
 		if connected {
 			backoff = wsBackoffMin
-			fmt.Fprintf(os.Stderr, "wireguard-go: master link lost: %v; reconnecting\n", err)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: master link lost: %v; reconnecting\n", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "wireguard-go: master ws unavailable (%v); HTTP polling for %s\n", err, httpFallbackWindow)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: master ws unavailable (%v); HTTP polling for %s\n", err, httpFallbackWindow)
 			pollHTTP(ctx, boot, ap, logger, httpFallbackWindow)
 		}
 		if !sleepCtx(ctx, jitter(backoff)) {
@@ -223,7 +223,7 @@ func pollHTTP(ctx context.Context, boot *config.AgentBootstrap, ap *applier, log
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: agent poll error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: agent poll error: %v\n", err)
 			return
 		}
 		defer resp.Body.Close()
@@ -232,20 +232,20 @@ func pollHTTP(ctx context.Context, boot *config.AgentBootstrap, ap *applier, log
 		}
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: agent read: %v\n", err)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: agent read: %v\n", err)
 			return
 		}
 		if resp.StatusCode != http.StatusOK {
-			fmt.Fprintf(os.Stderr, "wireguard-go: agent config HTTP %d: %s\n", resp.StatusCode, truncateStr(string(body), 200))
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: agent config HTTP %d: %s\n", resp.StatusCode, truncateStr(string(body), 200))
 			return
 		}
 		var desired core.DesiredConfig
 		if err := json.Unmarshal(body, &desired); err != nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: agent config json: %v\n", err)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: agent config json: %v\n", err)
 			return
 		}
 		if err := ap.apply(&desired); err != nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: %v\n", err)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: %v\n", err)
 		}
 	}
 

@@ -38,7 +38,7 @@ type ConfApplyResult struct {
 func (c IfaceNetConfig) Addresses() []string { return c.addresses }
 func (c IfaceNetConfig) MTU() int            { return c.mtu }
 
-// applyWGConf reads /etc/wireguard/<iface>.conf, applies UAPI settings,
+// applyWGConf reads /etc/lasitan-cluster/<iface>.conf, applies UAPI settings,
 // configures Address/MTU, starts ForwardTCP proxies, and runs peer OnUp scripts.
 func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*ConfApplyResult, error) {
 	confPath := filepath.Join(config.ConfDir(), iface+".conf")
@@ -264,7 +264,7 @@ func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*Conf
 	}
 
 	if buf.Len() > 0 {
-		fmt.Fprintf(os.Stderr, "wireguard-go: applying UAPI (bind TCP ListenPort)…\n")
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: applying UAPI (bind TCP ListenPort)…\n")
 		if err := dev.IpcSetOperation(bufio.NewReader(&buf)); err != nil {
 			return nil, fmt.Errorf("apply conf %s: %w", confPath, err)
 		}
@@ -284,7 +284,7 @@ func ApplyWGConf(dev *device.Device, logger *device.Logger, iface string) (*Conf
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "wireguard-go: configuring interface %s (mtu/address)…\n", iface)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: configuring interface %s (mtu/address)…\n", iface)
 	if err := applyIfaceNetConfig(iface, netCfg, logger); err != nil {
 		return nil, err
 	}
@@ -327,7 +327,7 @@ func buildNatGatewayResult(toNATClient bool, natUpstreamB64 string, listenPort u
 		if p.Endpoint == "" {
 			return nat, peers, fmt.Errorf("ToNAT=true requires [Peer] Endpoint of the NAT gateway (e.g. 10.0.0.2:25565)")
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: ToNAT client via peer %s Endpoint %s\n", p.Label, p.Endpoint)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: ToNAT client via peer %s Endpoint %s\n", p.Label, p.Endpoint)
 	}
 
 	// Resolve upstream: explicit NatUpstream, else the unique peer that has Endpoint
@@ -571,7 +571,7 @@ func base64ToHex(b64 string) (string, error) {
 func PrintStartupInfo(dev *device.Device, logger *device.Logger, iface, confPath string, tcpPort uint16, mcEnabled bool, fwdCount int) {
 	var sb strings.Builder
 	sb.WriteString("\n┌─────────────────────────────────────────────────┐\n")
-	sb.WriteString("│         wireguard-go (TCP + MC mode)            │\n")
+	sb.WriteString("│            Lasitan-Cluster (TCP+MC)             │\n")
 	sb.WriteString("├─────────────────────────────────────────────────┤\n")
 	fmt.Fprintf(&sb, "│  Interface  : %-33s│\n", iface)
 	localPort := "ephemeral"

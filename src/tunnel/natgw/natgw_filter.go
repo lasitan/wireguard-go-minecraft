@@ -91,7 +91,7 @@ func (g *NatGateway) RegisterClient(peerKey device.NoisePublicKey) {
 		// Peer not in conf AllowedIPs — still mark for nested-block filter.
 		isNew, _ := g.runtime.add(peerKey, nil)
 		if isNew {
-			fmt.Fprintf(os.Stderr, "wireguard-go: ToNAT NatClient registered (%s…) — add AllowedIPs on B for SNAT\n", hx[:8])
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: ToNAT NatClient registered (%s…) — add AllowedIPs on B for SNAT\n", hx[:8])
 			g.logger.Verbosef("NAT gateway: ToNAT client %s (no AllowedIPs host for MASQUERADE)", hx[:16])
 		}
 		return
@@ -101,7 +101,7 @@ func (g *NatGateway) RegisterClient(peerKey device.NoisePublicKey) {
 		return
 	}
 	if isNew {
-		fmt.Fprintf(os.Stderr, "wireguard-go: ToNAT NatClient auto-registered %v\n", hosts)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: ToNAT NatClient auto-registered %v\n", hosts)
 		g.logger.Verbosef("NAT gateway: ToNAT client %s hosts %v", hx[:16], hosts)
 	}
 	for _, h := range newHosts {

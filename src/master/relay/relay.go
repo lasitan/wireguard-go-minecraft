@@ -77,7 +77,7 @@ func (s *Service) Sync() {
 		return
 	}
 	if err := s.applyLocked(rc, want); err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go master: relay: %v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster master: relay: %v\n", err)
 		s.closeLocked()
 		return
 	}
@@ -126,7 +126,7 @@ func (s *Service) applyLocked(rc store.RelayConfig, want []core.DesiredPeer) err
 		if err := s.dev.Up(); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go master: relay listening on :%d (%d peers)\n", rc.Port, len(next))
+		fmt.Fprintf(os.Stderr, "lasitan-cluster master: relay listening on :%d (%d peers)\n", rc.Port, len(next))
 	}
 	s.port, s.privKey, s.peers = rc.Port, rc.PrivateKey, next
 	return nil
@@ -138,7 +138,7 @@ func (s *Service) closeLocked() {
 	}
 	s.dev.Close()
 	s.dev, s.peers, s.sig, s.port = nil, nil, "", 0
-	fmt.Fprintf(os.Stderr, "wireguard-go master: relay stopped (not needed)\n")
+	fmt.Fprintf(os.Stderr, "lasitan-cluster master: relay stopped (not needed)\n")
 }
 
 func b64hex(k string) (string, error) {

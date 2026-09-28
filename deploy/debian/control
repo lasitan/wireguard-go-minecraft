@@ -1,20 +1,20 @@
-Source: wireguard-mc
+Source: lasitan-cluster
 Section: net
 Priority: optional
-Maintainer: wireguard-mc maintainers <noreply@users.noreply.github.com>
+Maintainer: lasitan-cluster maintainers <noreply@users.noreply.github.com>
 Build-Depends: debhelper-compat (= 13), ca-certificates
 Standards-Version: 4.6.2
-Homepage: https://github.com/WireGuard/wireguard-go
+Homepage: https://github.com/lasitan/Lasitan-Cluster
 Rules-Requires-Root: no
 
-Package: wireguard-mc
+Package: lasitan-cluster
 Architecture: any
 Depends: ${misc:Depends}, systemd | systemd-sysv
-Description: WireGuard userspace daemon with TCP + Minecraft camouflage
- Fork of wireguard-go that transports WireGuard over length-prefixed TCP
- with optional Minecraft protocol camouflage. Not compatible with kernel
- WireGuard or the stock UDP wireguard-go binary.
+Description: Lasitan-Cluster mesh (WireGuard over TCP + MC camouflage)
+ Lasitan-Cluster control plane and agent binary. Transports WireGuard over
+ length-prefixed TCP with optional Minecraft protocol camouflage. Not
+ compatible with kernel WireGuard or stock UDP wireguard-go.
  .
- Installs the wireguard-go binary plus Master / Agent JSON examples under
- /etc/wireguard; everything else is managed from the Master web UI.
+ Installs the lasitan-cluster binary plus Master / Agent JSON examples under
+ /etc/lasitan-cluster; everything else is managed from the Master web UI.
  On upgrade, running tunnels and the Master are restarted automatically.

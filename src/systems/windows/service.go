@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	defaultIface         = "wg0"
-	windowsServicePrefix = "wireguard-go-"
+	defaultIface         = config.DefaultIface
+	windowsServicePrefix = "lasitan-cluster-"
 )
 
 func HandleCommand() bool {
@@ -40,7 +40,7 @@ func HandleCommand() bool {
 			target = os.Args[2]
 		}
 		if len(os.Args) > 3 {
-			fmt.Fprintln(os.Stderr, "Usage: wireguard-go install [INTERFACE|master]")
+			fmt.Fprintln(os.Stderr, "Usage: lasitan-cluster install [INTERFACE|master]")
 			os.Exit(core.ExitSetupFailed)
 		}
 		if target == "master" {
@@ -65,7 +65,7 @@ func HandleCommand() bool {
 				purge = true
 			default:
 				if strings.HasPrefix(a, "-") {
-					fmt.Fprintln(os.Stderr, "Usage: wireguard-go uninstall [INTERFACE|master] [--purge]")
+					fmt.Fprintln(os.Stderr, "Usage: lasitan-cluster uninstall [INTERFACE|master] [--purge]")
 					os.Exit(core.ExitSetupFailed)
 				}
 				target = a
@@ -138,14 +138,14 @@ func serviceInstall(iface string) error {
 		if err := updateWindowsServiceBinary(s, exe, iface); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: service %s already exists — refreshed binary path\n", name)
-		fmt.Fprintf(os.Stderr, "wireguard-go: binary → %s\n", exe)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: service %s already exists — refreshed binary path\n", name)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: binary → %s\n", exe)
 		return startWindowsServiceHandle(s, name)
 	}
 
 	cfg := mgr.Config{
-		DisplayName:      fmt.Sprintf("wireguard-go (%s)", iface),
-		Description:      "WireGuard over TCP with Minecraft camouflage",
+		DisplayName:      fmt.Sprintf("Lasitan-Cluster (%s)", iface),
+		Description:      "Lasitan-Cluster agent tunnel (WireGuard over TCP + MC camouflage)",
 		StartType:        mgr.StartAutomatic,
 		ServiceStartName: "", // LocalSystem
 	}
@@ -155,12 +155,12 @@ func serviceInstall(iface string) error {
 	}
 	defer s.Close()
 
-	fmt.Fprintf(os.Stderr, "wireguard-go: created Windows service %s\n", name)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: created Windows service %s\n", name)
 	if err := s.Start(); err != nil {
 		return fmt.Errorf("start service %s: %w", name, err)
 	}
-	fmt.Fprintf(os.Stderr, "wireguard-go: started %s\n", name)
-	fmt.Fprintf(os.Stderr, "wireguard-go: agent config → %s\n", filepath.Join(config.ConfDir(), config.AgentFileName))
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: started %s\n", name)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: agent config → %s\n", filepath.Join(config.ConfDir(), config.AgentFileName))
 	return nil
 }
 
@@ -195,7 +195,7 @@ func serviceInstallMaster() error {
 			return err
 		}
 		_ = os.MkdirAll(dataDir, 0750)
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword; enroll key is managed in the web UI\n", masterCfg)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: created %s — set adminPassword; enroll key is managed in the web UI\n", masterCfg)
 	}
 	if err := role.Write(config.RoleMaster); err != nil {
 		return err
@@ -207,7 +207,7 @@ func serviceInstallMaster() error {
 	}
 	defer m.Disconnect()
 
-	name := "wireguard-go-master"
+	name := "lasitan-cluster-master"
 	if s, err := m.OpenService(name); err == nil {
 		defer s.Close()
 		cfg, err := s.Config()
@@ -222,8 +222,8 @@ func serviceInstallMaster() error {
 		return startWindowsServiceHandle(s, name)
 	}
 	cfg := mgr.Config{
-		DisplayName: "wireguard-go Master",
-		Description: "wireguard-mc mesh control plane",
+		DisplayName: "Lasitan-Cluster Master",
+		Description: "Lasitan-Cluster mesh control plane",
 		StartType:   mgr.StartAutomatic,
 	}
 	s, err := m.CreateService(name, exe, cfg, "master")
@@ -234,7 +234,7 @@ func serviceInstallMaster() error {
 	if err := s.Start(); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "wireguard-go: started wireguard-go-master (host locked as master)")
+	fmt.Fprintln(os.Stderr, "lasitan-cluster: started lasitan-cluster-master (host locked as master)")
 	return nil
 }
 
@@ -247,7 +247,7 @@ func serviceUninstallMaster(purge bool) error {
 		return err
 	}
 	defer m.Disconnect()
-	name := "wireguard-go-master"
+	name := "lasitan-cluster-master"
 	if s, err := m.OpenService(name); err == nil {
 		_, _ = s.Control(svc.Stop)
 		time.Sleep(500 * time.Millisecond)
@@ -258,7 +258,7 @@ func serviceUninstallMaster(purge bool) error {
 	if purge {
 		_ = os.Remove(filepath.Join(config.ConfDir(), config.MasterFileName))
 	}
-	fmt.Fprintln(os.Stderr, "wireguard-go: uninstalled master service")
+	fmt.Fprintln(os.Stderr, "lasitan-cluster: uninstalled master service")
 	return nil
 }
 
@@ -280,10 +280,10 @@ func updateWindowsServiceBinary(s *mgr.Service, exe, iface string) error {
 	cfg.BinaryPathName = want
 	cfg.StartType = mgr.StartAutomatic
 	if cfg.DisplayName == "" {
-		cfg.DisplayName = fmt.Sprintf("wireguard-go (%s)", iface)
+		cfg.DisplayName = fmt.Sprintf("Lasitan-Cluster (%s)", iface)
 	}
 	if cfg.Description == "" {
-		cfg.Description = "WireGuard over TCP with Minecraft camouflage"
+		cfg.Description = "Lasitan-Cluster agent tunnel (WireGuard over TCP + MC camouflage)"
 	}
 	if err := s.UpdateConfig(cfg); err != nil {
 		return fmt.Errorf("update service binary path: %w", err)
@@ -306,13 +306,13 @@ func startWindowsServiceHandle(s *mgr.Service, name string) error {
 		return err
 	}
 	if status.State == svc.Running {
-		fmt.Fprintf(os.Stderr, "wireguard-go: %s already running\n", name)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: %s already running\n", name)
 		return nil
 	}
 	if err := s.Start(); err != nil {
 		return fmt.Errorf("start %s: %w", name, err)
 	}
-	fmt.Fprintf(os.Stderr, "wireguard-go: started %s\n", name)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: started %s\n", name)
 	return nil
 }
 
@@ -333,7 +333,7 @@ func serviceUninstall(iface string, purge bool) error {
 	name := WindowsServiceName(iface)
 	s, err := m.OpenService(name)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go: service %s not found\n", name)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: service %s not found\n", name)
 	} else {
 		_, _ = s.Control(svc.Stop)
 		deadline := time.Now().Add(10 * time.Second)
@@ -349,25 +349,25 @@ func serviceUninstall(iface string, purge bool) error {
 			return fmt.Errorf("delete service %s: %w", name, err)
 		}
 		s.Close()
-		fmt.Fprintf(os.Stderr, "wireguard-go: removed service %s\n", name)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: removed service %s\n", name)
 	}
 	_ = role.Clear()
 
 	if purge {
 		conf := filepath.Join(config.ConfDir(), iface+".conf")
 		if err := os.Remove(conf); err == nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", conf)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: removed %s\n", conf)
 		}
-		transport := filepath.Join(config.ConfDir(), "wireguard-go-transport.json")
+		transport := filepath.Join(config.ConfDir(), "lasitan-cluster-transport.json")
 		if err := os.Remove(transport); err == nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", transport)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: removed %s\n", transport)
 		}
 		agent := filepath.Join(config.ConfDir(), config.AgentFileName)
 		if err := os.Remove(agent); err == nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", agent)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: removed %s\n", agent)
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "wireguard-go: kept configs under %s (pass --purge to delete)\n", config.ConfDir())
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: kept configs under %s (pass --purge to delete)\n", config.ConfDir())
 	}
 	return nil
 }
@@ -387,7 +387,7 @@ func ensureWGConfigsWindows(iface string) error {
 		if err := os.WriteFile(agentPath, []byte(example), 0600); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set masterUrl/key only\n", agentPath)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: created %s — set masterUrl/key only\n", agentPath)
 	}
 	return nil
 }

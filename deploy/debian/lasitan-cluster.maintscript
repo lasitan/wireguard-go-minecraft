@@ -1,0 +1,1 @@
+rm_conffile /etc/wireguard/lasitan-cluster-transport.json 2.1.0-1~

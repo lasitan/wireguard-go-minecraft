@@ -1,4 +1,4 @@
-# Service / PATH steps for the wireguard-mc NSIS installer (deploy/windows/installer.nsi).
+# Service / PATH steps for the lasitan-cluster NSIS installer (deploy/windows/installer.nsi).
 # Keep this file ASCII-only: Windows PowerShell 5 reads it without a BOM.
 param(
     [Parameter(Mandatory)][ValidateSet('PreInstall', 'PostInstall', 'AddPath', 'WriteConfig', 'Autostart', 'Uninstall')][string]$Action,
@@ -8,13 +8,13 @@ param(
 )
 $ErrorActionPreference = 'Continue'
 $Dir = $Dir.TrimEnd('\')
-$exe = Join-Path $Dir 'wireguard-go.exe'
+$exe = Join-Path $Dir 'lasitan-cluster.exe'
 $stateFile = Join-Path $Dir '.running-services'
 
-function Say($m) { Write-Output "wireguard-mc: $m" }
+function Say($m) { Write-Output "lasitan-cluster: $m" }
 
 function Get-OwnServices {
-    @(Get-CimInstance Win32_Service -Filter "Name LIKE 'wireguard-go-%'" -ErrorAction SilentlyContinue)
+    @(Get-CimInstance Win32_Service -Filter "Name LIKE 'lasitan-cluster-%'" -ErrorAction SilentlyContinue)
 }
 
 function Stop-OwnService($name) {
@@ -30,7 +30,7 @@ function Get-MachinePath { @([Environment]::GetEnvironmentVariable('Path', 'Mach
 
 function Invoke-Exe {
     # 2>&1 + stringify: PowerShell 5 would otherwise wrap native stderr lines as error records.
-    & $exe @args 2>&1 | ForEach-Object { [Console]::Out.WriteLine("wireguard-mc: $_") }
+    & $exe @args 2>&1 | ForEach-Object { [Console]::Out.WriteLine("lasitan-cluster: $_") }
 }
 
 switch ($Action) {
@@ -75,13 +75,13 @@ switch ($Action) {
         Remove-Item -LiteralPath $InputFile -Force
         switch ($kv['mode']) {
             'agent' {
-                $file = 'wireguard-go-agent.json'
+                $file = 'lasitan-cluster-agent.json'
                 $cfg = [ordered]@{ masterUrl = $kv['masterUrl']; key = $kv['key'] }
                 if ($kv['role']) { $cfg['role'] = $kv['role'] }
                 if ($kv['endpoint']) { $cfg['endpoint'] = $kv['endpoint'].Trim() }
             }
             'master' {
-                $file = 'wireguard-go-master.json'
+                $file = 'lasitan-cluster-master.json'
                 $cfg = [ordered]@{ listen = $kv['listen']; adminPassword = $kv['adminPassword']; dataDir = (Join-Path $Dir 'master-data') }
             }
             default { exit 0 }
@@ -93,25 +93,25 @@ switch ($Action) {
     }
     'Autostart' {
         # Registers an automatic-start (boot) service for the mode whose config sits in $Dir.
-        $masterCfg = Join-Path $Dir 'wireguard-go-master.json'
-        $agentCfg = Join-Path $Dir 'wireguard-go-agent.json'
+        $masterCfg = Join-Path $Dir 'lasitan-cluster-master.json'
+        $agentCfg = Join-Path $Dir 'lasitan-cluster-agent.json'
         $hasMaster = Test-Path $masterCfg
         $hasAgent = Test-Path $agentCfg
         if ($hasMaster -and $hasAgent) {
-            Say "both master and agent configs exist in $Dir; autostart skipped (keep only one, then run: wireguard-go install [master])"
+            Say "both master and agent configs exist in $Dir; autostart skipped (keep only one, then run: lasitan-cluster install [master])"
             exit 0
         }
         if ($hasMaster) {
             Invoke-Exe install master
         } elseif ($hasAgent) {
-            $iface = 'wg0'
+            $iface = 'lc0'
             try {
                 $j = Get-Content -LiteralPath $agentCfg -Raw | ConvertFrom-Json
                 if ($j.interface) { $iface = $j.interface }
             } catch {}
             Invoke-Exe install $iface
         } else {
-            Say "no config in $Dir; autostart skipped (add a config, then run: wireguard-go install [master])"
+            Say "no config in $Dir; autostart skipped (add a config, then run: lasitan-cluster install [master])"
             exit 0
         }
         $code = $LASTEXITCODE
@@ -128,8 +128,8 @@ switch ($Action) {
             [Environment]::SetEnvironmentVariable('Path', (($path | Where-Object { $_ -ne $Dir }) -join ';'), 'Machine')
             Say "removed $Dir from system PATH"
         }
-        # Configs under %ProgramData%\wireguard are kept; only the master/agent role lock is cleared.
-        Remove-Item (Join-Path $env:ProgramData 'wireguard\.role') -Force -ErrorAction SilentlyContinue
+        # Configs under %ProgramData%\lasitan-cluster are kept; only the master/agent role lock is cleared.
+        Remove-Item (Join-Path $env:ProgramData 'lasitan-cluster\.role') -Force -ErrorAction SilentlyContinue
         Remove-Item (Join-Path $Dir '.role') -Force -ErrorAction SilentlyContinue
     }
 }

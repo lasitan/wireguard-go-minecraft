@@ -13,7 +13,7 @@ import (
 	"golang.zx2c4.com/wireguard/src/update"
 )
 
-const dpkgList = "/var/lib/dpkg/info/wireguard-mc.list"
+const dpkgList = "/var/lib/dpkg/info/lasitan-cluster.list"
 
 func applyUpdate(ctx context.Context, rel *update.Release, exe string) error {
 	if dpkgManaged(exe) {
@@ -26,7 +26,7 @@ func applyUpdate(ctx context.Context, rel *update.Release, exe string) error {
 			return err
 		}
 		defer os.Remove(deb)
-		// postinst restarts wireguard-go@* and the master unit.
+		// postinst restarts lasitan-cluster@* and the master unit.
 		cmd := exec.CommandContext(ctx, "dpkg", "-i", deb)
 		cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -47,13 +47,13 @@ func applyUpdate(ctx context.Context, rel *update.Release, exe string) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "wireguard-go: 已替换 %s\n", exe)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: 已替换 %s\n", exe)
 	restartActiveUnits()
 	return nil
 }
 
 func dpkgManaged(exe string) bool {
-	if exe != "/usr/bin/wireguard-go" {
+	if exe != "/usr/bin/lasitan-cluster" {
 		return false
 	}
 	_, err := os.Stat(dpkgList)
@@ -65,7 +65,7 @@ func restartActiveUnits() {
 		return
 	}
 	out, err := exec.Command("systemctl", "list-units", "--type=service", "--state=active",
-		"--no-legend", "--plain", "wireguard-go@*", "wireguard-go-master.service").Output()
+		"--no-legend", "--plain", "lasitan-cluster@*", "lasitan-cluster-master.service").Output()
 	if err != nil {
 		return
 	}
@@ -75,9 +75,9 @@ func restartActiveUnits() {
 			continue
 		}
 		if err := runSystemctl("restart", f[0]); err != nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: %v\n", err)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: %v\n", err)
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: 已重启 %s\n", f[0])
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: 已重启 %s\n", f[0])
 	}
 }

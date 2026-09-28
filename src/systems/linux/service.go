@@ -22,11 +22,11 @@ import (
 )
 
 const (
-	defaultIface         = "wg0"
-	systemdUnitPathLib   = "/lib/systemd/system/wireguard-go@.service"
-	systemdUnitPathEtc   = "/etc/systemd/system/wireguard-go@.service"
-	systemdMasterUnitLib = "/lib/systemd/system/wireguard-go-master.service"
-	systemdMasterUnitEtc = "/etc/systemd/system/wireguard-go-master.service"
+	defaultIface         = config.DefaultIface
+	systemdUnitPathLib   = "/lib/systemd/system/lasitan-cluster@.service"
+	systemdUnitPathEtc   = "/etc/systemd/system/lasitan-cluster@.service"
+	systemdMasterUnitLib = "/lib/systemd/system/lasitan-cluster-master.service"
+	systemdMasterUnitEtc = "/etc/systemd/system/lasitan-cluster-master.service"
 )
 
 func HandleCommand() bool {
@@ -40,7 +40,7 @@ func HandleCommand() bool {
 			target = os.Args[2]
 		}
 		if len(os.Args) > 3 {
-			fmt.Fprintln(os.Stderr, "Usage: wireguard-go install [INTERFACE|master]")
+			fmt.Fprintln(os.Stderr, "Usage: lasitan-cluster install [INTERFACE|master]")
 			os.Exit(core.ExitSetupFailed)
 		}
 		if target == "master" {
@@ -65,7 +65,7 @@ func HandleCommand() bool {
 				purge = true
 			default:
 				if strings.HasPrefix(a, "-") {
-					fmt.Fprintln(os.Stderr, "Usage: wireguard-go uninstall [INTERFACE|master] [--purge]")
+					fmt.Fprintln(os.Stderr, "Usage: lasitan-cluster uninstall [INTERFACE|master] [--purge]")
 					os.Exit(core.ExitSetupFailed)
 				}
 				target = a
@@ -116,7 +116,7 @@ func serviceInstall(iface string) error {
 	}
 
 	if _, err := os.Stat(systemdUnitPathLib); err == nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go: using packaged unit %s\n", systemdUnitPathLib)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: using packaged unit %s\n", systemdUnitPathLib)
 	} else {
 		unitBody := systemdUnitTemplate(exe)
 		if err := os.MkdirAll(filepath.Dir(systemdUnitPathEtc), 0755); err != nil {
@@ -125,7 +125,7 @@ func serviceInstall(iface string) error {
 		if err := os.WriteFile(systemdUnitPathEtc, []byte(unitBody), 0644); err != nil {
 			return fmt.Errorf("write %s: %w", systemdUnitPathEtc, err)
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: wrote %s\n", systemdUnitPathEtc)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: wrote %s\n", systemdUnitPathEtc)
 	}
 
 	if err := ensureWGConfigs(iface); err != nil {
@@ -135,16 +135,16 @@ func serviceInstall(iface string) error {
 		return err
 	}
 
-	unitInstance := fmt.Sprintf("wireguard-go@%s", iface)
+	unitInstance := fmt.Sprintf("lasitan-cluster@%s", iface)
 	if err := runSystemctl("daemon-reload"); err != nil {
 		return err
 	}
 	if err := runSystemctl("enable", "--now", unitInstance); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "wireguard-go: enabled and started %s\n", unitInstance)
-	fmt.Fprintf(os.Stderr, "wireguard-go: status → systemctl status %s\n", unitInstance)
-	fmt.Fprintf(os.Stderr, "wireguard-go: logs   → journalctl -u %s -f\n", unitInstance)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: enabled and started %s\n", unitInstance)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: status → systemctl status %s\n", unitInstance)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: logs   → journalctl -u %s -f\n", unitInstance)
 	return nil
 }
 
@@ -165,20 +165,20 @@ func serviceInstallMaster() error {
 	if err := os.MkdirAll(config.ConfDir(), 0755); err != nil {
 		return err
 	}
-	masterCfg := filepath.Join(config.ConfDir(), "wireguard-go-master.json")
+	masterCfg := filepath.Join(config.ConfDir(), "lasitan-cluster-master.json")
 	if _, err := os.Stat(masterCfg); os.IsNotExist(err) {
 		example := `{
   "listen": ":8443",
   "adminPassword": "change-me",
-  "dataDir": "/var/lib/wireguard-mc"
+  "dataDir": "/var/lib/lasitan-cluster"
 }
 `
 		if err := os.WriteFile(masterCfg, []byte(example), 0600); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set adminPassword before use; enroll key is managed in the web UI\n", masterCfg)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: created %s — set adminPassword before use; enroll key is managed in the web UI\n", masterCfg)
 	}
-	_ = os.MkdirAll("/var/lib/wireguard-mc", 0750)
+	_ = os.MkdirAll("/var/lib/lasitan-cluster", 0750)
 
 	unitPath := systemdMasterUnitLib
 	if _, err := os.Stat(unitPath); err != nil {
@@ -190,9 +190,9 @@ func serviceInstallMaster() error {
 		if err := os.WriteFile(unitPath, []byte(body), 0644); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: wrote %s\n", unitPath)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: wrote %s\n", unitPath)
 	} else {
-		fmt.Fprintf(os.Stderr, "wireguard-go: using packaged unit %s\n", unitPath)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: using packaged unit %s\n", unitPath)
 	}
 	if err := role.Write(config.RoleMaster); err != nil {
 		return err
@@ -200,12 +200,12 @@ func serviceInstallMaster() error {
 	if err := runSystemctl("daemon-reload"); err != nil {
 		return err
 	}
-	if err := runSystemctl("enable", "--now", "wireguard-go-master"); err != nil {
+	if err := runSystemctl("enable", "--now", "lasitan-cluster-master"); err != nil {
 		return err
 	}
-	fmt.Fprintln(os.Stderr, "wireguard-go: enabled and started wireguard-go-master")
-	fmt.Fprintln(os.Stderr, "wireguard-go: this host is locked as master (cannot install agent roles)")
-	fmt.Fprintln(os.Stderr, "wireguard-go: status → systemctl status wireguard-go-master")
+	fmt.Fprintln(os.Stderr, "lasitan-cluster: enabled and started lasitan-cluster-master")
+	fmt.Fprintln(os.Stderr, "lasitan-cluster: this host is locked as master (cannot install agent roles)")
+	fmt.Fprintln(os.Stderr, "lasitan-cluster: status → systemctl status lasitan-cluster-master")
 	return nil
 }
 
@@ -213,15 +213,15 @@ func serviceUninstallMaster(purge bool) error {
 	if err := ensureElevated(); err != nil {
 		return err
 	}
-	_ = runSystemctl("disable", "--now", "wireguard-go-master")
+	_ = runSystemctl("disable", "--now", "lasitan-cluster-master")
 	_ = role.Clear()
 	if purge {
-		_ = os.Remove(filepath.Join(config.ConfDir(), "wireguard-go-master.json"))
+		_ = os.Remove(filepath.Join(config.ConfDir(), "lasitan-cluster-master.json"))
 		if err := os.Remove(systemdMasterUnitEtc); err == nil {
 			_ = runSystemctl("daemon-reload")
 		}
 	}
-	fmt.Fprintln(os.Stderr, "wireguard-go: uninstalled master service")
+	fmt.Fprintln(os.Stderr, "lasitan-cluster: uninstalled master service")
 	return nil
 }
 
@@ -233,51 +233,51 @@ func serviceUninstall(iface string, purge bool) error {
 		return err
 	}
 
-	unitInstance := fmt.Sprintf("wireguard-go@%s", iface)
+	unitInstance := fmt.Sprintf("lasitan-cluster@%s", iface)
 	_ = runSystemctl("disable", "--now", unitInstance)
 
 	// Best-effort: stop any leftover non-systemd process and remove TUN.
-	_ = exec.Command("pkill", "-x", "wireguard-go").Run()
+	_ = exec.Command("pkill", "-x", "lasitan-cluster").Run()
 	if out, err := exec.Command("ip", "link", "show", iface).CombinedOutput(); err == nil && len(out) > 0 {
 		_ = exec.Command("ip", "link", "set", "dev", iface, "down").Run()
 		_ = exec.Command("ip", "link", "delete", "dev", iface).Run()
-		fmt.Fprintf(os.Stderr, "wireguard-go: removed interface %s\n", iface)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: removed interface %s\n", iface)
 	}
-	_ = os.Remove(filepath.Join("/var/run/wireguard", iface+".sock"))
+	_ = os.Remove(filepath.Join("/var/run/lasitan-cluster", iface+".sock"))
 	_ = role.Clear()
 
 	if purge {
 		conf := filepath.Join(config.ConfDir(), iface+".conf")
 		if err := os.Remove(conf); err == nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", conf)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: removed %s\n", conf)
 		}
-		transport := filepath.Join(config.ConfDir(), "wireguard-go-transport.json")
+		transport := filepath.Join(config.ConfDir(), "lasitan-cluster-transport.json")
 		if err := os.Remove(transport); err == nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", transport)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: removed %s\n", transport)
 		}
-		agent := filepath.Join(config.ConfDir(), "wireguard-go-agent.json")
+		agent := filepath.Join(config.ConfDir(), "lasitan-cluster-agent.json")
 		if err := os.Remove(agent); err == nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", agent)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: removed %s\n", agent)
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "wireguard-go: kept configs under %s (pass --purge to delete)\n", config.ConfDir())
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: kept configs under %s (pass --purge to delete)\n", config.ConfDir())
 	}
 
 	if purge {
 		if err := os.Remove(systemdUnitPathEtc); err == nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: removed %s\n", systemdUnitPathEtc)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: removed %s\n", systemdUnitPathEtc)
 			_ = runSystemctl("daemon-reload")
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "wireguard-go: uninstalled service %s\n", unitInstance)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: uninstalled service %s\n", unitInstance)
 	return nil
 }
 
 func systemdMasterUnitTemplate(exe string) string {
 	return fmt.Sprintf(`[Unit]
-Description=wireguard-go Master (mesh control plane)
-Documentation=file:///usr/share/doc/wireguard-mc/README.Debian
+Description=Lasitan-Cluster Master (mesh control plane)
+Documentation=file:///usr/share/doc/lasitan-cluster/README.Debian
 After=network-online.target
 Wants=network-online.target
 
@@ -297,8 +297,8 @@ WantedBy=multi-user.target
 
 func systemdUnitTemplate(exe string) string {
 	return fmt.Sprintf(`[Unit]
-Description=wireguard-go TCP+MC tunnel (%%i)
-Documentation=file:///usr/share/doc/wireguard-mc/README.Debian
+Description=Lasitan-Cluster tunnel (%%i)
+Documentation=file:///usr/share/doc/lasitan-cluster/README.Debian
 After=network-online.target
 Wants=network-online.target
 
@@ -324,7 +324,7 @@ func ensureWGConfigs(iface string) error {
 	if err := os.MkdirAll(config.ConfDir(), 0755); err != nil {
 		return err
 	}
-	agentPath := filepath.Join(config.ConfDir(), "wireguard-go-agent.json")
+	agentPath := filepath.Join(config.ConfDir(), "lasitan-cluster-agent.json")
 	if _, err := os.Stat(agentPath); os.IsNotExist(err) {
 		example := `{
   "masterUrl": "http://127.0.0.1:8443",
@@ -334,7 +334,7 @@ func ensureWGConfigs(iface string) error {
 		if err := os.WriteFile(agentPath, []byte(example), 0600); err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: created %s — set masterUrl/key only\n", agentPath)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: created %s — set masterUrl/key only\n", agentPath)
 	}
 	return nil
 }

@@ -52,7 +52,7 @@ func NewServer(cfg config.MasterConfig) (*Server, error) {
 	case cfg.DataDir == "" && runtime.GOOS == "windows":
 		cfg.DataDir = filepath.Join(config.ConfDir(), "master-data")
 	case cfg.DataDir == "":
-		cfg.DataDir = "/var/lib/wireguard-mc"
+		cfg.DataDir = "/var/lib/lasitan-cluster"
 	case !filepath.IsAbs(cfg.DataDir):
 		cfg.DataDir = filepath.Join(config.ConfDir(), cfg.DataDir)
 	}
@@ -141,7 +141,7 @@ func (s *Server) ListenAndServe() error {
 	go s.updates.Run(stop)
 	go s.paths.Run(stop)
 	go s.relay.Run(stop)
-	fmt.Fprintf(os.Stderr, "wireguard-go master: listening on %s (data %s)\n", s.cfg.Listen, s.cfg.DataDir)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster master: listening on %s (data %s)\n", s.cfg.Listen, s.cfg.DataDir)
 	if s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
 		return http.ListenAndServeTLS(s.cfg.Listen, s.cfg.TLSCert, s.cfg.TLSKey, h)
 	}

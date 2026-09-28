@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# One-line install / upgrade for wireguard-mc (Linux):
-#   curl -fsSL https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/deploy/scripts/install.sh | sudo bash
+# One-line install / upgrade for lasitan-cluster (Linux):
+#   curl -fsSL https://raw.githubusercontent.com/lasitan/Lasitan-Cluster/main/deploy/scripts/install.sh | sudo bash
 # Env:
-#   WG_MC_VERSION   pin a version (e.g. 2.0.3); default = latest release
-#   WG_MC_GH_PROXY  download mirror prefix (e.g. https://ghfast.top/)
-#   WG_MC_FORCE=1   reinstall even when already up to date
-#   WG_MC_NO_DEB=1  install the standalone binary even when dpkg exists
+#   LASITAN_VERSION   pin a version (e.g. 2.0.3); default = latest release
+#   LASITAN_GH_PROXY  download mirror prefix (e.g. https://ghfast.top/)
+#   LASITAN_FORCE=1   reinstall even when already up to date
+#   LASITAN_NO_DEB=1  install the standalone binary even when dpkg exists
 set -euo pipefail
 
-REPO="lasitan/wireguard-go-minecraft"
-PROXY="${WG_MC_GH_PROXY:-}"
+REPO="lasitan/Lasitan-Cluster"
+PROXY="${LASITAN_GH_PROXY:-}"
 if [[ -n "$PROXY" && "$PROXY" != */ ]]; then PROXY="$PROXY/"; fi
 
 say() { printf '\033[1;32m==>\033[0m %s\n' "$*" >&2; }
@@ -37,21 +37,21 @@ latest_version() {
     tag="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
       "${PROXY}https://github.com/${REPO}/releases/latest" 2>/dev/null | sed -n 's#.*/tag/##p')" || true
   fi
-  [[ -n "$tag" ]] || die "无法获取最新版本（可设置 WG_MC_GH_PROXY 或 WG_MC_VERSION）"
+  [[ -n "$tag" ]] || die "无法获取最新版本（可设置 LASITAN_GH_PROXY 或 LASITAN_VERSION）"
   echo "${tag#v}"
 }
 
-VERSION="${WG_MC_VERSION:-$(latest_version)}"
+VERSION="${LASITAN_VERSION:-$(latest_version)}"
 VERSION="${VERSION#v}"
 BASE="${PROXY}https://github.com/${REPO}/releases/download/v${VERSION}"
 
 CURRENT=""
-if command -v wireguard-go >/dev/null 2>&1; then
-  CURRENT="$(wireguard-go --version 2>/dev/null | sed -n '1s/^wireguard-go v*//p' | tr -d '[:space:]')" || true
+if command -v lasitan-cluster >/dev/null 2>&1; then
+  CURRENT="$(lasitan-cluster --version 2>/dev/null | sed -n '1s/^lasitan-cluster v*//p' | tr -d '[:space:]')" || true
 fi
 say "最新版本 ${VERSION}，当前 ${CURRENT:-未安装}"
-if [[ "$CURRENT" == "$VERSION" && "${WG_MC_FORCE:-0}" != "1" ]]; then
-  say "已是最新版本（WG_MC_FORCE=1 可强制重装）"
+if [[ "$CURRENT" == "$VERSION" && "${LASITAN_FORCE:-0}" != "1" ]]; then
+  say "已是最新版本（LASITAN_FORCE=1 可强制重装）"
   exit 0
 fi
 
@@ -68,31 +68,31 @@ restart_units() {
   systemctl daemon-reload || true
   local units
   units="$(systemctl list-units --type=service --state=active --no-legend --plain \
-    'wireguard-go@*' 'wireguard-go-master.service' 2>/dev/null | awk '{print $1}')" || true
+    'lasitan-cluster@*' 'lasitan-cluster-master.service' 2>/dev/null | awk '{print $1}')" || true
   for u in $units; do
     systemctl restart "$u" && say "已重启 $u"
   done
 }
 
-if command -v dpkg >/dev/null 2>&1 && [[ "${WG_MC_NO_DEB:-0}" != "1" ]]; then
-  DEB="wireguard-mc_${VERSION}-1_${DEBARCH}.deb"
+if command -v dpkg >/dev/null 2>&1 && [[ "${LASITAN_NO_DEB:-0}" != "1" ]]; then
+  DEB="lasitan-cluster_${VERSION}-1_${DEBARCH}.deb"
   fetch "${BASE}/${DEB}" "$TMP/$DEB"
   # postinst reloads units and restarts running tunnels + master.
   dpkg -i "$TMP/$DEB"
 else
-  BIN="wireguard-mc-${FRIENDLY}-${VERSION}"
-  fetch "${BASE}/${BIN}" "$TMP/wireguard-go"
-  chmod 0755 "$TMP/wireguard-go"
-  "$TMP/wireguard-go" --version >/dev/null || die "下载的二进制无法运行"
-  DEST="$(command -v wireguard-go || echo /usr/local/bin/wireguard-go)"
+  BIN="lasitan-cluster-${FRIENDLY}-${VERSION}"
+  fetch "${BASE}/${BIN}" "$TMP/lasitan-cluster"
+  chmod 0755 "$TMP/lasitan-cluster"
+  "$TMP/lasitan-cluster" --version >/dev/null || die "下载的二进制无法运行"
+  DEST="$(command -v lasitan-cluster || echo /usr/local/bin/lasitan-cluster)"
   DEST="$(readlink -f "$DEST" 2>/dev/null || echo "$DEST")"
-  install -D -m 0755 "$TMP/wireguard-go" "${DEST}.new"
+  install -D -m 0755 "$TMP/lasitan-cluster" "${DEST}.new"
   mv -f "${DEST}.new" "$DEST"
   say "已安装到 $DEST"
   restart_units
 fi
 
-say "完成：$(wireguard-go --version 2>/dev/null | head -n1)"
+say "完成：$(lasitan-cluster --version 2>/dev/null | head -n1)"
 
 json_str() {
   # Escape for JSON string values (enroll keys are restricted; URLs are trusted from Master UI).
@@ -103,26 +103,26 @@ json_str() {
 }
 
 apply_agent_bootstrap() {
-  [[ "${WG_MC_BOOTSTRAP:-}" == "agent" ]] || return 0
-  local url="${WG_MC_MASTER_URL:-}"
-  local key="${WG_MC_ENROLL_KEY:-}"
-  [[ -n "$url" && -n "$key" ]] || die "WG_MC_BOOTSTRAP=agent 需要 WG_MC_MASTER_URL 与 WG_MC_ENROLL_KEY"
-  local conf="/etc/wireguard/wireguard-go-agent.json"
-  local iface="${WG_MC_IFACE:-wg0}"
-  local role="${WG_MC_ROLE:-client}"
-  mkdir -p /etc/wireguard
-  if [[ -f "$conf" && "${WG_MC_FORCE:-0}" != "1" ]]; then
-    say "保留已有 $conf（WG_MC_FORCE=1 可覆盖）"
+  [[ "${LASITAN_BOOTSTRAP:-}" == "agent" ]] || return 0
+  local url="${LASITAN_MASTER_URL:-}"
+  local key="${LASITAN_ENROLL_KEY:-}"
+  [[ -n "$url" && -n "$key" ]] || die "LASITAN_BOOTSTRAP=agent 需要 LASITAN_MASTER_URL 与 LASITAN_ENROLL_KEY"
+  local conf="/etc/lasitan-cluster/lasitan-cluster-agent.json"
+  local iface="${LASITAN_IFACE:-lc0}"
+  local role="${LASITAN_ROLE:-client}"
+  mkdir -p /etc/lasitan-cluster
+  if [[ -f "$conf" && "${LASITAN_FORCE:-0}" != "1" ]]; then
+    say "保留已有 $conf（LASITAN_FORCE=1 可覆盖）"
   else
     {
       printf '{\n  "masterUrl": "%s",\n  "key": "%s"' "$(json_str "$url")" "$(json_str "$key")"
       if [[ "$role" == "server" ]]; then
         printf ',\n  "role": "server"'
-        if [[ -n "${WG_MC_ENDPOINT:-}" ]]; then
-          printf ',\n  "endpoint": "%s"' "$(json_str "$WG_MC_ENDPOINT")"
+        if [[ -n "${LASITAN_ENDPOINT:-}" ]]; then
+          printf ',\n  "endpoint": "%s"' "$(json_str "$LASITAN_ENDPOINT")"
         fi
-        if [[ -n "${WG_MC_LISTEN_PORT:-}" ]]; then
-          printf ',\n  "listenPort": %s' "$WG_MC_LISTEN_PORT"
+        if [[ -n "${LASITAN_LISTEN_PORT:-}" ]]; then
+          printf ',\n  "listenPort": %s' "$LASITAN_LISTEN_PORT"
         fi
       fi
       printf '\n}\n'
@@ -131,20 +131,20 @@ apply_agent_bootstrap() {
     say "已写入 $conf"
   fi
   say "注册开机自启并启动 Agent（$iface）…"
-  wireguard-go install "$iface" || die "wireguard-go install 失败"
+  lasitan-cluster install "$iface" || die "lasitan-cluster install 失败"
   say "Agent 已安装并指向 Master $url，启动后会自动入网"
 }
 
 apply_agent_bootstrap
 
-if [[ -z "$CURRENT" && "${WG_MC_BOOTSTRAP:-}" != "agent" ]]; then
+if [[ -z "$CURRENT" && "${LASITAN_BOOTSTRAP:-}" != "agent" ]]; then
   cat >&2 <<'EOF'
 
 下一步：
-  Master： 编辑 /etc/wireguard/wireguard-go-master.json 后执行  sudo wireguard-go install master
-  Agent：  编辑 /etc/wireguard/wireguard-go-agent.json（masterUrl + key）后执行  sudo wireguard-go install
+  Master： 编辑 /etc/lasitan-cluster/lasitan-cluster-master.json 后执行  sudo lasitan-cluster install master
+  Agent：  编辑 /etc/lasitan-cluster/lasitan-cluster-agent.json（masterUrl + key）后执行  sudo lasitan-cluster install
           作为服务端（其他客户端都连本机）再加 "role": "server"，可选 "endpoint": "公网IP:25590"
   或在 Master Web「一键安装 Agent」复制整行命令（含配置）
-以后升级： sudo wireguard-go update
+以后升级： sudo lasitan-cluster update
 EOF
 fi

@@ -1,4 +1,4 @@
-﻿; "运行模式" page: writes wireguard-go-agent.json or wireguard-go-master.json
+; "运行模式" page: writes lasitan-cluster-agent.json or lasitan-cluster-master.json
 ; into $INSTDIR (skipped when either already exists there).
 !include "nsDialogs.nsh"
 
@@ -188,8 +188,8 @@ FunctionEnd
 
 LangString ModeTitle ${LANG_SIMPCHINESE} "运行模式"
 LangString ModeTitle ${LANG_ENGLISH} "Mode"
-LangString ModeSubtitle ${LANG_SIMPCHINESE} "配置文件会写入安装目录，双击 wireguard-go.exe 即按该配置启动。"
-LangString ModeSubtitle ${LANG_ENGLISH} "The config is written to the install folder; double-click wireguard-go.exe to start with it."
+LangString ModeSubtitle ${LANG_SIMPCHINESE} "配置文件会写入安装目录，双击 lasitan-cluster.exe 即按该配置启动。"
+LangString ModeSubtitle ${LANG_ENGLISH} "The config is written to the install folder; double-click lasitan-cluster.exe to start with it."
 LangString ModeAgentText ${LANG_SIMPCHINESE} "Agent（隧道节点，连接到 Master）"
 LangString ModeAgentText ${LANG_ENGLISH} "Agent (tunnel node joining a Master)"
 LangString ModeMasterText ${LANG_SIMPCHINESE} "Master（控制面板）"

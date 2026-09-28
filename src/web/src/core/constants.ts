@@ -5,7 +5,7 @@ export const RELAY_ID = "master";
 export const VIEW = { w: 1200, h: 720, cx: 600, cy: 360, radius: 240 };
 export const FOCUS_SCALE = 1.38;
 export const CAM_MS = 380;
-export const TOKEN_KEY = "wgmc_admin_token";
+export const TOKEN_KEY = "lasitan_admin_token";
 export const isDevPreview = import.meta.env.DEV;
 
 /** viewBox width bounds (home width = VIEW.w). */

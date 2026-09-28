@@ -1,14 +1,14 @@
-wireguard-mc
-============
+Lasitan-Cluster
+===============
 
-This package provides a customized wireguard-go that speaks WireGuard over
-TCP with optional Minecraft protocol camouflage. Both tunnel ends must use
-this binary (not kernel WireGuard / stock UDP wireguard-go).
+This package provides Lasitan-Cluster, a mesh control plane and agent that
+speaks WireGuard over TCP with optional Minecraft protocol camouflage. Both
+tunnel ends must use this binary (not kernel WireGuard / stock UDP wireguard-go).
 
 The package only ships two local config examples:
 
-  /etc/wireguard/wireguard-go-master.json.example   Master (control plane)
-  /etc/wireguard/wireguard-go-agent.json.example    Agent (tunnel node)
+  /etc/lasitan-cluster/lasitan-cluster-master.json.example   Master (control plane)
+  /etc/lasitan-cluster/lasitan-cluster-agent.json.example    Agent (tunnel node)
 
 Everything else - VPN addresses, links, routes, port forwards, transport /
 MC camouflage settings - is managed in the Master web UI and pushed to
@@ -19,11 +19,11 @@ Master
 
 A host installed as master cannot also run an agent tunnel.
 
-1. sudo wireguard-go install master
-   (creates /etc/wireguard/wireguard-go-master.json from the example)
-2. Edit /etc/wireguard/wireguard-go-master.json:
+1. sudo lasitan-cluster install master
+   (creates /etc/lasitan-cluster/lasitan-cluster-master.json from the example)
+2. Edit /etc/lasitan-cluster/lasitan-cluster-master.json:
      listen, adminPassword, dataDir
-3. sudo systemctl restart wireguard-go-master
+3. sudo systemctl restart lasitan-cluster-master
 4. Open http://HOST:8443/ and log in with adminPassword
 5. The enroll key (a random one is generated on first start) and the
    address pool for new nodes are shown and edited in the web UI.
@@ -31,46 +31,46 @@ A host installed as master cannot also run an agent tunnel.
 Agent
 -----
 
-1. sudo wireguard-go install
-   (creates /etc/wireguard/wireguard-go-agent.json from the example)
-2. Edit /etc/wireguard/wireguard-go-agent.json:
+1. sudo lasitan-cluster install
+   (creates /etc/lasitan-cluster/lasitan-cluster-agent.json from the example)
+2. Edit /etc/lasitan-cluster/lasitan-cluster-agent.json:
      {
        "masterUrl": "http://MASTER:8443",
        "key": "<enroll key from the Master web UI>"
      }
    After the first enroll the key is replaced with the node token.
-3. sudo systemctl restart wireguard-go@wg0
+3. sudo systemctl restart lasitan-cluster@lc0
 
 Upgrade
 -------
 
-  sudo wireguard-go update          # check GitHub Releases and upgrade
-  sudo wireguard-go update --check  # only report
+  sudo lasitan-cluster update          # check GitHub Releases and upgrade
+  sudo lasitan-cluster update --check  # only report
 
-apt / dpkg upgrades restart running wireguard-go@* instances and the Master.
+apt / dpkg upgrades restart running lasitan-cluster@* instances and the Master.
 
 Service management
 ------------------
 
-  systemctl status wireguard-go@wg0        journalctl -u wireguard-go@wg0 -f
-  systemctl status wireguard-go-master     journalctl -u wireguard-go-master -f
+  systemctl status lasitan-cluster@lc0        journalctl -u lasitan-cluster@lc0 -f
+  systemctl status lasitan-cluster-master     journalctl -u lasitan-cluster-master -f
 
-  sudo wireguard-go uninstall [--purge]            # agent
-  sudo wireguard-go uninstall master [--purge]     # master
+  sudo lasitan-cluster uninstall [--purge]            # agent
+  sudo lasitan-cluster uninstall master [--purge]     # master
 
 install / uninstall / update auto-elevate when not root (sudo -n, pkexec,
 then interactive sudo).
 
 Foreground (debug):
 
-  sudo LOG_LEVEL=verbose /usr/bin/wireguard-go -f wg0
-  sudo /usr/bin/wireguard-go master
+  sudo LOG_LEVEL=verbose /usr/bin/lasitan-cluster -f lc0
+  sudo /usr/bin/lasitan-cluster master
 
 Paths
 -----
 
-  Binary:  /usr/bin/wireguard-go
-  Config:  /etc/wireguard/
-  Data:    /var/lib/wireguard-mc/  (Master SQLite mesh.db)
-  Units:   /lib/systemd/system/wireguard-go@.service
-           /lib/systemd/system/wireguard-go-master.service
+  Binary:  /usr/bin/lasitan-cluster
+  Config:  /etc/lasitan-cluster/
+  Data:    /var/lib/lasitan-cluster/  (Master SQLite mesh.db)
+  Units:   /lib/systemd/system/lasitan-cluster@.service
+           /lib/systemd/system/lasitan-cluster-master.service

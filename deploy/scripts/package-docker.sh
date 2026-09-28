@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build (and optionally push) the wireguard-mc Docker image.
+# Build (and optionally push) the lasitan-cluster Docker image.
 # Usage (from repo root):
 #   bash deploy/scripts/package-docker.sh
 #   bash deploy/scripts/package-docker.sh --push
@@ -35,7 +35,7 @@ else
 fi
 
 GO_VERSION="${GO_VERSION:-1.23.1}"
-IMAGE="${IMAGE:-wireguard-mc}"
+IMAGE="${IMAGE:-lasitan-cluster}"
 PLATFORM="${PLATFORM:-}"
 
 echo "==> Building ${IMAGE}:${TAG} (GO_VERSION=${GO_VERSION})"

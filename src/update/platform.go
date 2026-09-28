@@ -35,7 +35,7 @@ func BinaryAssetName(version string) (string, error) {
 	if runtime.GOOS == "windows" {
 		ext = ".exe"
 	}
-	return fmt.Sprintf("wireguard-mc-%s-%s%s", f, Normalize(version), ext), nil
+	return fmt.Sprintf("lasitan-cluster-%s-%s%s", f, Normalize(version), ext), nil
 }
 
 // DebAssetName is the Debian package for this architecture in a release.
@@ -44,5 +44,5 @@ func DebAssetName(version string) (string, error) {
 	if !ok || runtime.GOOS != "linux" {
 		return "", fmt.Errorf("no .deb for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
-	return fmt.Sprintf("wireguard-mc_%s-1_%s.deb", Normalize(version), a), nil
+	return fmt.Sprintf("lasitan-cluster_%s-1_%s.deb", Normalize(version), a), nil
 }

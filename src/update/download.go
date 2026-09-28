@@ -21,7 +21,7 @@ func Download(ctx context.Context, a Asset, dir string, progress io.Writer) (str
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "wireguard-mc/"+orDev(Current()))
+	req.Header.Set("User-Agent", "lasitan-cluster/"+orDev(Current()))
 	resp, err := downloadClient.Do(req)
 	if err != nil {
 		return "", err
@@ -31,7 +31,7 @@ func Download(ctx context.Context, a Asset, dir string, progress io.Writer) (str
 		return "", fmt.Errorf("download %s: %s", a.Name, resp.Status)
 	}
 
-	f, err := os.CreateTemp(dir, ".wg-mc-update-*")
+	f, err := os.CreateTemp(dir, ".lasitan-update-*")
 	if err != nil {
 		return "", err
 	}

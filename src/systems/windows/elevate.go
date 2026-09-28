@@ -118,7 +118,7 @@ func reexecElevated(show int32, wait bool) (int, error) {
 		}
 	}
 
-	fmt.Fprintln(os.Stderr, "wireguard-go: requesting Administrator elevation…")
+	fmt.Fprintln(os.Stderr, "lasitan-cluster: requesting Administrator elevation…")
 
 	sei := shellExecuteInfoW{
 		CbSize:       uint32(unsafe.Sizeof(shellExecuteInfoW{})),

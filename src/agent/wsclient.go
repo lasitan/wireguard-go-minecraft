@@ -112,7 +112,7 @@ func (c *wsClient) run(ctx context.Context) (connected bool, err error) {
 	if ack.StatsIntervalMs >= 500 {
 		tick = time.Duration(ack.StatsIntervalMs) * time.Millisecond
 	}
-	fmt.Fprintf(os.Stderr, "wireguard-go: master link up (ws, node %s)\n", ack.NodeID)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: master link up (ws, node %s)\n", ack.NodeID)
 
 	sctx, scancel := context.WithCancel(ctx)
 	defer scancel()
@@ -139,7 +139,7 @@ func (c *wsClient) run(ctx context.Context) (connected bool, err error) {
 				ack.Revision = uint32(desired.Revision)
 				if err := c.ap.apply(&desired); err != nil {
 					ack.OK, ack.Error = false, err.Error()
-					fmt.Fprintf(os.Stderr, "wireguard-go: %v\n", err)
+					fmt.Fprintf(os.Stderr, "lasitan-cluster: %v\n", err)
 				}
 			}
 			if err := c.write(sctx, ws, wire.TypeConfigAck, ack.Marshal()); err != nil {
@@ -155,7 +155,7 @@ func (c *wsClient) run(ctx context.Context) (connected bool, err error) {
 			} else {
 				ack.Message = note
 			}
-			fmt.Fprintf(os.Stderr, "wireguard-go: master requested update: ok=%v %s\n", ack.OK, ack.Message)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: master requested update: ok=%v %s\n", ack.OK, ack.Message)
 			if err := c.write(sctx, ws, wire.TypeUpdateAck, ack.Marshal()); err != nil {
 				return true, err
 			}

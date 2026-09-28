@@ -30,7 +30,7 @@ import (
 const tcpFrameHeaderSize = 2
 
 const (
-	transportConfigFileName = "wireguard-go-transport.json"
+	transportConfigFileName = "lasitan-cluster-transport.json"
 	defaultMCProtocol       = 765 // 1.20.4, matches the advertised status version
 	defaultMCHandshakeTime  = 5 * time.Second
 	defaultDialTimeout      = 3 * time.Second
@@ -1136,7 +1136,7 @@ func loadReconnectConfig(fileCfg tcpConfigFile) reconnectConfig {
 
 var (
 	transportOverrideMu sync.RWMutex
-	transportOverride   []byte // if set, prefer over local wireguard-go-transport.json
+	transportOverride   []byte // if set, prefer over local lasitan-cluster-transport.json
 
 	// openBinds lets a Master transport push reach binds opened before it
 	// arrived; without a listen_port change they are never reopened.
@@ -1270,17 +1270,17 @@ func stripJSONComments(data []byte) []byte {
 }
 
 func defaultTransportConfigPath() string {
-	// Same directory as wg conf: WG_CONF_DIR, else /etc/wireguard or %ProgramData%\wireguard.
-	if d := os.Getenv("WG_CONF_DIR"); d != "" {
+	// Same directory as agent/master configs (LASITAN_CONF_DIR / ConfDir).
+	if d := os.Getenv("LASITAN_CONF_DIR"); d != "" {
 		return filepath.Join(d, transportConfigFileName)
 	}
 	if runtime.GOOS == "windows" {
 		if pd := os.Getenv("ProgramData"); pd != "" {
-			return filepath.Join(pd, "wireguard", transportConfigFileName)
+			return filepath.Join(pd, "lasitan-cluster", transportConfigFileName)
 		}
-		return filepath.Join(`C:\ProgramData\wireguard`, transportConfigFileName)
+		return filepath.Join(`C:\ProgramData\lasitan-cluster`, transportConfigFileName)
 	}
-	return filepath.Join("/etc/wireguard", transportConfigFileName)
+	return filepath.Join("/etc/lasitan-cluster", transportConfigFileName)
 }
 
 func parseDurationWithDefault(v string, defaultVal time.Duration) time.Duration {

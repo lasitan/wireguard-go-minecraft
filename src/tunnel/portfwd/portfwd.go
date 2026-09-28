@@ -88,7 +88,7 @@ func (m *PortForwardManager) StartFromPeers(peers []spec.PeerHookConfig) error {
 		}
 	}
 	if tcpN+udpN > 0 {
-		fmt.Fprintf(os.Stderr, "wireguard-go: started %d TCP + %d UDP forward(s)\n", tcpN, udpN)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: started %d TCP + %d UDP forward(s)\n", tcpN, udpN)
 	}
 	return nil
 }
@@ -113,7 +113,7 @@ func (m *PortForwardManager) startTCPForward(spec spec.PortForwardSpec, peerLabe
 	}
 
 	m.logger.Verbosef("ForwardTCP %s (peer %s)", spec.String(), peerLabel)
-	fmt.Fprintf(os.Stderr, "wireguard-go: ForwardTCP %s (peer %s)\n", spec.ListenAddr()+" -> "+spec.DestAddr(), peerLabel)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: ForwardTCP %s (peer %s)\n", spec.ListenAddr()+" -> "+spec.DestAddr(), peerLabel)
 
 	m.wg.Add(1)
 	go func() {
@@ -204,7 +204,7 @@ func (m *PortForwardManager) startUDPForward(spec spec.PortForwardSpec, peerLabe
 	}
 
 	m.logger.Verbosef("ForwardUDP %s (peer %s)", spec.String(), peerLabel)
-	fmt.Fprintf(os.Stderr, "wireguard-go: ForwardUDP %s (peer %s)\n", spec.ListenAddr()+" -> "+spec.DestAddr(), peerLabel)
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: ForwardUDP %s (peer %s)\n", spec.ListenAddr()+" -> "+spec.DestAddr(), peerLabel)
 
 	ctr := forwardCounterFor(spec)
 	m.wg.Add(1)
@@ -348,7 +348,7 @@ func (m *PortForwardManager) Close() {
 		if m.logger != nil {
 			m.logger.Verbosef("Port forward shutdown timed out after %s", forwardCloseWait)
 		}
-		fmt.Fprintf(os.Stderr, "wireguard-go: port forward shutdown timed out after %s\n", forwardCloseWait)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: port forward shutdown timed out after %s\n", forwardCloseWait)
 	}
 
 	for i := len(downs) - 1; i >= 0; i-- {

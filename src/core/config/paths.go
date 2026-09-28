@@ -6,13 +6,23 @@ import (
 	"runtime"
 )
 
-const confDirDefaultUnix = "/etc/wireguard"
+const (
+	// DefaultIface is the TUN name used when none is specified.
+	DefaultIface = "lc0"
 
-// ConfDir returns the wireguard config directory: WG_CONF_DIR when set; on
-// Windows the executable's own directory once it holds a config (installer
-// layout, portable use), else %ProgramData%\wireguard; /etc/wireguard elsewhere.
+	// ConfDirEnv overrides the config directory (install / portable layouts).
+	ConfDirEnv = "LASITAN_CONF_DIR"
+
+	confDirDefaultUnix = "/etc/lasitan-cluster"
+	confDirWinLeaf     = "lasitan-cluster"
+)
+
+// ConfDir returns the Lasitan-Cluster config directory: LASITAN_CONF_DIR when
+// set; on Windows the executable's own directory once it holds a config
+// (installer / portable), else %ProgramData%\lasitan-cluster; elsewhere
+// /etc/lasitan-cluster.
 func ConfDir() string {
-	if d := os.Getenv("WG_CONF_DIR"); d != "" {
+	if d := os.Getenv(ConfDirEnv); d != "" {
 		return d
 	}
 	if runtime.GOOS == "windows" {
@@ -20,9 +30,9 @@ func ConfDir() string {
 			return d
 		}
 		if pd := os.Getenv("ProgramData"); pd != "" {
-			return filepath.Join(pd, "wireguard")
+			return filepath.Join(pd, confDirWinLeaf)
 		}
-		return `C:\ProgramData\wireguard`
+		return `C:\ProgramData\lasitan-cluster`
 	}
 	return confDirDefaultUnix
 }

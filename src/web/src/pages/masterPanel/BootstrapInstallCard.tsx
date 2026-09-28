@@ -56,7 +56,7 @@ export function BootstrapInstallCard() {
         </div>
       </div>
       <p className="tiny muted bootstrap-lead">
-        在<strong>尚未安装</strong> wireguard-mc 的 Linux / Windows 上以管理员执行下方整行命令：自动下载、写入配置、注册开机自启并连接本 Master（
+        在<strong>尚未安装</strong> lasitan-cluster 的 Linux / Windows 上以管理员执行下方整行命令：自动下载、写入配置、注册开机自启并连接本 Master（
         {cmds?.masterUrl || "…"}）。
       </p>
 

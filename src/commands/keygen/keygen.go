@@ -31,12 +31,12 @@ func PrintUsage() {
   %s --version
 
 Service:
-  install [iface]  Install agent tunnel service (default iface: wg0); needs wireguard-go-agent.json
+  install [iface]  Install agent tunnel service (default iface: lc0); needs lasitan-cluster-agent.json
   install master   Install Master control-plane (locks host as master)
   uninstall        Stop/disable the service; --purge also removes configs
   master           Run Master HTTP API + UI (foreground)
   update           Upgrade from GitHub Releases and restart running services
-                   (--check only reports; env WG_MC_GH_PROXY sets a download mirror)
+                   (--check only reports; env LASITAN_GH_PROXY sets a download mirror)
 
 Key commands (same as wg(8)):
   genkey   Generate a private key on stdout (base64)
@@ -54,7 +54,7 @@ func HandleKeyCommand() bool {
 	switch os.Args[1] {
 	case "genkey":
 		if len(os.Args) != 2 {
-			fmt.Fprintln(os.Stderr, "Usage: wireguard-go genkey")
+			fmt.Fprintln(os.Stderr, "Usage: lasitan-cluster genkey")
 			os.Exit(ExitSetupFailed)
 		}
 		var key [32]byte
@@ -68,7 +68,7 @@ func HandleKeyCommand() bool {
 
 	case "genpsk":
 		if len(os.Args) != 2 {
-			fmt.Fprintln(os.Stderr, "Usage: wireguard-go genpsk")
+			fmt.Fprintln(os.Stderr, "Usage: lasitan-cluster genpsk")
 			os.Exit(ExitSetupFailed)
 		}
 		var key [32]byte
@@ -82,7 +82,7 @@ func HandleKeyCommand() bool {
 
 	case "pubkey":
 		if len(os.Args) != 2 {
-			fmt.Fprintln(os.Stderr, "Usage: wireguard-go pubkey < privatekey")
+			fmt.Fprintln(os.Stderr, "Usage: lasitan-cluster pubkey < privatekey")
 			os.Exit(ExitSetupFailed)
 		}
 		raw, err := io.ReadAll(os.Stdin)

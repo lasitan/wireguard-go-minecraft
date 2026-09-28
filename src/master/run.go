@@ -1,4 +1,4 @@
-// Package master wires the control-plane HTTP server behind `wireguard-go master`.
+// Package master wires the control-plane HTTP server behind `lasitan-cluster master`.
 package master
 
 import (
@@ -18,7 +18,7 @@ func HandleCommand() bool {
 		return false
 	}
 	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "Usage: wireguard-go master")
+		fmt.Fprintln(os.Stderr, "Usage: lasitan-cluster master")
 		os.Exit(core.ExitSetupFailed)
 	}
 

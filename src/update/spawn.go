@@ -30,7 +30,7 @@ type SpawnOptions struct {
 	Release []byte
 }
 
-// SpawnDetached starts `wireguard-go update` in a process that outlives this
+// SpawnDetached starts `lasitan-cluster update` in a process that outlives this
 // one: the updater stops and restarts our own service, which would otherwise
 // kill it midway. It returns a human-readable note on where to follow it.
 func SpawnDetached(opts SpawnOptions) (string, error) {
@@ -73,7 +73,7 @@ func SpawnDetached(opts SpawnOptions) (string, error) {
 }
 
 func writeManifest(b []byte) (string, error) {
-	f, err := os.CreateTemp("", "wg-mc-release-*.json")
+	f, err := os.CreateTemp("", "lasitan-release-*.json")
 	if err != nil {
 		return "", err
 	}

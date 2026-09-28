@@ -60,7 +60,7 @@ type Node struct {
 	Endpoint     string          `json:"endpoint,omitempty"`
 	MTU          int             `json:"mtu,omitempty"`
 	Token        string          `json:"token"`
-	Interface    string          `json:"interface,omitempty"`    // TUN name, default wg0 (Master-managed)
+	Interface    string          `json:"interface,omitempty"`    // TUN name, default lc0 (Master-managed)
 	PollInterval string          `json:"pollInterval,omitempty"` // default 10s (Master-managed)
 	Transport    json.RawMessage `json:"transport,omitempty"`    // per-node override; else mesh default
 	LastSeen     time.Time       `json:"lastSeen,omitempty"`

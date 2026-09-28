@@ -191,7 +191,7 @@ func (h *Hub) PushAll() {
 	}
 	cfgs, err := h.store.DesiredForNodes(ids)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go master: push config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster master: push config: %v\n", err)
 		return
 	}
 	for _, c := range conns {
@@ -394,7 +394,7 @@ func (h *Hub) readLoop(c *agentConn) {
 				if a.OK {
 					c.ackedRev.Store(a.Revision)
 				} else {
-					fmt.Fprintf(os.Stderr, "wireguard-go master: node %s failed to apply revision %d: %s\n", c.nodeID, a.Revision, a.Error)
+					fmt.Fprintf(os.Stderr, "lasitan-cluster master: node %s failed to apply revision %d: %s\n", c.nodeID, a.Revision, a.Error)
 				}
 			}
 		case wire.TypeUpdateAck:

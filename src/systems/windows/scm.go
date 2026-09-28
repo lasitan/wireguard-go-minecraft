@@ -32,14 +32,14 @@ import (
 
 // runAsWindowsServiceIfRequested handles SCM startup:
 //
-//	wireguard-go -service INTERFACE
+//	lasitan-cluster -service INTERFACE
 //
 // Returns true if this process was (or claimed to be) a Windows service entry.
 func runAsWindowsServiceIfRequested() bool {
 	if len(os.Args) >= 3 && os.Args[1] == "-service" {
 		iface := os.Args[2]
 		if err := svc.Run(WindowsServiceName(iface), &wgWindowsService{iface: iface}); err != nil {
-			fmt.Fprintf(os.Stderr, "wireguard-go: service error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: service error: %v\n", err)
 			os.Exit(core.ExitSetupFailed)
 		}
 		return true
@@ -89,7 +89,7 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 	agentStop := make(chan struct{})
 	if boot, err := agent.LoadBootstrap(); err == nil {
 		go agent.ConfigLoop(dev, logger, m.iface, &fwd, &fwdMu, boot, agentStop)
-	} else if os.Getenv("WG_LEGACY_CONF") == "1" {
+	} else if os.Getenv("LASITAN_LEGACY_CONF") == "1" {
 		confFile := filepath.Join(config.ConfDir(), m.iface+".conf")
 		if _, err := os.Stat(confFile); err == nil {
 			result, err := tunconf.ApplyWGConf(dev, logger, m.iface)

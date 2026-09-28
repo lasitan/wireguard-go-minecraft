@@ -1,4 +1,4 @@
-﻿; wireguard-mc Windows installer (NSIS 3.05+, builds on Linux with makensis).
+; lasitan-cluster Windows installer (NSIS 3.05+, builds on Linux with makensis).
 ; Build: bash deploy/scripts/build-windows-installer.sh
 ; Required defines: VERSION, VI_VERSION (x.x.x.x), EXE_AMD64, EXE_ARM64, OUTFILE
 
@@ -17,12 +17,13 @@ SetCompressor /SOLID lzma
 !insertmacro RequireDefine EXE_ARM64
 !insertmacro RequireDefine OUTFILE
 
-!define APP_NAME "wireguard-mc"
-!define APP_EXE "wireguard-go.exe"
-!define AGENT_JSON "wireguard-go-agent.json"
-!define MASTER_JSON "wireguard-go-master.json"
+!define APP_NAME "Lasitan-Cluster"
+!define APP_DIR "lasitan-cluster"
+!define APP_EXE "lasitan-cluster.exe"
+!define AGENT_JSON "lasitan-cluster-agent.json"
+!define MASTER_JSON "lasitan-cluster-master.json"
 !define HELPER "setup-helper.ps1"
-!define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
+!define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\lasitan-cluster"
 !define PS 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File'
 
 !include "MUI2.nsh"
@@ -34,7 +35,7 @@ SetCompressor /SOLID lzma
 Name "${APP_NAME} ${VERSION}"
 OutFile "${OUTFILE}"
 RequestExecutionLevel admin
-InstallDir "$PROGRAMFILES64\${APP_NAME}"
+InstallDir "$PROGRAMFILES64\${APP_DIR}"
 InstallDirRegKey HKLM "${UNINST_KEY}" "InstallLocation"
 BrandingText "${APP_NAME} ${VERSION}"
 
@@ -158,22 +159,22 @@ SectionEnd
 
 LangString AutostartSection ${LANG_SIMPCHINESE} "开机自启（注册为系统服务）"
 LangString AutostartSection ${LANG_ENGLISH} "Start at boot (Windows service)"
-LangString DescAutostart ${LANG_SIMPCHINESE} "按所选模式注册自动启动的系统服务（wireguard-go-wg0 / wireguard-go-master），开机无需登录即运行，并立即启动。未选择模式时跳过。"
-LangString DescAutostart ${LANG_ENGLISH} "Register an automatic Windows service for the chosen mode (wireguard-go-wg0 / wireguard-go-master); it runs at boot without logon and starts now. Skipped when no mode is chosen."
+LangString DescAutostart ${LANG_SIMPCHINESE} "按所选模式注册自动启动的系统服务（lasitan-cluster-lc0 / lasitan-cluster-master），开机无需登录即运行，并立即启动。未选择模式时跳过。"
+LangString DescAutostart ${LANG_ENGLISH} "Register an automatic Windows service for the chosen mode (lasitan-cluster-lc0 / lasitan-cluster-master); it runs at boot without logon and starts now. Skipped when no mode is chosen."
 LangString PathSection ${LANG_SIMPCHINESE} "添加到系统 PATH"
 LangString PathSection ${LANG_ENGLISH} "Add to system PATH"
 LangString ShortcutSection ${LANG_SIMPCHINESE} "开始菜单快捷方式"
 LangString ShortcutSection ${LANG_ENGLISH} "Start menu shortcut"
-LangString RunNow ${LANG_SIMPCHINESE} "立即启动 wireguard-go"
-LangString RunNow ${LANG_ENGLISH} "Start wireguard-go now"
+LangString RunNow ${LANG_SIMPCHINESE} "立即启动 lasitan-cluster"
+LangString RunNow ${LANG_ENGLISH} "Start lasitan-cluster now"
 LangString OpenDir ${LANG_SIMPCHINESE} "打开安装目录"
 LangString OpenDir ${LANG_ENGLISH} "Open the install folder"
-LangString DescMain ${LANG_SIMPCHINESE} "wireguard-go 主程序（按本机 CPU 自动选择 x64 / ARM64）。已有服务会先停止，安装后重新启动。"
-LangString DescMain ${LANG_ENGLISH} "wireguard-go binary (x64 / ARM64 picked for this CPU). Running services are stopped and restarted."
-LangString DescPath ${LANG_SIMPCHINESE} "在任意终端中直接运行 wireguard-go。"
-LangString DescPath ${LANG_ENGLISH} "Run wireguard-go from any terminal."
-LangString DescShortcut ${LANG_SIMPCHINESE} "从开始菜单一键启动（等同双击 wireguard-go.exe）。"
-LangString DescShortcut ${LANG_ENGLISH} "Start from the Start menu (same as double-clicking wireguard-go.exe)."
+LangString DescMain ${LANG_SIMPCHINESE} "lasitan-cluster 主程序（按本机 CPU 自动选择 x64 / ARM64）。已有服务会先停止，安装后重新启动。"
+LangString DescMain ${LANG_ENGLISH} "lasitan-cluster binary (x64 / ARM64 picked for this CPU). Running services are stopped and restarted."
+LangString DescPath ${LANG_SIMPCHINESE} "在任意终端中直接运行 lasitan-cluster。"
+LangString DescPath ${LANG_ENGLISH} "Run lasitan-cluster from any terminal."
+LangString DescShortcut ${LANG_SIMPCHINESE} "从开始菜单一键启动（等同双击 lasitan-cluster.exe）。"
+LangString DescShortcut ${LANG_ENGLISH} "Start from the Start menu (same as double-clicking lasitan-cluster.exe)."
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} $(DescMain)

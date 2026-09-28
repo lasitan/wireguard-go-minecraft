@@ -20,13 +20,13 @@ func ServiceManaged() bool {
 
 func spawnDetached(exe string, args []string) (string, error) {
 	if os.Geteuid() != 0 {
-		return "", errors.New("升级需要 root 权限运行 wireguard-go")
+		return "", errors.New("升级需要 root 权限运行 lasitan-cluster")
 	}
 	// A plain child stays in our unit's cgroup and dies when the updater
 	// restarts that unit, so run it as its own transient unit.
 	if _, err := os.Stat("/run/systemd/system"); err == nil {
 		if systemdRun, err := exec.LookPath("systemd-run"); err == nil {
-			unit := "wireguard-go-update-" + strconv.FormatInt(time.Now().Unix(), 10)
+			unit := "lasitan-cluster-update-" + strconv.FormatInt(time.Now().Unix(), 10)
 			cmd := exec.Command(systemdRun, append([]string{"--unit=" + unit, "--collect", "--quiet", exe}, args...)...)
 			if out, err := cmd.CombinedOutput(); err != nil {
 				return "", fmt.Errorf("systemd-run: %v (%s)", err, out)
@@ -35,7 +35,7 @@ func spawnDetached(exe string, args []string) (string, error) {
 		}
 	}
 
-	logPath := filepath.Join(os.TempDir(), "wireguard-go-update.log")
+	logPath := filepath.Join(os.TempDir(), "lasitan-cluster-update.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return "", fmt.Errorf("open %s: %w", logPath, err)

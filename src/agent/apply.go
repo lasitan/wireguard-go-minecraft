@@ -113,10 +113,10 @@ func (a *applier) apply(desired *core.DesiredConfig) error {
 	a.fwdMu.Unlock()
 	if err := fwd.Reconcile(result.Peers); err != nil {
 		a.logger.Errorf("port forward: %v", err)
-		fmt.Fprintf(os.Stderr, "wireguard-go: warning: port forward: %v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: warning: port forward: %v\n", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "wireguard-go: applied mesh revision %d (node %s, %s, %d peers, %d forwards)\n",
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: applied mesh revision %d (node %s, %s, %d peers, %d forwards)\n",
 		a.appliedRev, desired.NodeID, desired.Role, len(desired.Peers), len(desired.Forwards))
 	return nil
 }

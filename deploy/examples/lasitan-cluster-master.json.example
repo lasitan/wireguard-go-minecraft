@@ -1,5 +1,5 @@
 {
   "listen": ":8443",
   "adminPassword": "change-me",
-  "dataDir": "/var/lib/wireguard-mc"
+  "dataDir": "/var/lib/lasitan-cluster"
 }

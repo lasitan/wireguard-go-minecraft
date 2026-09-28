@@ -70,7 +70,7 @@ func init() {
 }
 
 func UAPIListen(name string) (net.Listener, error) {
-	path := `\\.\pipe\ProtectedPrefix\Administrators\WireGuard\` + name
+	path := `\\.\pipe\ProtectedPrefix\Administrators\LasitanCluster\` + name
 	listener, err := (&namedpipe.ListenConfig{
 		SecurityDescriptor: UAPISecurityDescriptor,
 	}).Listen(path)

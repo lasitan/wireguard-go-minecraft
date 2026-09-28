@@ -42,9 +42,9 @@ const (
 	ENV_WG_PROCESS_FOREGROUND = "WG_PROCESS_FOREGROUND"
 )
 
-// VersionText is printed by `wireguard-go --version`.
+// VersionText is printed by `lasitan-cluster --version`.
 func VersionText() string {
-	return fmt.Sprintf("wireguard-go v%s\n\nUserspace WireGuard daemon for %s-%s.\nInformation available at https://www.wireguard.com.\nCopyright (C) Jason A. Donenfeld <Jason@zx2c4.com>.\n", update.Current(), runtime.GOOS, runtime.GOARCH)
+	return fmt.Sprintf("lasitan-cluster v%s\n\nLasitan-Cluster userspace mesh daemon for %s-%s.\n", update.Current(), runtime.GOOS, runtime.GOARCH)
 }
 
 // Main runs service subcommands or the tunnel daemon for os.Args.
@@ -116,7 +116,7 @@ func Main() {
 		realInterfaceName, err2 := tdev.Name()
 		if err2 == nil {
 			interfaceName = realInterfaceName
-			fmt.Fprintf(os.Stderr, "wireguard-go: TUN interface %q created\n", interfaceName)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: TUN interface %q created\n", interfaceName)
 		}
 	}
 
@@ -125,11 +125,11 @@ func Main() {
 		fmt.Sprintf("(%s) ", interfaceName),
 	)
 
-	logger.Verbosef("Starting wireguard-go version %s", version.Version)
+	logger.Verbosef("Starting lasitan-cluster version %s", version.Version)
 
 	if err != nil {
 		logger.Errorf("Failed to create TUN device: %v", err)
-		fmt.Fprintln(os.Stderr, "wireguard-go: TUN creation failed — run as root (or CAP_NET_ADMIN) and ensure /dev/net/tun exists")
+		fmt.Fprintln(os.Stderr, "lasitan-cluster: TUN creation failed — run as root (or CAP_NET_ADMIN) and ensure /dev/net/tun exists")
 		os.Exit(core.ExitSetupFailed)
 	}
 
@@ -209,51 +209,51 @@ func Main() {
 	fwdCount := 0
 	confPath := ""
 	if boot, err := agent.LoadBootstrap(); err == nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go: agent mode → %s (nodeId from Master)\n", boot.MasterURL)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: agent mode → %s (nodeId from Master)\n", boot.MasterURL)
 		go agent.ConfigLoop(dev, logger, interfaceName, &fwd, &fwdMu, boot, agentStop)
-	} else if os.Getenv("WG_LEGACY_CONF") == "1" {
+	} else if os.Getenv("LASITAN_LEGACY_CONF") == "1" {
 		confFile := filepath.Join(config.ConfDir(), interfaceName+".conf")
 		if _, statErr := os.Stat(confFile); statErr == nil {
 			confPath = confFile
-			fmt.Fprintf(os.Stderr, "wireguard-go: loading legacy %s\n", confFile)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: loading legacy %s\n", confFile)
 			result, err := tunconf.ApplyWGConf(dev, logger, interfaceName)
 			if err != nil {
 				logger.Errorf("Failed to apply wg conf: %v", err)
-				fmt.Fprintf(os.Stderr, "wireguard-go: failed to apply %s: %v\n", confFile, err)
+				fmt.Fprintf(os.Stderr, "lasitan-cluster: failed to apply %s: %v\n", confFile, err)
 				os.Exit(core.ExitSetupFailed)
 			}
 			if result != nil {
 				if len(result.NetCfg.Addresses()) == 0 {
-					fmt.Fprintf(os.Stderr, "wireguard-go: WARNING: no Address= in %s — interface will have no IP\n", confFile)
+					fmt.Fprintf(os.Stderr, "lasitan-cluster: WARNING: no Address= in %s — interface will have no IP\n", confFile)
 				}
 				if result.Nat.ToNATClient {
-					fmt.Fprintln(os.Stderr, "wireguard-go: ToNAT client mode (dial [Peer] Endpoint)")
+					fmt.Fprintln(os.Stderr, "lasitan-cluster: ToNAT client mode (dial [Peer] Endpoint)")
 					tcpBind.SetDialToNAT(true)
 				}
 				if result.Nat.ServerMode {
 					gateway = natgw.NewNatGateway(logger, interfaceName, result.Nat)
 					if err := gateway.Start(dev); err != nil {
 						logger.Errorf("Failed to start NAT gateway: %v", err)
-						fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway error: %v\n", err)
+						fmt.Fprintf(os.Stderr, "lasitan-cluster: NAT gateway error: %v\n", err)
 						os.Exit(core.ExitSetupFailed)
 					}
 					dev.SetNatClientHandler(func(pk device.NoisePublicKey) {
 						gateway.RegisterClient(pk)
 					})
 				}
-				fmt.Fprintln(os.Stderr, "wireguard-go: starting port forwards (if any)")
+				fmt.Fprintln(os.Stderr, "lasitan-cluster: starting port forwards (if any)")
 				if err := fwd.StartFromPeers(result.Peers); err != nil {
 					logger.Errorf("Failed to start port forwards: %v", err)
-					fmt.Fprintf(os.Stderr, "wireguard-go: port forward error: %v\n", err)
+					fmt.Fprintf(os.Stderr, "lasitan-cluster: port forward error: %v\n", err)
 					os.Exit(core.ExitSetupFailed)
 				}
 				fwdCount = fwd.Count()
 			}
 		} else {
-			fmt.Fprintf(os.Stderr, "wireguard-go: no agent bootstrap and no legacy conf at %s\n", confFile)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: no agent bootstrap and no legacy conf at %s\n", confFile)
 		}
 	} else {
-		fmt.Fprintf(os.Stderr, "wireguard-go: waiting for %s (or set WG_LEGACY_CONF=1 for wg0.conf)\n", agent.BootstrapPath())
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: waiting for %s (or set LASITAN_LEGACY_CONF=1 for lc0.conf)\n", agent.BootstrapPath())
 	}
 
 	logger.Verbosef("Device started")
@@ -295,9 +295,9 @@ func Main() {
 			}
 		}
 		tunconf.PrintStartupInfo(dev, logger, interfaceName, confPath, tcpPort, mcEnabled, fwdCount)
-		fmt.Fprintln(os.Stderr, "wireguard-go: ready (foreground). Waiting for peers — Ctrl+C to stop.")
+		fmt.Fprintln(os.Stderr, "lasitan-cluster: ready (foreground). Waiting for peers — Ctrl+C to stop.")
 		if os.Getenv("LOG_LEVEL") == "" {
-			fmt.Fprintln(os.Stderr, "wireguard-go: tip: LOG_LEVEL=verbose for handshake/TCP logs")
+			fmt.Fprintln(os.Stderr, "lasitan-cluster: tip: LOG_LEVEL=verbose for handshake/TCP logs")
 		}
 	}
 

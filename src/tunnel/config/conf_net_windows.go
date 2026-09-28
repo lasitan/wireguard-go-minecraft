@@ -87,7 +87,7 @@ New-NetIPAddress -InterfaceAlias $ifAlias -IPAddress $ip -PrefixLength $prefix -
 			return fmt.Errorf("addr %s on %s: %w", addr, iface, err)
 		}
 		logger.Verbosef("Assigned %s to %s", addr, iface)
-		fmt.Fprintf(os.Stderr, "wireguard-go: assigned %s to %s\n", addr, iface)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: assigned %s to %s\n", addr, iface)
 	}
 	return nil
 }

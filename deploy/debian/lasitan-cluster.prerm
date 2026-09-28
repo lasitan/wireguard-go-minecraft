@@ -3,7 +3,7 @@ set -e
 
 stop_wireguard_go_instances() {
 	command -v systemctl >/dev/null 2>&1 || return 0
-	for unit in $(systemctl list-units --type=service --state=running --no-legend 'wireguard-go@*' 2>/dev/null | awk '{print $1}'); do
+	for unit in $(systemctl list-units --type=service --state=running --no-legend 'lasitan-cluster@*' 2>/dev/null | awk '{print $1}'); do
 		if command -v deb-systemd-invoke >/dev/null 2>&1; then
 			deb-systemd-invoke stop "$unit" >/dev/null 2>&1 || true
 		else

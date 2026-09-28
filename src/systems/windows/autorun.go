@@ -22,7 +22,7 @@ import (
 
 var procGetConsoleProcessList = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleProcessList")
 
-// autoRun handles a bare `wireguard-go.exe` (double-click): it picks master or
+// autoRun handles a bare `lasitan-cluster.exe` (double-click): it picks master or
 // agent from the config next to the exe, elevates for the tunnel, and runs the
 // real command in a child so the console stays open when it fails.
 func autoRun() {
@@ -30,21 +30,21 @@ func autoRun() {
 	dir := config.ConfDir()
 	args, service, err := autoArgs(dir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go: %v\n", err)
-		fmt.Fprintf(os.Stderr, "wireguard-go: 把 %s 或 %s 放到 %s 后再双击运行（或重新运行安装程序选择模式）\n",
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: %v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: 把 %s 或 %s 放到 %s 后再双击运行（或重新运行安装程序选择模式）\n",
 			config.AgentFileName, config.MasterFileName, config.ExeDir())
 		pauseIf(ownConsole)
 		os.Exit(1)
 	}
 	if serviceRunning(service) {
-		fmt.Fprintf(os.Stderr, "wireguard-go: 系统服务 %s 已在运行，无需重复启动\n", service)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: 系统服务 %s 已在运行，无需重复启动\n", service)
 		pauseIf(ownConsole)
 		return
 	}
 	if args[0] != "master" {
 		if elevated, _ := currentlyElevated(); !elevated {
 			if _, err := reexecElevated(swShowNormal, false); err != nil {
-				fmt.Fprintf(os.Stderr, "wireguard-go: 运行隧道需要管理员权限：%v\n", err)
+				fmt.Fprintf(os.Stderr, "lasitan-cluster: 运行隧道需要管理员权限：%v\n", err)
 				pauseIf(ownConsole)
 				os.Exit(1)
 			}
@@ -52,10 +52,10 @@ func autoRun() {
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "wireguard-go: 使用 %s 中的配置启动：wireguard-go %s\n", dir, strings.Join(args, " "))
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: 使用 %s 中的配置启动：lasitan-cluster %s\n", dir, strings.Join(args, " "))
 	exe, err := os.Executable()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go: %v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: %v\n", err)
 		pauseIf(ownConsole)
 		os.Exit(1)
 	}
@@ -63,9 +63,9 @@ func autoRun() {
 	signal.Ignore(os.Interrupt)
 	cmd := exec.Command(exe, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), "WG_CONF_DIR="+dir)
+	cmd.Env = append(os.Environ(), "LASITAN_CONF_DIR="+dir)
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "wireguard-go: 已退出：%v\n", err)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: 已退出：%v\n", err)
 		pauseIf(ownConsole)
 		os.Exit(1)
 	}
@@ -90,7 +90,7 @@ func autoArgs(dir string) (args []string, service string, err error) {
 	}
 	switch {
 	case master:
-		return []string{"master"}, "wireguard-go-master", nil
+		return []string{"master"}, "lasitan-cluster-master", nil
 	case agent:
 		iface := config.AgentBootstrap{}.IfaceName()
 		return []string{"-f", iface}, WindowsServiceName(iface), nil

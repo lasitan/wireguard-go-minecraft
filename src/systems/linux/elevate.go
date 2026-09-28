@@ -61,7 +61,7 @@ func reexecElevatedUnix() (int, error) {
 	}
 
 	if sudo, err := exec.LookPath("sudo"); err == nil {
-		fmt.Fprintln(os.Stderr, "wireguard-go: elevating with sudo…")
+		fmt.Fprintln(os.Stderr, "lasitan-cluster: elevating with sudo…")
 		return runElevatedWait(sudo, append([]string{exe}, args...)...)
 	}
 

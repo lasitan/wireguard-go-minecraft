@@ -95,7 +95,7 @@ func (g *NatGateway) Start(dev *device.Device) error {
 
 	installNatInboundFilter(dev, g.runtime, g.cfg.UpstreamAddr, g.logger)
 
-	fmt.Fprintf(os.Stderr, "wireguard-go: NAT gateway ready on %s (windows); ToNAT clients auto-register; block nested %s\n",
+	fmt.Fprintf(os.Stderr, "lasitan-cluster: NAT gateway ready on %s (windows); ToNAT clients auto-register; block nested %s\n",
 		g.iface, g.cfg.UpstreamAddr.String())
 	g.logger.Verbosef("NAT gateway: IP forwarding + dynamic ToNAT NatClient")
 	return nil
@@ -208,7 +208,7 @@ Get-NetIPInterface | ForEach-Object {
 		_, _ = g.runPS(script)
 	}
 
-	fmt.Fprintln(os.Stderr, "wireguard-go: enabled Windows IP forwarding (IPEnableRouter + NetIPInterface)")
+	fmt.Fprintln(os.Stderr, "lasitan-cluster: enabled Windows IP forwarding (IPEnableRouter + NetIPInterface)")
 	return nil
 }
 

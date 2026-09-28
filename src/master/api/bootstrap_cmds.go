@@ -36,20 +36,20 @@ func buildAgentInstallCommands(masterURL, enrollKey, role, endpoint string) agen
 		role = "client"
 	}
 	envLinux := fmt.Sprintf(
-		"WG_MC_BOOTSTRAP=agent WG_MC_MASTER_URL=%s WG_MC_ENROLL_KEY=%s WG_MC_ROLE=%s",
+		"LASITAN_BOOTSTRAP=agent LASITAN_MASTER_URL=%s LASITAN_ENROLL_KEY=%s LASITAN_ROLE=%s",
 		shellQuoteBash(masterURL),
 		shellQuoteBash(enrollKey),
 		shellQuoteBash(role),
 	)
 	if role == "server" {
 		if ep := strings.TrimSpace(endpoint); ep != "" {
-			envLinux += " WG_MC_ENDPOINT=" + shellQuoteBash(ep)
+			envLinux += " LASITAN_ENDPOINT=" + shellQuoteBash(ep)
 		}
-		envLinux += " WG_MC_LISTEN_PORT=25590"
+		envLinux += " LASITAN_LISTEN_PORT=25590"
 	}
 	linux := fmt.Sprintf("curl -fsSL %s | sudo env %s bash", update.InstallScriptURL, envLinux)
 	linuxCN := fmt.Sprintf(
-		"curl -fsSL https://ghfast.top/%s | sudo env %s WG_MC_GH_PROXY=https://ghfast.top/ bash",
+		"curl -fsSL https://ghfast.top/%s | sudo env %s LASITAN_GH_PROXY=https://ghfast.top/ bash",
 		update.InstallScriptURL, envLinux,
 	)
 
@@ -61,16 +61,16 @@ func buildAgentInstallCommands(masterURL, enrollKey, role, endpoint string) agen
 
 func buildWindowsEnv(masterURL, enrollKey, role, endpoint string) string {
 	parts := []string{
-		"$env:WG_MC_BOOTSTRAP='agent'",
-		"$env:WG_MC_MASTER_URL=" + shellQuotePS(masterURL),
-		"$env:WG_MC_ENROLL_KEY=" + shellQuotePS(enrollKey),
-		"$env:WG_MC_ROLE=" + shellQuotePS(role),
+		"$env:LASITAN_BOOTSTRAP='agent'",
+		"$env:LASITAN_MASTER_URL=" + shellQuotePS(masterURL),
+		"$env:LASITAN_ENROLL_KEY=" + shellQuotePS(enrollKey),
+		"$env:LASITAN_ROLE=" + shellQuotePS(role),
 	}
 	if role == "server" {
 		if ep := strings.TrimSpace(endpoint); ep != "" {
-			parts = append(parts, "$env:WG_MC_ENDPOINT="+shellQuotePS(ep))
+			parts = append(parts, "$env:LASITAN_ENDPOINT="+shellQuotePS(ep))
 		}
-		parts = append(parts, "$env:WG_MC_LISTEN_PORT='25590'")
+		parts = append(parts, "$env:LASITAN_LISTEN_PORT='25590'")
 	}
 	return strings.Join(parts, "; ")
 }

@@ -1,13 +1,13 @@
 [Unit]
-Description=wireguard-go TCP+MC tunnel (%i)
-Documentation=file:///usr/share/doc/wireguard-mc/README.Debian
+Description=Lasitan-Cluster tunnel (%i)
+Documentation=file:///usr/share/doc/lasitan-cluster/README.Debian
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 Environment=LOG_LEVEL=error
-ExecStart=/usr/bin/wireguard-go -f %i
+ExecStart=/usr/bin/lasitan-cluster -f %i
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=10

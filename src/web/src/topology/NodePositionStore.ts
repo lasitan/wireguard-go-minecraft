@@ -1,7 +1,7 @@
 import type { Mesh } from "../core/models";
 import { state } from "../core/state";
 
-const KEY_PREFIX = "wgmc_topo_pos:";
+const KEY_PREFIX = "lasitan_topo_pos:";
 
 function storageKey(): string {
   return KEY_PREFIX + window.location.origin;

@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	AgentFileName  = "wireguard-go-agent.json"
-	MasterFileName = "wireguard-go-master.json"
+	AgentFileName  = "lasitan-cluster-agent.json"
+	MasterFileName = "lasitan-cluster-master.json"
 	RoleLockName   = ".role"
 	RoleMaster     = "master"
 	RoleAgent      = "agent"
@@ -91,7 +91,7 @@ func (a AgentBootstrap) PollDuration() time.Duration {
 }
 
 func (a AgentBootstrap) IfaceName() string {
-	return "wg0"
+	return DefaultIface
 }
 
 // Normalized drops the deprecated fields for persistence.

@@ -85,7 +85,7 @@ jobs:
             echo "Created tag ${TAG} → ${GITHUB_SHA}"
           fi
 
-      - name: Ensure draft release (wipe prior wireguard-mc assets)
+      - name: Ensure draft release (wipe prior lasitan-cluster assets)
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
@@ -99,7 +99,7 @@ jobs:
             gh release create "${TAG}" --draft --title "${TAG}" --notes "${notes}"
             echo "Created draft release ${TAG}"
           else
-            echo "Release ${TAG} exists; set draft and clear wireguard-mc assets"
+            echo "Release ${TAG} exists; set draft and clear lasitan-cluster assets"
             gh release edit "${TAG}" --draft=true >/dev/null
           fi
           # Delete only our assets so a re-run does not stack old binaries.
@@ -107,7 +107,7 @@ jobs:
           for name in "${assets[@]:-}"; do
             [ -n "$name" ] || continue
             case "$name" in
-              wireguard-mc*)
+              lasitan-cluster*)
                 echo "Removing release asset: ${name}"
                 gh release delete-asset "${TAG}" "$name" --yes
                 ;;
@@ -140,7 +140,7 @@ jobs:
           fi
 
       - name: Sync Debian changelog
-        run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" deploy/debian/changelog
+        run: sed -i "1s/^lasitan-cluster ([^)]*)/lasitan-cluster (${DEB_UPSTREAM}-1)/" deploy/debian/changelog
 
       - name: Build Master UI (go:embed src/master/ui/dist)
         env:
@@ -167,11 +167,11 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf dist/release
-          rm -f wireguard-mc_*.deb wireguard-mc-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
+          rm -f lasitan-cluster_*.deb lasitan-cluster-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
 
       - name: Build .deb and binary (x86 family)
         env:
-          WG_MC_VERSION: ${{ env.TAG }}
+          LASITAN_VERSION: ${{ env.TAG }}
           REPO_DIR: ${{ github.workspace }}/checkout
           RUNNER_FAMILY: x86
           GO_VERSION: ${{ env.GO_VERSION }}
@@ -182,7 +182,7 @@ jobs:
           echo "Debian build image: ${IMG}"
           echo "Go version: ${GO_VERSION}"
           mkdir -p dist/release/deb dist/release/bin
-          rm -f wireguard-mc_*.deb wireguard-mc-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
+          rm -f lasitan-cluster_*.deb lasitan-cluster-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
           json_file='.github/build/friendly-filenames.json'
           for key in $(jq -r --arg fam "$RUNNER_FAMILY" 'to_entries[] | select(.value.runnerFamily==$fam) | .key' "$json_file" | sort); do
             friendly="$(jq -r --arg k "$key" '.[$k].friendlyName' "$json_file")"
@@ -194,7 +194,7 @@ jobs:
               --platform "$platform" \
               -e DEBIAN_FRONTEND=noninteractive \
               -e "DEB_UPSTREAM=${DEB_UPSTREAM}" \
-              -e "WG_MC_VERSION=${WG_MC_VERSION}" \
+              -e "LASITAN_VERSION=${LASITAN_VERSION}" \
               -e "GO_VERSION=${GO_VERSION}" \
               -e "GO_ARCHIVE_ARCH=${goarch}" \
               -e "HOST_UID=$(id -u)" \
@@ -214,41 +214,41 @@ jobs:
                 export PATH="/usr/local/go/bin:${PATH}"
                 go version
                 chmod +x deploy/debian/rules
-                BUILD_ROOT=/tmp/wireguard-mc-build
+                BUILD_ROOT=/tmp/lasitan-cluster-build
                 rm -rf "${BUILD_ROOT}"
-                mkdir -p "${BUILD_ROOT}/wireguard-mc"
+                mkdir -p "${BUILD_ROOT}/lasitan-cluster"
                 tar -C /src \
                   --exclude=./dist \
                   --exclude=./.git \
                   --exclude=./src/web/node_modules \
                   --exclude=./.github/workflows \
                   -cf - . \
-                  | tar -C "${BUILD_ROOT}/wireguard-mc" -xf -
-                cd "${BUILD_ROOT}/wireguard-mc"
+                  | tar -C "${BUILD_ROOT}/lasitan-cluster" -xf -
+                cd "${BUILD_ROOT}/lasitan-cluster"
                 test -f src/master/ui/dist/index.html
                 cp -r deploy/debian debian
-                sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
+                sed -i "1s/^lasitan-cluster ([^)]*)/lasitan-cluster (${DEB_UPSTREAM}-1)/" debian/changelog
                 fakeroot dpkg-buildpackage -us -uc -b
-                deb_name="wireguard-mc_${DEB_UPSTREAM}-1_$(dpkg-architecture -qDEB_HOST_ARCH).deb"
+                deb_name="lasitan-cluster_${DEB_UPSTREAM}-1_$(dpkg-architecture -qDEB_HOST_ARCH).deb"
                 cp "${BUILD_ROOT}/${deb_name}" /src/
-                install -m 0755 wireguard-go "/src/dist/release/bin/.build-${deb_name%.deb}"
+                install -m 0755 lasitan-cluster "/src/dist/release/bin/.build-${deb_name%.deb}"
                 if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ]; then
                   chown -R "${HOST_UID}:${HOST_GID}" /src/dist /src/deploy/debian 2>/dev/null || true
-                  find /src -maxdepth 1 -name "wireguard-mc*.deb" -exec chown "${HOST_UID}:${HOST_GID}" {} + 2>/dev/null || true
+                  find /src -maxdepth 1 -name "lasitan-cluster*.deb" -exec chown "${HOST_UID}:${HOST_GID}" {} + 2>/dev/null || true
                 fi
               '
-            deb_glob="wireguard-mc_${DEB_UPSTREAM}-1_${debarch}.deb"
+            deb_glob="lasitan-cluster_${DEB_UPSTREAM}-1_${debarch}.deb"
             ls -1 "$deb_glob"
             mv "$deb_glob" "dist/release/deb/"
-            bin_tmp="dist/release/bin/.build-wireguard-mc_${DEB_UPSTREAM}-1_${debarch}"
-            bin_out="dist/release/bin/wireguard-mc-${friendly}-${DEB_UPSTREAM}"
+            bin_tmp="dist/release/bin/.build-lasitan-cluster_${DEB_UPSTREAM}-1_${debarch}"
+            bin_out="dist/release/bin/lasitan-cluster-${friendly}-${DEB_UPSTREAM}"
             mv "$bin_tmp" "$bin_out"
             chmod a+x "$bin_out"
           done
 
       - name: Cross-compile Windows binaries (Windows 10+ amd64 / arm64)
         env:
-          WG_MC_VERSION: ${{ env.TAG }}
+          LASITAN_VERSION: ${{ env.TAG }}
           GO_VERSION: ${{ env.GO_VERSION }}
         run: |
           set -euo pipefail
@@ -272,7 +272,7 @@ jobs:
             goarch="$(jq -r --arg k "$key" '.[$k].goarch' "$json_file")"
             ext="$(jq -r --arg k "$key" '.[$k].binaryExt // ""' "$json_file")"
             minos="$(jq -r --arg k "$key" '.[$k].minOS // empty' "$json_file")"
-            out="dist/release/bin/wireguard-mc-${friendly}-${DEB_UPSTREAM}${ext}"
+            out="dist/release/bin/lasitan-cluster-${friendly}-${DEB_UPSTREAM}${ext}"
             echo "Building ${key} (GOOS=${goos} GOARCH=${goarch}, minOS=${minos:-any}) → ${out}"
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
               -ldflags "-s -w -X golang.zx2c4.com/wireguard/src/core/version.Version=${DEB_UPSTREAM}" \
@@ -285,9 +285,9 @@ jobs:
         run: |
           set -euo pipefail
           bash deploy/scripts/build-windows-installer.sh "${DEB_UPSTREAM}" \
-            "dist/release/bin/wireguard-mc-windows10-amd64-${DEB_UPSTREAM}.exe" \
-            "dist/release/bin/wireguard-mc-windows10-arm64-${DEB_UPSTREAM}.exe" \
-            "dist/release/bin/wireguard-mc-windows10-setup-${DEB_UPSTREAM}.exe"
+            "dist/release/bin/lasitan-cluster-windows10-amd64-${DEB_UPSTREAM}.exe" \
+            "dist/release/bin/lasitan-cluster-windows10-arm64-${DEB_UPSTREAM}.exe" \
+            "dist/release/bin/lasitan-cluster-windows10-setup-${DEB_UPSTREAM}.exe"
           ls -la dist/release/bin/
 
       - name: Keep only files matching this version
@@ -319,7 +319,7 @@ jobs:
       - name: Build and push Docker image (linux/amd64)
         if: ${{ env.BUILD_DOCKER == 'true' }}
         env:
-          WG_MC_VERSION: ${{ env.TAG }}
+          LASITAN_VERSION: ${{ env.TAG }}
           GO_VERSION: ${{ env.GO_VERSION }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -371,7 +371,7 @@ jobs:
           fi
 
       - name: Sync Debian changelog
-        run: sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" deploy/debian/changelog
+        run: sed -i "1s/^lasitan-cluster ([^)]*)/lasitan-cluster (${DEB_UPSTREAM}-1)/" deploy/debian/changelog
 
       - name: Build Master UI (go:embed src/master/ui/dist)
         env:
@@ -385,11 +385,11 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf dist/release
-          rm -f wireguard-mc_*.deb wireguard-mc-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
+          rm -f lasitan-cluster_*.deb lasitan-cluster-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
 
       - name: Build .deb and binary (ARM family)
         env:
-          WG_MC_VERSION: ${{ env.TAG }}
+          LASITAN_VERSION: ${{ env.TAG }}
           REPO_DIR: ${{ github.workspace }}/checkout
           RUNNER_FAMILY: arm
           GO_VERSION: ${{ env.GO_VERSION }}
@@ -400,7 +400,7 @@ jobs:
           echo "Debian build image: ${IMG}"
           echo "Go version: ${GO_VERSION}"
           mkdir -p dist/release/deb dist/release/bin
-          rm -f wireguard-mc_*.deb wireguard-mc-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
+          rm -f lasitan-cluster_*.deb lasitan-cluster-dbgsym_*.deb *.changes *.buildinfo *.build *.dsc 2>/dev/null || true
           json_file='.github/build/friendly-filenames.json'
           for key in $(jq -r --arg fam "$RUNNER_FAMILY" 'to_entries[] | select(.value.runnerFamily==$fam) | .key' "$json_file" | sort); do
             friendly="$(jq -r --arg k "$key" '.[$k].friendlyName' "$json_file")"
@@ -412,7 +412,7 @@ jobs:
               --platform "$platform" \
               -e DEBIAN_FRONTEND=noninteractive \
               -e "DEB_UPSTREAM=${DEB_UPSTREAM}" \
-              -e "WG_MC_VERSION=${WG_MC_VERSION}" \
+              -e "LASITAN_VERSION=${LASITAN_VERSION}" \
               -e "GO_VERSION=${GO_VERSION}" \
               -e "GO_ARCHIVE_ARCH=${goarch}" \
               -e "HOST_UID=$(id -u)" \
@@ -432,34 +432,34 @@ jobs:
                 export PATH="/usr/local/go/bin:${PATH}"
                 go version
                 chmod +x deploy/debian/rules
-                BUILD_ROOT=/tmp/wireguard-mc-build
+                BUILD_ROOT=/tmp/lasitan-cluster-build
                 rm -rf "${BUILD_ROOT}"
-                mkdir -p "${BUILD_ROOT}/wireguard-mc"
+                mkdir -p "${BUILD_ROOT}/lasitan-cluster"
                 tar -C /src \
                   --exclude=./dist \
                   --exclude=./.git \
                   --exclude=./src/web/node_modules \
                   --exclude=./.github/workflows \
                   -cf - . \
-                  | tar -C "${BUILD_ROOT}/wireguard-mc" -xf -
-                cd "${BUILD_ROOT}/wireguard-mc"
+                  | tar -C "${BUILD_ROOT}/lasitan-cluster" -xf -
+                cd "${BUILD_ROOT}/lasitan-cluster"
                 test -f src/master/ui/dist/index.html
                 cp -r deploy/debian debian
-                sed -i "1s/^wireguard-mc ([^)]*)/wireguard-mc (${DEB_UPSTREAM}-1)/" debian/changelog
+                sed -i "1s/^lasitan-cluster ([^)]*)/lasitan-cluster (${DEB_UPSTREAM}-1)/" debian/changelog
                 fakeroot dpkg-buildpackage -us -uc -b
-                deb_name="wireguard-mc_${DEB_UPSTREAM}-1_$(dpkg-architecture -qDEB_HOST_ARCH).deb"
+                deb_name="lasitan-cluster_${DEB_UPSTREAM}-1_$(dpkg-architecture -qDEB_HOST_ARCH).deb"
                 cp "${BUILD_ROOT}/${deb_name}" /src/
-                install -m 0755 wireguard-go "/src/dist/release/bin/.build-${deb_name%.deb}"
+                install -m 0755 lasitan-cluster "/src/dist/release/bin/.build-${deb_name%.deb}"
                 if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ]; then
                   chown -R "${HOST_UID}:${HOST_GID}" /src/dist /src/deploy/debian 2>/dev/null || true
-                  find /src -maxdepth 1 -name "wireguard-mc*.deb" -exec chown "${HOST_UID}:${HOST_GID}" {} + 2>/dev/null || true
+                  find /src -maxdepth 1 -name "lasitan-cluster*.deb" -exec chown "${HOST_UID}:${HOST_GID}" {} + 2>/dev/null || true
                 fi
               '
-            deb_glob="wireguard-mc_${DEB_UPSTREAM}-1_${debarch}.deb"
+            deb_glob="lasitan-cluster_${DEB_UPSTREAM}-1_${debarch}.deb"
             ls -1 "$deb_glob"
             mv "$deb_glob" "dist/release/deb/"
-            bin_tmp="dist/release/bin/.build-wireguard-mc_${DEB_UPSTREAM}-1_${debarch}"
-            bin_out="dist/release/bin/wireguard-mc-${friendly}-${DEB_UPSTREAM}"
+            bin_tmp="dist/release/bin/.build-lasitan-cluster_${DEB_UPSTREAM}-1_${debarch}"
+            bin_out="dist/release/bin/lasitan-cluster-${friendly}-${DEB_UPSTREAM}"
             mv "$bin_tmp" "$bin_out"
             chmod a+x "$bin_out"
           done
@@ -493,7 +493,7 @@ jobs:
       - name: Build and push Docker image (linux/arm64)
         if: ${{ env.BUILD_DOCKER == 'true' }}
         env:
-          WG_MC_VERSION: ${{ env.TAG }}
+          LASITAN_VERSION: ${{ env.TAG }}
           GO_VERSION: ${{ env.GO_VERSION }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -591,12 +591,12 @@ jobs:
           PORT="${REPREPRO_SSH_PORT:-22}"
           BASE="${REPREPRO_BASE:-/www/myrepo}"
           CODENAME="${REPREPRO_CODENAME:-stable}"
-          INCOMING="/tmp/wireguard-mc-deb-${GITHUB_RUN_ID}"
+          INCOMING="/tmp/lasitan-cluster-deb-${GITHUB_RUN_ID}"
           DEB_DIR="${GITHUB_WORKSPACE}/_release_debs"
           rm -rf "${DEB_DIR}"
           mkdir -p "${DEB_DIR}"
           # Pull from GitHub Release (not Actions Artifacts)
-          gh release download "${TAG}" -D "${DEB_DIR}" -p 'wireguard-mc_*.deb'
+          gh release download "${TAG}" -D "${DEB_DIR}" -p 'lasitan-cluster_*.deb'
           shopt -s nullglob
           all_debs=( "${DEB_DIR}"/*.deb )
           debs=()
@@ -621,7 +621,7 @@ jobs:
             fi
           }
           # Same upstream version rebuild → checksums differ; drop old package first.
-          run_reprepro remove "$CODENAME" wireguard-mc || true
+          run_reprepro remove "$CODENAME" lasitan-cluster || true
           for deb in "${INCOMING}"/*.deb; do
             [ -f "$deb" ] || continue
             run_reprepro includedeb "$CODENAME" "$deb"
