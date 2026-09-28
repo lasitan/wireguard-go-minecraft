@@ -52,3 +52,11 @@ func applyIfaceNetConfig(iface string, cfg IfaceNetConfig, logger *device.Logger
 	}
 	return nil
 }
+
+func removeIfaceAddress(iface, addr string, logger *device.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "ip", "addr", "del", addr, "dev", iface).CombinedOutput(); err != nil {
+		logger.Verbosef("remove %s from %s: %v (%s)", addr, iface, err, strings.TrimSpace(string(out)))
+	}
+}

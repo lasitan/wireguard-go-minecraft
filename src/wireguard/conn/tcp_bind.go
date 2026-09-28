@@ -224,36 +224,9 @@ func (b *TCPBind) Open(uport uint16) ([]ReceiveFunc, uint16, error) {
 	b.mcConfig = mcConfig
 	b.reconnect = loadReconnectConfig(fileCfg.TCP)
 
-	var (
-		listener4 net.Listener
-		listener6 net.Listener
-		port      int
-		tries     int
-	)
-
-again:
-	port = int(uport)
-	listener4, port, err = listenTCP("tcp4", port)
-	if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
+	listener4, listener6, port, err := openListeners(uport)
+	if err != nil {
 		return nil, 0, err
-	}
-
-	listener6, port, err = listenTCP("tcp6", port)
-	if uport == 0 && errors.Is(err, syscall.EADDRINUSE) && tries < 100 {
-		if listener4 != nil {
-			listener4.Close()
-		}
-		tries++
-		goto again
-	}
-	if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
-		if listener4 != nil {
-			listener4.Close()
-		}
-		return nil, 0, err
-	}
-	if listener4 == nil && listener6 == nil {
-		return nil, 0, syscall.EAFNOSUPPORT
 	}
 
 	b.listener4 = listener4
@@ -278,6 +251,39 @@ again:
 	}
 
 	return []ReceiveFunc{b.receive}, uint16(port), nil
+}
+
+func openListeners(uport uint16) (listener4, listener6 net.Listener, port int, err error) {
+	for tries := 0; ; tries++ {
+		listener4, port, err = listenTCP("tcp4", int(uport))
+		if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
+			return nil, nil, 0, err
+		}
+		if listener4 == nil {
+			port = int(uport)
+		}
+		var port6 int
+		listener6, port6, err = listenTCP("tcp6", port)
+		if listener6 != nil {
+			port = port6
+		}
+		if uport == 0 && errors.Is(err, syscall.EADDRINUSE) && tries < 100 {
+			if listener4 != nil {
+				listener4.Close()
+			}
+			continue
+		}
+		if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
+			if listener4 != nil {
+				listener4.Close()
+			}
+			return nil, nil, 0, err
+		}
+		if listener4 == nil && listener6 == nil {
+			return nil, nil, 0, syscall.EAFNOSUPPORT
+		}
+		return listener4, listener6, port, nil
+	}
 }
 
 func listenTCP(network string, port int) (net.Listener, int, error) {
@@ -743,7 +749,7 @@ func (b *TCPBind) acceptLoop(listener net.Listener) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			if b.isClosed() {
+			if b.isClosed() || errors.Is(err, net.ErrClosed) {
 				return
 			}
 			continue

@@ -70,6 +70,12 @@ type DialAborter interface {
 	AbortDial(Endpoint)
 }
 
+// ListenPortUpdater is implemented by Bind objects that can move their listen
+// port while open, keeping established sessions (no Close/Open cycle).
+type ListenPortUpdater interface {
+	UpdateListenPort(port uint16) (actual uint16, err error)
+}
+
 // PeekLookAtSocketFd is implemented by Bind objects that support having their
 // file descriptor peeked at. Used by wireguard-android.
 type PeekLookAtSocketFd interface {

@@ -619,6 +619,31 @@ func (device *Device) BindUpdate() error {
 	return nil
 }
 
+// BindSetListenPort changes the listen port. An unchanged port is a no-op and a
+// bind implementing conn.ListenPortUpdater moves its listener in place, so live
+// sessions survive; otherwise the bind is reopened.
+func (device *Device) BindSetListenPort(port uint16) error {
+	device.net.Lock()
+	if port != 0 && port == device.net.port {
+		device.net.Unlock()
+		return nil
+	}
+	updater, ok := device.net.bind.(conn.ListenPortUpdater)
+	if !ok || !device.isUp() {
+		device.net.port = port
+		device.net.Unlock()
+		return device.BindUpdate()
+	}
+	defer device.net.Unlock()
+	actual, err := updater.UpdateListenPort(port)
+	if err != nil {
+		return err
+	}
+	device.net.port = actual
+	device.log.Verbosef("Listen port moved to %d without rebinding", actual)
+	return nil
+}
+
 func (device *Device) BindClose() error {
 	device.net.Lock()
 	err := closeBindLocked(device)

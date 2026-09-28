@@ -25,11 +25,10 @@ const (
 )
 
 type PortForwardManager struct {
-	logger  *device.Logger
-	mu      sync.Mutex
-	closers []io.Closer
-	active  map[net.Conn]struct{}
-	onDown  []struct {
+	logger   *device.Logger
+	mu       sync.Mutex
+	forwards map[string]*forwardEntry // by forwardKey
+	onDown   []struct {
 		label string
 		cmds  []string
 		env   map[string]string
@@ -40,8 +39,8 @@ type PortForwardManager struct {
 
 func NewPortForwardManager(logger *device.Logger) *PortForwardManager {
 	return &PortForwardManager{
-		logger: logger,
-		active: make(map[net.Conn]struct{}),
+		logger:   logger,
+		forwards: make(map[string]*forwardEntry),
 	}
 }
 
@@ -97,38 +96,21 @@ func (m *PortForwardManager) StartFromPeers(peers []spec.PeerHookConfig) error {
 func (m *PortForwardManager) Count() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return len(m.closers)
-}
-
-func (m *PortForwardManager) track(c net.Conn) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		_ = c.Close()
-		return
-	}
-	m.active[c] = struct{}{}
-}
-
-func (m *PortForwardManager) untrack(c net.Conn) {
-	m.mu.Lock()
-	delete(m.active, c)
-	m.mu.Unlock()
+	return len(m.forwards)
 }
 
 func (m *PortForwardManager) startTCPForward(spec spec.PortForwardSpec, peerLabel string) error {
+	if m.running(spec) {
+		return nil
+	}
 	ln, err := net.Listen("tcp", spec.ListenAddr())
 	if err != nil {
 		return fmt.Errorf("ForwardTCP listen %s: %w", spec.ListenAddr(), err)
 	}
-	m.mu.Lock()
-	if m.closed {
-		m.mu.Unlock()
-		_ = ln.Close()
-		return fmt.Errorf("forward manager closed")
+	e, err := m.register(spec, ln)
+	if err != nil {
+		return err
 	}
-	m.closers = append(m.closers, ln)
-	m.mu.Unlock()
 
 	m.logger.Verbosef("ForwardTCP %s (peer %s)", spec.String(), peerLabel)
 	fmt.Fprintf(os.Stderr, "wireguard-go: ForwardTCP %s (peer %s)\n", spec.ListenAddr()+" -> "+spec.DestAddr(), peerLabel)
@@ -144,18 +126,18 @@ func (m *PortForwardManager) startTCPForward(spec spec.PortForwardSpec, peerLabe
 			m.wg.Add(1)
 			go func(c net.Conn) {
 				defer m.wg.Done()
-				m.proxyTCP(c, spec)
+				m.proxyTCP(e, c, spec)
 			}(client)
 		}
 	}()
 	return nil
 }
 
-func (m *PortForwardManager) proxyTCP(client net.Conn, spec spec.PortForwardSpec) {
-	m.track(client)
+func (m *PortForwardManager) proxyTCP(e *forwardEntry, client net.Conn, spec spec.PortForwardSpec) {
+	m.track(e, client)
 	defer func() {
 		_ = client.Close()
-		m.untrack(client)
+		m.untrack(e, client)
 	}()
 	_ = client.SetDeadline(time.Now().Add(30 * time.Second))
 
@@ -165,10 +147,10 @@ func (m *PortForwardManager) proxyTCP(client net.Conn, spec spec.PortForwardSpec
 		m.logger.Verbosef("ForwardTCP dial %s failed: %v", spec.DestAddr(), err)
 		return
 	}
-	m.track(upstream)
+	m.track(e, upstream)
 	defer func() {
 		_ = upstream.Close()
-		m.untrack(upstream)
+		m.untrack(e, upstream)
 	}()
 	_ = client.SetDeadline(time.Time{})
 	_ = upstream.SetDeadline(time.Time{})
@@ -200,6 +182,9 @@ type udpSession struct {
 }
 
 func (m *PortForwardManager) startUDPForward(spec spec.PortForwardSpec, peerLabel string) error {
+	if m.running(spec) {
+		return nil
+	}
 	listenAddr, err := net.ResolveUDPAddr("udp", spec.ListenAddr())
 	if err != nil {
 		return fmt.Errorf("ForwardUDP resolve listen %s: %w", spec.ListenAddr(), err)
@@ -214,14 +199,9 @@ func (m *PortForwardManager) startUDPForward(spec spec.PortForwardSpec, peerLabe
 		return fmt.Errorf("ForwardUDP resolve dest %s: %w", spec.DestAddr(), err)
 	}
 
-	m.mu.Lock()
-	if m.closed {
-		m.mu.Unlock()
-		_ = pc.Close()
-		return fmt.Errorf("forward manager closed")
+	if _, err := m.register(spec, pc); err != nil {
+		return err
 	}
-	m.closers = append(m.closers, pc)
-	m.mu.Unlock()
 
 	m.logger.Verbosef("ForwardUDP %s (peer %s)", spec.String(), peerLabel)
 	fmt.Fprintf(os.Stderr, "wireguard-go: ForwardUDP %s (peer %s)\n", spec.ListenAddr()+" -> "+spec.DestAddr(), peerLabel)
@@ -347,20 +327,14 @@ func (m *PortForwardManager) Close() {
 		return
 	}
 	m.closed = true
-	closers := m.closers
-	m.closers = nil
-	active := m.active
-	m.active = make(map[net.Conn]struct{})
+	entries := m.forwards
+	m.forwards = make(map[string]*forwardEntry)
 	downs := m.onDown
 	m.onDown = nil
 	m.mu.Unlock()
 
-	for c := range active {
-		_ = c.SetDeadline(time.Now())
-		_ = c.Close()
-	}
-	for _, c := range closers {
-		_ = c.Close()
+	for _, e := range entries {
+		m.closeEntry(e)
 	}
 
 	done := make(chan struct{})

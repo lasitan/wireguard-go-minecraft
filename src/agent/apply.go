@@ -23,6 +23,7 @@ type applier struct {
 
 	mu         sync.Mutex
 	appliedRev int
+	applied    *core.DesiredConfig // last applied revision; basis for hot diffs
 	pollEvery  time.Duration
 }
 
@@ -62,27 +63,25 @@ func (a *applier) apply(desired *core.DesiredConfig) error {
 		}
 	}
 
-	newFwd := portfwd.NewPortForwardManager(a.logger)
-	result, err := tunconf.ApplyDesiredConfig(a.dev, a.logger, applyIface, desired)
+	result, err := tunconf.ApplyDesiredConfig(a.dev, a.logger, applyIface, desired, a.applied)
 	if err != nil {
 		a.logger.Errorf("apply desired: %v", err)
 		return fmt.Errorf("apply desired rev=%d: %w", desired.Revision, err)
 	}
-	if err := newFwd.StartFromPeers(result.Peers); err != nil {
-		newFwd.Close()
-		a.logger.Errorf("port forward: %v", err)
-		return fmt.Errorf("port forward: %w", err)
-	}
+	a.applied = desired
+	a.appliedRev = desired.Revision
 
 	a.fwdMu.Lock()
-	old := *a.fwdPtr
-	*a.fwdPtr = newFwd
+	if *a.fwdPtr == nil {
+		*a.fwdPtr = portfwd.NewPortForwardManager(a.logger)
+	}
+	fwd := *a.fwdPtr
 	a.fwdMu.Unlock()
-	if old != nil {
-		old.Close()
+	if err := fwd.Reconcile(result.Peers); err != nil {
+		a.logger.Errorf("port forward: %v", err)
+		fmt.Fprintf(os.Stderr, "wireguard-go: warning: port forward: %v\n", err)
 	}
 
-	a.appliedRev = desired.Revision
 	fmt.Fprintf(os.Stderr, "wireguard-go: applied mesh revision %d (node %s, %s, %d peers, %d forwards)\n",
 		a.appliedRev, desired.NodeID, desired.Role, len(desired.Peers), len(desired.Forwards))
 	return nil

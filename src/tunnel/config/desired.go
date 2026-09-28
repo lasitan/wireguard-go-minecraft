@@ -13,8 +13,11 @@ import (
 	"golang.zx2c4.com/wireguard/src/wireguard/device"
 )
 
-// applyDesiredConfig applies a Master-compiled desired config via UAPI + iface net + returns peers for forwards.
-func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string, d *core.DesiredConfig) (*ConfApplyResult, error) {
+// ApplyDesiredConfig hot-applies a Master-compiled desired config: only the
+// delta against the live device (and prev, the last applied revision) is
+// written, so unchanged peers keep their sessions and handshakes. prev is nil
+// on the first apply.
+func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string, d, prev *core.DesiredConfig) (*ConfApplyResult, error) {
 	if d == nil {
 		return &ConfApplyResult{}, nil
 	}
@@ -26,10 +29,21 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		return nil, fmt.Errorf("privateKey: %w", err)
 	}
 	fmt.Fprintf(w, "private_key=%s\n", hexKey)
-	if d.Interface.ListenPort != 0 {
+	if prev == nil {
+		if d.Interface.ListenPort != 0 {
+			fmt.Fprintf(w, "listen_port=%d\n", d.Interface.ListenPort)
+		}
+	} else if d.Interface.ListenPort != prev.Interface.ListenPort {
 		fmt.Fprintf(w, "listen_port=%d\n", d.Interface.ListenPort)
 	}
-	fmt.Fprintf(w, "replace_peers=true\n")
+
+	live, err := readLivePeers(dev)
+	if err != nil {
+		return nil, fmt.Errorf("read device peers: %w", err)
+	}
+	prevEp := prevEndpoints(prev)
+	wanted := make(map[string]struct{}, len(d.Peers))
+	var added, removed, updated int
 
 	var netCfg IfaceNetConfig
 	if d.Interface.Address != "" {
@@ -45,10 +59,16 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		if err != nil {
 			return nil, fmt.Errorf("peer publicKey: %w", err)
 		}
-		fmt.Fprintf(w, "public_key=%s\n", pubHex)
-		if p.Endpoint != "" {
-			fmt.Fprintf(w, "endpoint=%s\n", p.Endpoint)
+		wanted[pubHex] = struct{}{}
+		cur := live[pubHex]
+		var peerBuf bytes.Buffer
+		pw := &peerBuf
+		// Only re-point the endpoint when Master changed it, so a peer that
+		// roamed keeps its live address across unrelated revisions.
+		if p.Endpoint != "" && (cur == nil || (cur.endpoint != p.Endpoint && prevEp[p.PublicKey] != p.Endpoint)) {
+			fmt.Fprintf(pw, "endpoint=%s\n", p.Endpoint)
 		}
+		want := make(map[string]struct{}, len(p.AllowedIPs))
 		ph := spec.PeerHookConfig{
 			Label:        truncateKey(p.PublicKey),
 			PublicKeyB64: p.PublicKey,
@@ -60,7 +80,13 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 			if cidr == "" {
 				continue
 			}
-			fmt.Fprintf(w, "allowed_ip=%s\n", cidr)
+			pfx := canonicalPrefix(cidr)
+			want[pfx] = struct{}{}
+			if cur == nil {
+				fmt.Fprintf(pw, "allowed_ip=%s\n", pfx)
+			} else if _, ok := cur.allowed[pfx]; !ok {
+				fmt.Fprintf(pw, "allowed_ip=%s\n", pfx)
+			}
 			ph.HasAllowedIPs = true
 			if host, err := firstHostFromCIDR(cidr); err == nil {
 				if ph.AllowedIP == "" {
@@ -69,11 +95,36 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 				ph.AllowedHosts = append(ph.AllowedHosts, host)
 			}
 		}
+		if cur != nil {
+			for pfx := range cur.allowed {
+				if _, ok := want[pfx]; !ok {
+					fmt.Fprintf(pw, "allowed_ip=-%s\n", pfx)
+				}
+			}
+		}
 		if p.Keepalive > 0 {
-			fmt.Fprintf(w, "persistent_keepalive_interval=%d\n", p.Keepalive)
 			ph.HasKeepalive = true
 		}
+		if (cur == nil && p.Keepalive > 0) || (cur != nil && cur.keepalive != p.Keepalive) {
+			fmt.Fprintf(pw, "persistent_keepalive_interval=%d\n", p.Keepalive)
+		}
+		switch {
+		case cur == nil:
+			added++
+			fmt.Fprintf(w, "public_key=%s\n", pubHex)
+			buf.Write(peerBuf.Bytes())
+		case peerBuf.Len() > 0:
+			updated++
+			fmt.Fprintf(w, "public_key=%s\n", pubHex)
+			buf.Write(peerBuf.Bytes())
+		}
 		peers = append(peers, ph)
+	}
+	for pubHex := range live {
+		if _, ok := wanted[pubHex]; !ok {
+			removed++
+			fmt.Fprintf(w, "public_key=%s\nremove=true\n", pubHex)
+		}
 	}
 
 	// Attach node-level forwards to a synthetic peer hook (or first matching dest).
@@ -106,12 +157,18 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "wireguard-go: applying desired config revision=%d role=%s…\n", d.Revision, d.Role)
+	fmt.Fprintf(os.Stderr, "wireguard-go: hot-applying revision=%d role=%s (peers +%d -%d ~%d)\n",
+		d.Revision, d.Role, added, removed, updated)
 	if err := dev.IpcSetOperation(bufio.NewReader(&buf)); err != nil {
 		return nil, fmt.Errorf("apply desired uapi: %w", err)
 	}
-	if err := applyIfaceNetConfig(iface, netCfg, logger); err != nil {
-		return nil, err
+	if !sameIfaceNet(prev, d) {
+		if prev != nil && prev.Interface.Address != "" && prev.Interface.Address != d.Interface.Address {
+			removeIfaceAddress(iface, prev.Interface.Address, logger)
+		}
+		if err := applyIfaceNetConfig(iface, netCfg, logger); err != nil {
+			return nil, err
+		}
 	}
 	if d.IPForward {
 		if err := EnableIPForward(logger); err != nil {

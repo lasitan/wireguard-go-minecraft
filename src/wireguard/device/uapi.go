@@ -211,14 +211,8 @@ func (device *Device) handleDeviceLine(key, value string) error {
 			return ipcErrorf(ipc.IpcErrorInvalid, "failed to parse listen_port: %w", err)
 		}
 
-		// update port and rebind
 		device.log.Verbosef("UAPI: Updating listen port")
-
-		device.net.Lock()
-		device.net.port = uint16(port)
-		device.net.Unlock()
-
-		if err := device.BindUpdate(); err != nil {
+		if err := device.BindSetListenPort(uint16(port)); err != nil {
 			return ipcErrorf(ipc.IpcErrorPortInUse, "failed to set listen_port: %w", err)
 		}
 

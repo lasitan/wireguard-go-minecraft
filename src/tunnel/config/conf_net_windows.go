@@ -91,3 +91,19 @@ New-NetIPAddress -InterfaceAlias $ifAlias -IPAddress $ip -PrefixLength $prefix -
 	}
 	return nil
 }
+
+func removeIfaceAddress(iface, addr string, logger *device.Logger) {
+	ip := addr
+	if p, err := netip.ParsePrefix(addr); err == nil {
+		ip = p.Addr().String()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	script := fmt.Sprintf(
+		`Get-NetIPAddress -InterfaceAlias '%s' -IPAddress '%s' -ErrorAction SilentlyContinue | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue`,
+		pwsh.Quote(iface), pwsh.Quote(ip),
+	)
+	if out, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput(); err != nil {
+		logger.Verbosef("remove %s from %s: %v (%s)", addr, iface, err, strings.TrimSpace(string(out)))
+	}
+}
