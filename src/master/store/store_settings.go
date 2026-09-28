@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -58,6 +59,28 @@ func normalizePool(v string) (string, error) {
 	return p.Masked().String(), nil
 }
 
+// normalizeTransportJSON accepts the transport config either as a JSON object
+// or as a string holding one (the web UI sends the latter) and returns the
+// object text. Storing the string form would leave agents unable to parse it.
+func normalizeTransportJSON(raw []byte) (string, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return "", fmt.Errorf("transportJson must not be empty")
+	}
+	if raw[0] == '"' {
+		var inner string
+		if err := json.Unmarshal(raw, &inner); err != nil {
+			return "", fmt.Errorf("transportJson: invalid JSON")
+		}
+		raw = bytes.TrimSpace([]byte(inner))
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return "", fmt.Errorf("transportJson must be a JSON object")
+	}
+	return string(raw), nil
+}
+
 // UpdateSettings validates and stores a settings patch. Changing the enroll
 // token does not affect agents that already joined (they use node tokens).
 func (s *Store) UpdateSettings(p SettingsPatch) error {
@@ -77,13 +100,11 @@ func (s *Store) UpdateSettings(p SettingsPatch) error {
 		updates[metaVPNSubnet] = v
 	}
 	if p.TransportJSON != nil {
-		if len(*p.TransportJSON) == 0 {
-			return fmt.Errorf("transportJson must not be empty")
+		v, err := normalizeTransportJSON(*p.TransportJSON)
+		if err != nil {
+			return err
 		}
-		if !json.Valid(*p.TransportJSON) {
-			return fmt.Errorf("transportJson: invalid JSON")
-		}
-		updates[metaTransportJSON] = string(*p.TransportJSON)
+		updates[metaTransportJSON] = v
 	}
 	if p.RelayPort != nil {
 		v, err := normalizeRelayPort(*p.RelayPort)

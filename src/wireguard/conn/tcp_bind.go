@@ -1187,7 +1187,14 @@ func loadTransportConfigFile() (transportConfigFile, error) {
 	override := append([]byte(nil), transportOverride...)
 	transportOverrideMu.RUnlock()
 	if len(override) > 0 {
-		data := stripJSONComments(override)
+		data := bytes.TrimSpace(stripJSONComments(override))
+		// Older Masters could push the config wrapped in a JSON string.
+		if len(data) > 0 && data[0] == '"' {
+			var inner string
+			if err := json.Unmarshal(data, &inner); err == nil {
+				data = []byte(inner)
+			}
+		}
 		var cfg transportConfigFile
 		if err := json.Unmarshal(data, &cfg); err != nil {
 			return transportConfigFile{}, fmt.Errorf("parse remote transport config: %w", err)

@@ -41,17 +41,24 @@ func (s *Store) ensureTransportDefault() error {
 	if err != nil {
 		return err
 	}
-	if len(tr) > 0 && !strings.Contains(tr, `"`+placeholderSecret+`"`) {
-		return nil
-	}
+	orig := tr
 	if len(tr) == 0 {
 		tr = DefaultTransportJSON
 	}
-	secret, err := NewEnrollToken()
-	if err != nil {
-		return err
+	// Older web UIs saved the config as a JSON string; unwrap it in place.
+	if fixed, err := normalizeTransportJSON([]byte(tr)); err == nil {
+		tr = fixed
 	}
-	tr = strings.ReplaceAll(tr, `"`+placeholderSecret+`"`, `"`+secret+`"`)
+	if strings.Contains(tr, `"`+placeholderSecret+`"`) {
+		secret, err := NewEnrollToken()
+		if err != nil {
+			return err
+		}
+		tr = strings.ReplaceAll(tr, `"`+placeholderSecret+`"`, `"`+secret+`"`)
+	}
+	if tr == orig {
+		return nil
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
