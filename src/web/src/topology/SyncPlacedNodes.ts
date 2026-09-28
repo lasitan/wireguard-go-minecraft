@@ -45,8 +45,9 @@ export function syncPlacedNodes(mesh: Mesh): PlacedNode[] {
     let target = state.nodePositions[node.id];
     const parent = state.stacks.parentOf.get(node.id);
     if (parent && node.id !== dragging && state.nodePositions[parent]) {
-      const idx = stackChildren(parent, dragging).indexOf(node.id);
-      target = slotPos(state.nodePositions[parent], idx);
+      const kids = stackChildren(parent, dragging);
+      const idx = kids.indexOf(node.id);
+      target = slotPos(state.nodePositions[parent], idx, kids.length);
     }
     const pos = tweenPos(node.id, target, state.displayPos[node.id], node.id === dragging);
     state.displayPos[node.id] = pos;

@@ -57,10 +57,10 @@ export function TopologyPage() {
           fill="transparent"
         />
         <MeshEdges edges={edges} />
-        <HubNode />
         <MagnetRails placed={placed} />
-        <MagnetGhost />
         <AgentNodes placed={placed} conflicts={conflicts} />
+        <HubNode />
+        <MagnetGhost />
       </svg>
 
       <EdgeLegend />
