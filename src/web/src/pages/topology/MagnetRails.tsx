@@ -9,7 +9,10 @@ function railStatus(p: PlacedNode): string {
   return p.node.disabled ? "grey" : isOnline(p.node) ? "green" : "red";
 }
 
-/** Horizontal joints between side-by-side cluster members, left to right. */
+/**
+ * Horizontal joints between side-by-side cluster members: one solid line each
+ * between adjacent cards (left → right).
+ */
 function clusterJoints(placed: PlacedNode[]): ReactElement[] {
   const groups = new Map<string, PlacedNode[]>();
   for (const p of placed) {
@@ -31,7 +34,7 @@ function clusterJoints(placed: PlacedNode[]): ReactElement[] {
       const status = railStatus(a) === "green" && railStatus(b) === "green" ? "green" : "red";
       out.push(
         <g key={`${c}:${a.node.id}:${b.node.id}`} className={`magnet-rail cluster-joint status-${status}`}>
-          <path d={`M ${x1} ${y1 - 5} L ${x2} ${y2 - 5} M ${x1} ${y1 + 5} L ${x2} ${y2 + 5}`} />
+          <path d={`M ${x1} ${y1} L ${x2} ${y2}`} />
           <circle cx={x1} cy={y1} r={3} />
           <circle cx={x2} cy={y2} r={3} />
         </g>,
@@ -41,7 +44,10 @@ function clusterJoints(placed: PlacedNode[]): ReactElement[] {
   return out;
 }
 
-/** Short magnetic joints between a mother card and each card stacked below it. */
+/**
+ * Short solid magnetic joints between a mother card and each card stacked below
+ * it (one solid line per adjacent pair — no mesh edges inside the stack).
+ */
 export function MagnetRails({ placed }: { placed: PlacedNode[] }) {
   const byId = new Map(placed.map((p) => [p.node.id, p]));
   const rails: ReactElement[] = [];

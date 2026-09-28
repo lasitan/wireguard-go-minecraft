@@ -9,11 +9,66 @@ import type {
   TopologyEdge,
 } from "../core/models";
 import { isOnline } from "../utils/isOnline";
-import { pcbRouteD } from "./PcbRoute";
+import {
+  buildAgentObstacles,
+  masterObstacle,
+  portOnAgent,
+  portOnMaster,
+  routePcbBundle,
+  type Rect,
+  type RouteRequest,
+} from "./PcbRouter";
+import { CARD_BOTTOM, CARD_HALF_W, CARD_TOP } from "./MagnetLayout";
 import { vpnPrefixFromAddress } from "./SubnetGroups";
 
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+/** Thin obstacle covering a magnet / cluster joint so mesh traces cannot cross it. */
+function railObstacle(x1: number, y1: number, x2: number, y2: number, half = 6): Rect {
+  return {
+    minX: Math.min(x1, x2) - half,
+    maxX: Math.max(x1, x2) + half,
+    minY: Math.min(y1, y2) - half,
+    maxY: Math.max(y1, y2) + half,
+  };
+}
+
+function magnetRailObstacles(placed: PlacedNode[], stacks: MagnetStacks): Map<string, Rect> {
+  const byId = new Map(placed.map((p) => [p.node.id, p]));
+  const out = new Map<string, Rect>();
+  let n = 0;
+  for (const [motherId, kids] of stacks.childrenOf) {
+    let above = byId.get(motherId);
+    for (const kidId of kids) {
+      const kid = byId.get(kidId);
+      if (!above || !kid) continue;
+      const y1 = above.y + CARD_BOTTOM;
+      const y2 = kid.y + CARD_TOP;
+      out.set(`rail:${n++}`, railObstacle(above.x, y1, kid.x, y2, 7));
+      above = kid;
+    }
+  }
+  const groups = new Map<string, PlacedNode[]>();
+  for (const p of placed) {
+    const c = p.node.cluster;
+    if (!c) continue;
+    groups.set(c, [...(groups.get(c) || []), p]);
+  }
+  const midY = (CARD_TOP + CARD_BOTTOM) / 2;
+  for (const members of groups.values()) {
+    members.sort((a, b) => a.x - b.x);
+    for (let i = 1; i < members.length; i++) {
+      const a = members[i - 1];
+      const b = members[i];
+      out.set(
+        `rail:${n++}`,
+        railObstacle(a.x + CARD_HALF_W, a.y + midY, b.x - CARD_HALF_W, b.y + midY, 7),
+      );
+    }
+  }
+  return out;
 }
 
 function distToMaster(x: number, y: number): number {
@@ -22,17 +77,19 @@ function distToMaster(x: number, y: number): number {
   return dx * dx + dy * dy;
 }
 
-/** Orient so (x2,y2) is closer to Master — green dash flow moves toward Master. */
+/** Orient so endpoint 2 is closer to Master — green dash flow moves toward Master. */
 function orientTowardMaster(
   ax: number,
   ay: number,
   bx: number,
   by: number,
-): { x1: number; y1: number; x2: number; y2: number } {
+  aId: string,
+  bId: string,
+): { x1: number; y1: number; x2: number; y2: number; fromId: string; toId: string } {
   if (distToMaster(ax, ay) <= distToMaster(bx, by)) {
-    return { x1: bx, y1: by, x2: ax, y2: ay };
+    return { x1: bx, y1: by, x2: ax, y2: ay, fromId: bId, toId: aId };
   }
-  return { x1: ax, y1: ay, x2: bx, y2: by };
+  return { x1: ax, y1: ay, x2: bx, y2: by, fromId: aId, toId: bId };
 }
 
 function edgeStatus(
@@ -54,6 +111,11 @@ function edgeStatus(
  * - gateway: cross-subnet gateway mother Master picked for a node (lowest RTT)
  * - dashed: indirect reachability (shared hub / control spoke) when no solid rule
  * Kinds are mutually exclusive per pair.
+ *
+ * Magnet-stack members (mother + adsorbed children) are omitted here — MagnetRails
+ * draws a single solid joint between adjacent stacked cards only.
+ *
+ * Paths are PCB-routed: orthogonal, avoid agent/Master widgets, and do not cross.
  */
 export function BuildEdgeGraph(
   mesh: Mesh,
@@ -61,13 +123,19 @@ export function BuildEdgeGraph(
   conflicts: IpConflictMap,
   stacks: MagnetStacks,
 ): TopologyEdge[] {
-  // Cards in one magnet stack are drawn touching (MagnetRails); no lines between them.
+  // Cards in one magnet stack / cluster are drawn with MagnetRails; no mesh lines between them.
   const stackOf = (id: string) => stacks.parentOf.get(id) || (stacks.childrenOf.has(id) ? id : "");
   const sameStack = (a: string, b: string) => {
     const s = stackOf(a);
     return s !== "" && s === stackOf(b);
   };
   const byId = new Map(placed.map((p) => [p.node.id, p]));
+  const sameCluster = (a: string, b: string) => {
+    const ca = byId.get(a)?.node.cluster;
+    const cb = byId.get(b)?.node.cluster;
+    return !!ca && ca === cb;
+  };
+  const magnetJoined = (a: string, b: string) => sameStack(a, b) || sameCluster(a, b);
   const online = new Map(placed.map((p) => [p.node.id, isOnline(p.node)]));
   const disabled = new Set(placed.filter((p) => p.node.disabled).map((p) => p.node.id));
 
@@ -109,12 +177,28 @@ export function BuildEdgeGraph(
     }
   }
 
-  const edges: TopologyEdge[] = [];
-  const pushPair = (aId: string, bId: string, kind: EdgeKind) => {
+  type Pending = {
+    id: string;
+    fromId: string;
+    toId: string;
+    kind: EdgeKind;
+    status: EdgeStatus;
+    flowTowardMaster: boolean;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+  };
+  const pending: Pending[] = [];
+
+  const pushAgentPair = (aId: string, bId: string, kind: EdgeKind) => {
     const a = byId.get(aId);
     const b = byId.get(bId);
     if (!a || !b) return;
-    const o = orientTowardMaster(a.x, a.y, b.x, b.y);
+    // Attach on card borders so the trace never enters a widget.
+    const aPort = portOnAgent(a, b.x, b.y);
+    const bPort = portOnAgent(b, a.x, a.y);
+    const o = orientTowardMaster(aPort.x, aPort.y, bPort.x, bPort.y, aId, bId);
     const status = edgeStatus(
       !!online.get(aId),
       !!online.get(bId),
@@ -122,15 +206,17 @@ export function BuildEdgeGraph(
       !!conflicts.get(bId),
       disabled.has(aId) || disabled.has(bId),
     );
-    edges.push({
+    pending.push({
       id: `${kind}:${pairKey(aId, bId)}`,
-      fromId: aId,
-      toId: bId,
-      ...o,
-      pathD: pcbRouteD(o.x1, o.y1, o.x2, o.y2),
+      fromId: o.fromId,
+      toId: o.toId,
       kind,
       status,
       flowTowardMaster: status === "green",
+      x1: o.x1,
+      y1: o.y1,
+      x2: o.x2,
+      y2: o.y2,
     });
   };
 
@@ -149,7 +235,6 @@ export function BuildEdgeGraph(
       if (!solidPairs.has(key)) gatewayPairs.add(key);
     }
   }
-  // Nodes of a relay-served subnet stay on Master's relay so it can deliver.
   for (const n of mesh.nodes) {
     const sub = vpnPrefixFromAddress(n.address);
     if (sub && relaySubnets.has(sub)) relayNodes.add(n.id);
@@ -157,42 +242,79 @@ export function BuildEdgeGraph(
 
   for (const key of solidPairs) {
     const [a, b] = key.split("|");
-    if (!sameStack(a, b)) pushPair(a, b, "solid");
+    if (!magnetJoined(a, b)) pushAgentPair(a, b, "solid");
   }
   for (const key of gatewayPairs) {
     const [a, b] = key.split("|");
-    if (!sameStack(a, b)) pushPair(a, b, "gateway");
+    if (!magnetJoined(a, b)) pushAgentPair(a, b, "gateway");
   }
   for (const key of indirectPairs) {
     if (solidPairs.has(key) || gatewayPairs.has(key)) continue;
     const [a, b] = key.split("|");
-    if (!sameStack(a, b)) pushPair(a, b, "dashed");
+    if (!magnetJoined(a, b)) pushAgentPair(a, b, "dashed");
   }
 
-  // Control-plane spokes: agent ↔ Master (dashed; solid never applies to Master).
-  // Attached cards share their mother's spoke. Nodes on Master's cross-subnet
-  // relay get a gateway-style spoke of their own.
+  // Control-plane spokes: agent ↔ Master. Attached cards share their mother's spoke.
   for (const p of placed) {
     const onRelay = relayNodes.has(p.node.id);
     if (stacks.parentOf.has(p.node.id) && !onRelay) continue;
-    const o = orientTowardMaster(p.x, p.y, VIEW.cx, VIEW.cy);
+    const masterPort = portOnMaster(p.x, p.y);
+    const agentPort = portOnAgent(p, VIEW.cx, VIEW.cy);
+    const o = orientTowardMaster(agentPort.x, agentPort.y, masterPort.x, masterPort.y, p.node.id, MASTER_ID);
     const nodeOnline = !!online.get(p.node.id);
     const conflict = !!conflicts.get(p.node.id);
     let status: EdgeStatus = "green";
     if (disabled.has(p.node.id)) status = "grey";
     else if (conflict) status = "yellow";
     else if (!nodeOnline) status = "red";
-    edges.push({
+    pending.push({
       id: `spoke:${p.node.id}`,
-      fromId: p.node.id,
-      toId: MASTER_ID,
-      ...o,
-      pathD: pcbRouteD(o.x1, o.y1, o.x2, o.y2),
+      fromId: o.fromId,
+      toId: o.toId,
       kind: onRelay ? "gateway" : "dashed",
       status,
       flowTowardMaster: status === "green",
+      x1: o.x1,
+      y1: o.y1,
+      x2: o.x2,
+      y2: o.y2,
     });
   }
+
+  // Priority: solid → gateway → dashed/spoke, then longer first within kind.
+  const rank = (k: EdgeKind) => (k === "solid" ? 0 : k === "gateway" ? 1 : 2);
+  pending.sort((a, b) => {
+    const r = rank(a.kind) - rank(b.kind);
+    if (r !== 0) return r;
+    return Math.hypot(b.x2 - b.x1, b.y2 - b.y1) - Math.hypot(a.x2 - a.x1, a.y2 - a.y1);
+  });
+
+  const reqs: RouteRequest[] = pending.map((p) => ({
+    id: p.id,
+    fromId: p.fromId,
+    toId: p.toId,
+    x1: p.x1,
+    y1: p.y1,
+    x2: p.x2,
+    y2: p.y2,
+  }));
+  const obstacles = buildAgentObstacles(placed);
+  for (const [id, r] of magnetRailObstacles(placed, stacks)) obstacles.set(id, r);
+  const paths = routePcbBundle(reqs, obstacles, masterObstacle());
+
+  const edges: TopologyEdge[] = pending.map((p) => ({
+    id: p.id,
+    fromId: p.fromId,
+    toId: p.toId,
+    x1: p.x1,
+    y1: p.y1,
+    x2: p.x2,
+    y2: p.y2,
+    pathD: paths.get(p.id) || "",
+    kind: p.kind,
+    status: p.status,
+    flowTowardMaster: p.flowTowardMaster,
+  }));
 
   return edges;
 }
