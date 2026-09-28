@@ -1,7 +1,7 @@
 type Pt = { x: number; y: number };
 
-/** Bevel length at each 90° bend (two 45° legs). */
-export const PCB_CHAMFER = 12;
+/** Bevel length at each 90° bend (two 45° legs). Keep ≤ half cell so parallel traces stay clear. */
+export const PCB_CHAMFER = 4;
 
 function dedupeColinear(pts: Pt[]): Pt[] {
   if (pts.length <= 2) return pts;

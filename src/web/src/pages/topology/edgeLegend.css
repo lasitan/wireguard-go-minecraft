@@ -4,21 +4,61 @@
   left: 14px;
   z-index: 4;
   max-width: min(280px, calc(100vw - 28px));
-  padding: 0.7rem 0.85rem;
+  padding: 0.35rem 0.55rem 0.35rem 0.7rem;
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 8px 24px rgba(27, 36, 48, 0.08);
   backdrop-filter: blur(8px);
-  pointer-events: none;
+  pointer-events: auto;
+}
+.edge-legend.is-open {
+  padding-bottom: 0.7rem;
+}
+.edge-legend-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.25rem 0;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 700;
+}
+.edge-legend-toggle:hover {
+  background: transparent;
+  color: var(--text);
 }
 .edge-legend-title {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 0.45rem;
+  color: inherit;
+}
+.edge-legend-chevron {
+  font-size: 0.7rem;
+  line-height: 1;
+  opacity: 0.75;
+}
+.edge-legend-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
+}
+.edge-legend.is-open .edge-legend-body {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.edge-legend-body-inner {
+  overflow: hidden;
+  padding-top: 0.2rem;
 }
 .edge-legend-list {
   list-style: none;

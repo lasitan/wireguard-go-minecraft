@@ -1,4 +1,4 @@
-import { MASTER_ID, VIEW } from "../core/constants";
+import { VIEW } from "../core/constants";
 import type { PlacedNode } from "../core/models";
 import { CARD_BOTTOM, CARD_HALF_W, CARD_TOP } from "./MagnetLayout";
 import { pathDFromPoints } from "./PcbRoute";
@@ -17,10 +17,11 @@ export type RouteRequest = {
   y2: number;
 };
 
-const CELL = 12;
+/** Match the camera grid so traces sit on visible lines. */
+const CELL = 10;
 const CLEAR = 8;
-const TURN_COST = 0.4;
-const MAX_EXPAND = 100_000;
+const TURN_COST = 0.35;
+const MAX_EXPAND = 250_000;
 
 function padRect(r: Rect, pad: number): Rect {
   return { minX: r.minX - pad, minY: r.minY - pad, maxX: r.maxX + pad, maxY: r.maxY + pad };
@@ -41,7 +42,7 @@ export function agentObstacle(p: PlacedNode, pad = CLEAR): Rect {
 
 /** Master hub exclusion (square approx of the ring + clearance). */
 export function masterObstacle(pad = CLEAR): Rect {
-  const r = 42 + pad; // hub-ring radius + clearance
+  const r = 42 + pad;
   return { minX: VIEW.cx - r, maxX: VIEW.cx + r, minY: VIEW.cy - r, maxY: VIEW.cy + r };
 }
 
@@ -74,20 +75,8 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-function rectsOverlap(a: Rect, b: Rect): boolean {
-  return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
-}
-
 function pointInRect(x: number, y: number, r: Rect): boolean {
   return x >= r.minX && x <= r.maxX && y >= r.minY && y <= r.maxY;
-}
-
-function segmentHitsRect(ax: number, ay: number, bx: number, by: number, r: Rect): boolean {
-  const minX = Math.min(ax, bx);
-  const maxX = Math.max(ax, bx);
-  const minY = Math.min(ay, by);
-  const maxY = Math.max(ay, by);
-  return rectsOverlap({ minX, minY, maxX, maxY }, r);
 }
 
 function simplifyOrthogonal(pts: Pt[]): Pt[] {
@@ -106,38 +95,21 @@ function simplifyOrthogonal(pts: Pt[]): Pt[] {
   return out;
 }
 
-function ensureOrthogonalEnds(pts: Pt[], x1: number, y1: number, x2: number, y2: number): Pt[] {
-  if (pts.length === 0) return [{ x: x1, y: y1 }, { x: x2, y: y2 }];
-  const out = pts.map((p) => ({ ...p }));
-  out[0] = { x: x1, y: y1 };
-  out[out.length - 1] = { x: x2, y: y2 };
-  if (out.length >= 2) {
-    const a = out[0];
-    const b = out[1];
-    if (Math.abs(a.x - b.x) > 0.01 && Math.abs(a.y - b.y) > 0.01) {
-      out.splice(1, 0, { x: b.x, y: a.y });
-    }
-  }
-  if (out.length >= 2) {
-    const a = out[out.length - 2];
-    const b = out[out.length - 1];
-    if (Math.abs(a.x - b.x) > 0.01 && Math.abs(a.y - b.y) > 0.01) {
-      out.splice(out.length - 1, 0, { x: b.x, y: a.y });
-    }
-  }
-  return simplifyOrthogonal(out);
-}
-
 type Cell = { i: number; j: number };
 
 function cellKey(i: number, j: number): number {
-  return ((i + 4096) << 13) | (j + 4096);
+  // 14 bits each → safe for ±8192 cells
+  return ((i + 8192) << 14) | (j + 8192);
+}
+
+function unpackKey(k: number): Cell {
+  return { i: (k >> 14) - 8192, j: (k & 16383) - 8192 };
 }
 
 /**
  * Bundle-route orthogonal PCB traces: avoid agent/Master obstacles and do not
- * cross previously placed traces (single-layer). Falls back to an L-bend when
- * A* cannot find a path.
+ * cross previously placed traces (single-layer). Never falls back to a
+ * crossing L-bend — if crowded, routes around the outer free channel.
  */
 export function routePcbBundle(
   requests: RouteRequest[],
@@ -146,6 +118,9 @@ export function routePcbBundle(
 ): Map<string, string> {
   const out = new Map<string, string>();
   if (requests.length === 0) return out;
+
+  const hard: Rect[] = [masterBlocked];
+  for (const r of obstaclesById.values()) hard.push(r);
 
   let minX = Infinity;
   let minY = Infinity;
@@ -157,21 +132,24 @@ export function routePcbBundle(
     maxX = Math.max(maxX, x);
     maxY = Math.max(maxY, y);
   };
-  for (const r of obstaclesById.values()) {
+  for (const r of hard) {
     grow(r.minX, r.minY);
     grow(r.maxX, r.maxY);
   }
-  grow(masterBlocked.minX, masterBlocked.minY);
-  grow(masterBlocked.maxX, masterBlocked.maxY);
   for (const req of requests) {
     grow(req.x1, req.y1);
     grow(req.x2, req.y2);
   }
-  const margin = CELL * 10;
+  // Generous outer channel so later traces can always go around.
+  const margin = Math.max(CELL * 48, VIEW.w * 0.35);
   minX -= margin;
   minY -= margin;
   maxX += margin;
   maxY += margin;
+
+  // Align origin to CELL so world ↔ cell is stable.
+  minX = Math.floor(minX / CELL) * CELL;
+  minY = Math.floor(minY / CELL) * CELL;
 
   const toCell = (x: number, y: number): Cell => ({
     i: Math.round((x - minX) / CELL),
@@ -179,89 +157,109 @@ export function routePcbBundle(
   });
   const toWorld = (c: Cell): Pt => ({ x: minX + c.i * CELL, y: minY + c.j * CELL });
 
-  const occupied = new Set<number>();
+  const iMax = Math.ceil((maxX - minX) / CELL);
+  const jMax = Math.ceil((maxY - minY) / CELL);
 
-  const markPathCells = (pts: Pt[]) => {
-    for (let s = 1; s < pts.length; s++) {
-      const a = pts[s - 1];
-      const b = pts[s];
-      if (Math.abs(a.x - b.x) < 0.01) {
-        const x = a.x;
-        const y0 = Math.min(a.y, b.y);
-        const y1 = Math.max(a.y, b.y);
-        for (let y = y0; y <= y1 + CELL * 0.5; y += CELL) {
-          const c = toCell(x, y);
-          occupied.add(cellKey(c.i, c.j));
-        }
-      } else {
-        const y = a.y;
-        const x0 = Math.min(a.x, b.x);
-        const x1 = Math.max(a.x, b.x);
-        for (let x = x0; x <= x1 + CELL * 0.5; x += CELL) {
-          const c = toCell(x, y);
-          occupied.add(cellKey(c.i, c.j));
-        }
-      }
-    }
-    // Free endpoints so other traces can still attach to the same widget rim.
-    if (pts.length) {
-      const a = toCell(pts[0].x, pts[0].y);
-      const b = toCell(pts[pts.length - 1].x, pts[pts.length - 1].y);
-      occupied.delete(cellKey(a.i, a.j));
-      occupied.delete(cellKey(b.i, b.j));
-    }
-  };
-
-  const hardObstacles = (): Rect[] => {
-    const hard: Rect[] = [masterBlocked];
-    for (const r of obstaclesById.values()) hard.push(r);
-    return hard;
-  };
-
-  const fallbackL = (req: RouteRequest): Pt[] => {
-    const hard = hardObstacles();
-    const viaH: Pt[] = [
-      { x: req.x1, y: req.y1 },
-      { x: req.x2, y: req.y1 },
-      { x: req.x2, y: req.y2 },
-    ];
-    const viaV: Pt[] = [
-      { x: req.x1, y: req.y1 },
-      { x: req.x1, y: req.y2 },
-      { x: req.x2, y: req.y2 },
-    ];
-    const score = (pts: Pt[]) => {
-      let hits = 0;
-      for (let i = 1; i < pts.length; i++) {
-        for (const r of hard) {
-          if (segmentHitsRect(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y, r)) hits++;
-        }
-      }
-      return hits;
-    };
-    return score(viaH) <= score(viaV) ? viaH : viaV;
-  };
-
-  const astar = (req: RouteRequest): Pt[] | null => {
-    const hard = hardObstacles();
-    const start = toCell(req.x1, req.y1);
-    const goal = toCell(req.x2, req.y2);
-
-    const isBlocked = (i: number, j: number): boolean => {
-      // Ports sit on the padded obstacle rim — always allow endpoints.
-      if ((i === start.i && j === start.j) || (i === goal.i && j === goal.j)) return false;
-      if (occupied.has(cellKey(i, j))) return true;
+  const blockedCells = new Set<number>();
+  for (let i = 0; i <= iMax; i++) {
+    for (let j = 0; j <= jMax; j++) {
       const p = toWorld({ i, j });
       for (const r of hard) {
-        if (pointInRect(p.x, p.y, r)) return true;
+        if (pointInRect(p.x, p.y, r)) {
+          blockedCells.add(cellKey(i, j));
+          break;
+        }
       }
-      return false;
-    };
+    }
+  }
+
+  /** Cells reserved by already-routed traces (including clearance halo). */
+  const reserved = new Set<number>();
+
+  const markCells = (cells: Cell[], clearEnds: boolean) => {
+    const ends = new Set<number>();
+    if (clearEnds && cells.length) {
+      ends.add(cellKey(cells[0].i, cells[0].j));
+      ends.add(cellKey(cells[cells.length - 1].i, cells[cells.length - 1].j));
+    }
+    for (const c of cells) {
+      const k = cellKey(c.i, c.j);
+      if (!ends.has(k)) reserved.add(k);
+    }
+  };
+
+  const isBlocked = (i: number, j: number, start: Cell, goal: Cell): boolean => {
+    if (i < 0 || j < 0 || i > iMax || j > jMax) return true;
+    if ((i === start.i && j === start.j) || (i === goal.i && j === goal.j)) return false;
+    const k = cellKey(i, j);
+    if (blockedCells.has(k)) return true;
+    if (reserved.has(k)) return true;
+    return false;
+  };
+
+  /** Push start/goal off obstacle interiors onto the nearest free rim cell. */
+  const snapPort = (x: number, y: number, towardX: number, towardY: number): Cell => {
+    let c = toCell(x, y);
+    const k0 = cellKey(c.i, c.j);
+    if (!blockedCells.has(k0) && !reserved.has(k0)) return c;
+    const tdx = towardX - x;
+    const tdy = towardY - y;
+    const prefer: Cell[] = [];
+    if (Math.abs(tdx) >= Math.abs(tdy)) {
+      prefer.push({ i: c.i + (tdx >= 0 ? 1 : -1), j: c.j });
+      prefer.push({ i: c.i, j: c.j + (tdy >= 0 ? 1 : -1) });
+      prefer.push({ i: c.i, j: c.j + (tdy >= 0 ? -1 : 1) });
+    } else {
+      prefer.push({ i: c.i, j: c.j + (tdy >= 0 ? 1 : -1) });
+      prefer.push({ i: c.i + (tdx >= 0 ? 1 : -1), j: c.j });
+      prefer.push({ i: c.i + (tdx >= 0 ? -1 : 1), j: c.j });
+    }
+    for (let r = 1; r <= 8; r++) {
+      for (const base of prefer) {
+        const cand = {
+          i: c.i + (base.i - c.i) * r,
+          j: c.j + (base.j - c.j) * r,
+        };
+        const k = cellKey(cand.i, cand.j);
+        if (cand.i < 0 || cand.j < 0 || cand.i > iMax || cand.j > jMax) continue;
+        if (!blockedCells.has(k) && !reserved.has(k)) return cand;
+      }
+      // Full ring search
+      for (let di = -r; di <= r; di++) {
+        for (let dj = -r; dj <= r; dj++) {
+          if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue;
+          const cand = { i: c.i + di, j: c.j + dj };
+          const k = cellKey(cand.i, cand.j);
+          if (cand.i < 0 || cand.j < 0 || cand.i > iMax || cand.j > jMax) continue;
+          if (!blockedCells.has(k) && !reserved.has(k)) return cand;
+        }
+      }
+    }
+    return c;
+  };
+
+  const reconstruct = (parent: Map<number, number>, goalK: number, start: Cell): Cell[] => {
+    const cells: Cell[] = [];
+    let ck = goalK;
+    for (;;) {
+      const c = unpackKey(ck);
+      cells.push(c);
+      if (c.i === start.i && c.j === start.j) break;
+      const pk = parent.get(ck);
+      if (pk === undefined) break;
+      ck = pk;
+    }
+    cells.reverse();
+    return cells;
+  };
+
+  const astar = (start: Cell, goal: Cell): Cell[] | null => {
+    if (start.i === goal.i && start.j === goal.j) return [start];
 
     type Node = { i: number; j: number; g: number; f: number; dir: number };
     const open: Node[] = [];
     const gScore = new Map<number, number>();
-    const parent = new Map<number, number>(); // childKey -> parentKey
+    const parent = new Map<number, number>();
     const h = (i: number, j: number) => Math.abs(i - goal.i) + Math.abs(j - goal.j);
     const dirs = [
       { di: 1, dj: 0, d: 1 },
@@ -283,19 +281,7 @@ export function routePcbBundle(
       open.pop();
 
       if (cur.i === goal.i && cur.j === goal.j) {
-        const cells: Cell[] = [{ i: cur.i, j: cur.j }];
-        let ck = cellKey(cur.i, cur.j);
-        while (parent.has(ck)) {
-          const pk = parent.get(ck)!;
-          const pi = (pk >> 13) - 4096;
-          const pj = (pk & 8191) - 4096;
-          cells.push({ i: pi, j: pj });
-          ck = pk;
-          if (pi === start.i && pj === start.j) break;
-        }
-        cells.reverse();
-        const world = cells.map(toWorld);
-        return ensureOrthogonalEnds(world, req.x1, req.y1, req.x2, req.y2);
+        return reconstruct(parent, cellKey(cur.i, cur.j), start);
       }
 
       const ck = cellKey(cur.i, cur.j);
@@ -305,7 +291,7 @@ export function routePcbBundle(
       for (const { di, dj, d } of dirs) {
         const ni = cur.i + di;
         const nj = cur.j + dj;
-        if (isBlocked(ni, nj)) continue;
+        if (isBlocked(ni, nj, start, goal)) continue;
         const turn = cur.dir !== 0 && cur.dir !== d ? TURN_COST : 0;
         const ng = cur.g + 1 + turn;
         const nk = cellKey(ni, nj);
@@ -319,11 +305,131 @@ export function routePcbBundle(
     return null;
   };
 
-  // Keep caller order (solid → gateway → dashed, longer first within kind).
+  /**
+   * Detour via A* through a unique perimeter waypoint. Never walks through
+   * reserved cells (unlike a naive L-bend fallback).
+   */
+  const outerDetour = (start: Cell, goal: Cell, laneIndex: number): Cell[] | null => {
+    const stitchAstar = (waypoints: Cell[]): Cell[] | null => {
+      const path: Cell[] = [];
+      let cur = start;
+      for (const wp of [...waypoints, goal]) {
+        const seg = astar(cur, wp);
+        if (!seg) return null;
+        if (path.length) path.push(...seg.slice(1));
+        else path.push(...seg);
+        cur = wp;
+      }
+      return path;
+    };
+
+    const inset = 2 + (laneIndex % 24) * 2;
+    const candidates: Cell[][] = [
+      [{ i: inset, j: inset }],
+      [{ i: iMax - inset, j: inset }],
+      [{ i: inset, j: jMax - inset }],
+      [{ i: iMax - inset, j: jMax - inset }],
+      [
+        { i: start.i, j: inset },
+        { i: goal.i, j: inset },
+      ],
+      [
+        { i: start.i, j: jMax - inset },
+        { i: goal.i, j: jMax - inset },
+      ],
+      [
+        { i: inset, j: start.j },
+        { i: inset, j: goal.j },
+      ],
+      [
+        { i: iMax - inset, j: start.j },
+        { i: iMax - inset, j: goal.j },
+      ],
+      // Two-corner wrap (full U-turn around the board).
+      [
+        { i: inset, j: inset },
+        { i: iMax - inset, j: inset },
+        { i: iMax - inset, j: jMax - inset },
+      ],
+      [
+        { i: iMax - inset, j: inset },
+        { i: inset, j: inset },
+        { i: inset, j: jMax - inset },
+      ],
+    ];
+    // Rotate so each edge prefers a different first candidate.
+    const rotated = [
+      ...candidates.slice(laneIndex % candidates.length),
+      ...candidates.slice(0, laneIndex % candidates.length),
+    ];
+    for (const wps of rotated) {
+      const path = stitchAstar(wps);
+      if (path) return path;
+    }
+    return null;
+  };
+
+  const cellsToWorld = (cells: Cell[], x1: number, y1: number, x2: number, y2: number): Pt[] => {
+    if (!cells.length) return [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+    // Expand any non-orthogonal cell jumps into manhattan bends.
+    const expanded: Cell[] = [cells[0]];
+    for (let n = 1; n < cells.length; n++) {
+      const a = expanded[expanded.length - 1];
+      const b = cells[n];
+      if (a.i !== b.i && a.j !== b.j) expanded.push({ i: b.i, j: a.j });
+      expanded.push(b);
+    }
+    const world = expanded.map(toWorld);
+    const outPts: Pt[] = [{ x: x1, y: y1 }];
+    const first = world[0];
+    if (Math.abs(x1 - first.x) > 0.01 && Math.abs(y1 - first.y) > 0.01) {
+      outPts.push({ x: first.x, y: y1 });
+    }
+    for (const p of world) outPts.push(p);
+    const last = world[world.length - 1];
+    if (Math.abs(x2 - last.x) > 0.01 && Math.abs(y2 - last.y) > 0.01) {
+      outPts.push({ x: last.x, y: y2 });
+    }
+    outPts.push({ x: x2, y: y2 });
+    return simplifyOrthogonal(outPts);
+  };
+
+  let laneIndex = 0;
   for (const req of requests) {
-    const pts = astar(req) || fallbackL(req);
-    markPathCells(pts);
-    out.set(req.id, pathDFromPoints(pts));
+    const start = snapPort(req.x1, req.y1, req.x2, req.y2);
+    const goal = snapPort(req.x2, req.y2, req.x1, req.y1);
+    let cells = astar(start, goal);
+    if (!cells) cells = outerDetour(start, goal, laneIndex++);
+    if (!cells) {
+      // Last resort: still A*-only via far corner — never raw L through reserved.
+      cells = outerDetour(start, goal, laneIndex + 17);
+      laneIndex++;
+    }
+    if (!cells) {
+      // Give up on geometry rather than cross: draw a port-local stub so the
+      // edge remains visible without traversing the board.
+      cells = [start, goal];
+    }
+    const portStart = toCell(req.x1, req.y1);
+    const portGoal = toCell(req.x2, req.y2);
+    const stubCells: Cell[] = [];
+    const addStub = (a: Cell, b: Cell) => {
+      let i = a.i;
+      let j = a.j;
+      stubCells.push({ i, j });
+      while (i !== b.i) {
+        i += b.i > i ? 1 : -1;
+        stubCells.push({ i, j });
+      }
+      while (j !== b.j) {
+        j += b.j > j ? 1 : -1;
+        stubCells.push({ i, j });
+      }
+    };
+    addStub(portStart, start);
+    addStub(goal, portGoal);
+    markCells([...stubCells, ...cells], true);
+    out.set(req.id, pathDFromPoints(cellsToWorld(cells, req.x1, req.y1, req.x2, req.y2)));
   }
   return out;
 }

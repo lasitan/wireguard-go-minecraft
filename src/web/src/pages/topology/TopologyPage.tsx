@@ -49,13 +49,29 @@ export function TopologyPage() {
         role="img"
         aria-label="mesh"
       >
+        <defs>
+          <pattern
+            id="cam-grid"
+            width={10}
+            height={10}
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d="M 10 0 L 0 0 0 10"
+              fill="none"
+              stroke="rgba(27, 36, 48, 0.08)"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+            />
+          </pattern>
+        </defs>
         <rect
           className="stage-hit"
           x={VIEW.cx - VIEW.w * 4}
           y={VIEW.cy - VIEW.h * 4}
           width={VIEW.w * 8}
           height={VIEW.h * 8}
-          fill="transparent"
+          fill="url(#cam-grid)"
         />
         <MeshEdges edges={edges} />
         <SubnetZones mesh={m} placed={placed} />
