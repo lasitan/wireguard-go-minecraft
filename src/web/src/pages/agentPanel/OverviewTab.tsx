@@ -10,6 +10,9 @@ import { hostOf } from "../../utils/hostOf";
 import { isNewerVersion } from "../../utils/compareVersion";
 import { isOnline } from "../../utils/isOnline";
 import { validateNodeAddress } from "../../utils/validateCidr";
+import { isUpgrading } from "../../app/UpgradeActions";
+import { UpgradeButton } from "../upgrade/UpgradeButton";
+import { UpgradeStatusText } from "../upgrade/UpgradeStatusText";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { MagnetSection } from "./MagnetSection";
 import { Toggle } from "./Toggle";
@@ -117,7 +120,7 @@ export function OverviewTab({
           {stats?.connectedAt ? <div className="tiny muted">连接于 {formatDateTime(stats.connectedAt)}</div> : null}
         </div>
       </div>
-      <AgentVersionRow stats={stats} />
+      <AgentVersionRow nodeId={node.id} stats={stats} />
       <div className="ov-row">
         <span className="ov-label">Endpoint</span>
         <b>{node.endpoint || "—"}</b>
@@ -151,19 +154,30 @@ export function OverviewTab({
   );
 }
 
-function AgentVersionRow({ stats }: { stats: NodeStats | null }) {
+function AgentVersionRow({ nodeId, stats }: { nodeId: string; stats: NodeStats | null }) {
   const latest = state.version?.latest;
   const ver = stats?.agentVersion;
   const connected = stats?.link === "ws" || stats?.link === "http";
   const outdated = connected && (!ver || isNewerVersion(latest, ver));
+  const upgrade = state.upgrades[nodeId];
   return (
     <div className="ov-row">
       <span className="ov-label">版本</span>
-      <div className="ov-inline">
-        <b className={connected ? "" : "muted"}>{ver ? `v${ver}` : connected ? "旧版本" : "—"}</b>
-        <span className={`ver-tag${outdated ? " show" : ""}`} title="到 Master 面板复制升级命令">
-          可升级{latest ? ` → v${latest}` : ""}
-        </span>
+      <div>
+        <div className="ov-inline">
+          <b className={connected ? "" : "muted"}>{ver ? `v${ver}` : connected ? "旧版本" : "—"}</b>
+          <span className={`ver-tag${outdated ? " show" : ""}`}>可升级{latest ? ` → v${latest}` : ""}</span>
+          {(outdated && stats?.link === "ws") || isUpgrading(nodeId) ? (
+            <UpgradeButton
+              label="升级"
+              req={{ nodeIds: [nodeId] }}
+              keys={[nodeId]}
+              knownVersions={{ [nodeId]: ver || "" }}
+              ghost
+            />
+          ) : null}
+        </div>
+        <UpgradeStatusText status={upgrade} />
       </div>
     </div>
   );

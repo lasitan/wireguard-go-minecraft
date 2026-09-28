@@ -66,6 +66,9 @@ type agentConn struct {
 
 	lastTouch time.Time
 	ackedRev  atomic.Uint32
+
+	updMu  sync.Mutex // one RequestUpdate at a time per connection
+	updAck chan wire.UpdateAck
 }
 
 func NewHub(st *store.Store, statsSvc *stats.StatsService) *Hub {
@@ -254,6 +257,7 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		ws:      ws,
 		send:    make(chan []byte, hubSendQueue),
 		cfgSig:  make(chan struct{}, 1),
+		updAck:  make(chan wire.UpdateAck, 1),
 		ctx:     ctx,
 		cancel:  cancel,
 	}
@@ -393,6 +397,8 @@ func (h *Hub) readLoop(c *agentConn) {
 					fmt.Fprintf(os.Stderr, "wireguard-go master: node %s failed to apply revision %d: %s\n", c.nodeID, a.Revision, a.Error)
 				}
 			}
+		case wire.TypeUpdateAck:
+			c.deliverUpdateAck(f.Payload)
 		}
 		if now.Sub(c.lastTouch) >= hubTouchThrottle {
 			c.lastTouch = now

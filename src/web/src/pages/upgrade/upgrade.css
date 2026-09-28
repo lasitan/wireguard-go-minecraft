@@ -1,0 +1,48 @@
+/* —— Web-triggered upgrade —— */
+.upgrade-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  transition: background-color 0.2s ease, color 0.2s ease, opacity 0.2s ease, transform 0.15s ease;
+}
+.upgrade-btn:not(:disabled):active { transform: scale(0.96); }
+.upgrade-btn.busy { opacity: 0.75; }
+.upgrade-spin {
+  width: 0;
+  height: 10px;
+  border-radius: 50%;
+  border: 0 solid currentColor;
+  border-top-color: transparent;
+  transition: width 0.2s ease, border-width 0.2s ease;
+}
+.upgrade-spin.on { width: 10px; border-width: 2px; animation: upgrade-rot 0.8s linear infinite; }
+@keyframes upgrade-rot { to { transform: rotate(360deg); } }
+
+.upgrade-status {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.3s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease, color 0.3s ease;
+}
+.upgrade-status > div { overflow: hidden; min-height: 0; }
+.upgrade-status.show { grid-template-rows: 1fr; opacity: 1; }
+.upgrade-status p {
+  margin: 0.35rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  word-break: break-all;
+  animation: upgrade-msg-in 0.25s ease;
+}
+@keyframes upgrade-msg-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.upgrade-status.sending, .upgrade-status.running { color: var(--muted); }
+.upgrade-status.done { color: #0e8a52; }
+.upgrade-status.failed { color: var(--warn); }
+.upgrade-icon { display: inline-block; width: 1.1em; font-weight: 700; }
+.upgrade-status.running .upgrade-icon { animation: upgrade-rot 1.6s linear infinite; text-align: center; }
+
+.upgrade-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.2rem 0 0.4rem; }
+.upgrade-row .tiny { flex: 1; }

@@ -4,8 +4,8 @@ import { isNewerVersion } from "../utils/compareVersion";
 
 const REPO = "https://github.com/lasitan/wireguard-go-minecraft";
 const RAW = "https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/scripts";
-const DEMO_CURRENT = "2.1.0";
 const DEMO_LATEST = "2.1.1";
+let DEMO_CURRENT = "2.1.0";
 
 /** MacBook Pro lags one release behind so the "outdated" UI has something to show. */
 const DEMO_AGENT_VERSIONS: Record<string, string> = {
@@ -14,6 +14,12 @@ const DEMO_AGENT_VERSIONS: Record<string, string> = {
 
 export function demoAgentVersion(id: string): string {
   return DEMO_AGENT_VERSIONS[id] ?? DEMO_LATEST;
+}
+
+/** Demo stand-in for a finished web-triggered upgrade ("master" or a node id). */
+export function demoUpgrade(key: string) {
+  if (key === "master") DEMO_CURRENT = DEMO_LATEST;
+  else DEMO_AGENT_VERSIONS[key] = DEMO_LATEST;
 }
 
 export function demoVersion(mesh: Mesh | null): VersionInfo {
@@ -27,7 +33,7 @@ export function demoVersion(mesh: Mesh | null): VersionInfo {
   return {
     current: DEMO_CURRENT,
     latest: DEMO_LATEST,
-    hasUpdate: true,
+    hasUpdate: isNewerVersion(DEMO_LATEST, DEMO_CURRENT),
     release: {
       tag: "v" + DEMO_LATEST,
       version: DEMO_LATEST,

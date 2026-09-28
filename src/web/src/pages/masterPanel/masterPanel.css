@@ -243,3 +243,8 @@
 .outdated-item:hover { background: #fff; border-color: #ffd2a1; transform: translateX(2px); }
 .outdated-ver { color: var(--warn); font-variant-numeric: tabular-nums; }
 .outdated-list + .tiny { margin: 0.4rem 0 0; }
+.outdated-head-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.outdated-head-row .outdated-head { margin-right: auto; }
+.outdated-line { display: flex; align-items: center; gap: 0.4rem; }
+.outdated-line .outdated-item { flex: 1; min-width: 0; }
+.upgrade-manual { margin: 0.5rem 0 0.3rem; }

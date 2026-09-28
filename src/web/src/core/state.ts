@@ -1,7 +1,7 @@
 import { demoMesh, demoMeta } from "./demoData";
 import { homeCam } from "../camera/CameraMath";
 import { isDevPreview, TOKEN_KEY } from "./constants";
-import type { Cam, MagnetStacks, Mesh, Meta, PlacedNode, VersionInfo } from "./models";
+import type { Cam, MagnetStacks, Mesh, Meta, PlacedNode, UpgradeStatus, VersionInfo } from "./models";
 
 export type AppState = {
   token: string;
@@ -25,6 +25,8 @@ export type AppState = {
   draggingId: string | null;
   /** Mother card the dragged card would snap to on release. */
   magnetTarget: string | null;
+  /** Web-triggered upgrades keyed by node id, or "master". */
+  upgrades: Record<string, UpgradeStatus>;
   busy: boolean;
 };
 
@@ -46,6 +48,7 @@ export const state: AppState = {
   stacks: { parentOf: new Map(), childrenOf: new Map() },
   draggingId: null,
   magnetTarget: null,
+  upgrades: {},
   busy: false,
 };
 

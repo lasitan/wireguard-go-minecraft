@@ -168,6 +168,14 @@ export type VersionInfo = {
   outdatedAgents: OutdatedAgent[];
 };
 
+export type UpgradeRequest = { master?: boolean; nodeIds?: string[]; outdated?: boolean; force?: boolean };
+export type UpgradeResult = { nodeId?: string; name?: string; ok: boolean; message: string };
+export type UpgradeResponse = { master?: UpgradeResult; agents: UpgradeResult[] };
+
+/** sending → running (updater started, waiting for the new version) → done | failed */
+export type UpgradePhase = "sending" | "running" | "done" | "failed";
+export type UpgradeStatus = { phase: UpgradePhase; message: string; from: string; at: number };
+
 export type Cam = { x: number; y: number; w: number; h: number };
 export type Focus = { x: number; y: number; scale: number };
 

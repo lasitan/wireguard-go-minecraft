@@ -145,6 +145,20 @@ func (c *wsClient) run(ctx context.Context) (connected bool, err error) {
 			if err := c.write(sctx, ws, wire.TypeConfigAck, ack.Marshal()); err != nil {
 				return true, err
 			}
+		case wire.TypeUpdate:
+			var cmd wire.UpdateCmd
+			_ = cmd.Unmarshal(f.Payload)
+			ack := wire.UpdateAck{OK: true}
+			note, err := update.SpawnDetached(cmd.Force)
+			if err != nil {
+				ack.OK, ack.Message = false, err.Error()
+			} else {
+				ack.Message = note
+			}
+			fmt.Fprintf(os.Stderr, "wireguard-go: master requested update: ok=%v %s\n", ack.OK, ack.Message)
+			if err := c.write(sctx, ws, wire.TypeUpdateAck, ack.Marshal()); err != nil {
+				return true, err
+			}
 		case wire.TypeError:
 			var em wire.ErrorMsg
 			_ = em.Unmarshal(f.Payload)

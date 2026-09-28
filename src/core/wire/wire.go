@@ -22,6 +22,8 @@ const (
 	TypeConfigPush MsgType = 6
 	TypeConfigAck  MsgType = 7
 	TypeError      MsgType = 8
+	TypeUpdate     MsgType = 9  // Master -> Agent: self-update now
+	TypeUpdateAck  MsgType = 10 // Agent -> Master: updater started or refused
 )
 
 const headerLen = 5
