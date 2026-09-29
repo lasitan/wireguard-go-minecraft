@@ -40,9 +40,12 @@ const (
 	// stale NAT mappings; clients only need a couple of tries before WG retries.
 	maxSendDialAttempts = 2
 	tcpKeepAlivePeriod  = 30 * time.Second
-	// If no framed payload is received for this long, tear down the TCP
-	// session so the client redials (pair with PersistentKeepalive ≈ 5s).
+	// If no frame is received for this long, tear down the TCP session so the
+	// client redials. Both ends send heartbeats well inside this window.
 	defaultRXIdleTimeout = 5 * time.Second
+	// A dialed session that drops is redialed in the background while WireGuard
+	// used the destination this recently, so routes stay warm between keepalives.
+	keepWarmWindow = 90 * time.Second
 
 	// Post-camouflage ToNAT client announcement (all MC modes / MC-off).
 	toNATMagic = "WGNT\x01"
@@ -68,6 +71,7 @@ type tcpSession struct {
 	inbound bool         // accepted from peer (server side) vs dialed out (client)
 	toNAT   bool         // inbound session signaled ToNAT client mode
 	lastRX  atomic.Int64 // unix nano of last framed payload read
+	lastTX  atomic.Int64 // unix nano of last frame written
 }
 
 type reconnectConfig struct {
@@ -110,6 +114,9 @@ type TCPBind struct {
 
 	// dialToNAT: C-side Interface ToNAT — announce ToNAT on outbound dials.
 	dialToNAT atomic.Bool
+
+	lastSend  sync.Map // dst string -> unix nano of the last WireGuard Send
+	redialing sync.Map // dst string -> struct{}; one background redial per dst
 }
 
 type TCPEndpoint struct {
@@ -383,6 +390,7 @@ func (b *TCPBind) Send(bufs [][]byte, endpoint Endpoint) error {
 	if !ok {
 		return ErrWrongEndpointType
 	}
+	b.lastSend.Store(te.dst.String(), time.Now().UnixNano())
 	session, err := b.getOrDialSession(te.dst)
 	if err != nil {
 		return err
@@ -417,6 +425,7 @@ func (b *TCPBind) sessionWrite(session *tcpSession, buf []byte) error {
 	}
 	_ = session.conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
 	defer session.conn.SetWriteDeadline(time.Time{})
+	session.lastTX.Store(time.Now().UnixNano())
 	if b.camouflageHidesVPN() {
 		return b.writeCoverFrame(session.conn, buf)
 	}
@@ -426,6 +435,13 @@ func (b *TCPBind) sessionWrite(session *tcpSession, buf []byte) error {
 		return err
 	}
 	return writeAll(session.conn, buf)
+}
+
+// heartbeatEvery keeps idle sessions alive: WireGuard keepalives flow one way
+// (and mothers only every 25s), so without this the dialing side would see no
+// traffic and tear the tunnel down every rxIdleTimeout.
+func heartbeatEvery(idle time.Duration) time.Duration {
+	return max(idle/3, time.Second)
 }
 
 func (b *TCPBind) getOrDialSession(dst netip.AddrPort) (*tcpSession, error) {
@@ -523,6 +539,7 @@ func (b *TCPBind) installSessionToNAT(dst netip.AddrPort, conn net.Conn, inbound
 		toNAT:   toNAT,
 	}
 	session.lastRX.Store(time.Now().UnixNano())
+	session.lastTX.Store(time.Now().UnixNano())
 
 	b.mu.Lock()
 	if !b.isOpen || b.sessions == nil {
@@ -813,7 +830,12 @@ func (c *bufConn) Read(p []byte) (int, error) {
 
 func (b *TCPBind) readLoop(session *tcpSession) {
 	defer b.wg.Done()
-	defer b.dropSession(session.key, session)
+	defer func() {
+		b.dropSession(session.key, session)
+		if !session.inbound {
+			b.keepWarm(session.dst)
+		}
+	}()
 
 	for {
 		var payload []byte
@@ -837,6 +859,9 @@ func (b *TCPBind) readLoop(session *tcpSession) {
 			}
 		}
 		session.lastRX.Store(time.Now().UnixNano())
+		if len(payload) == 0 {
+			continue // heartbeat
+		}
 
 		dst, ok := addrPortFromNetAddr(session.conn.RemoteAddr())
 		if !ok {
@@ -898,8 +923,53 @@ func (b *TCPBind) idleWatch(session *tcpSession, idle time.Duration) {
 				}
 				return
 			}
+			if time.Since(time.Unix(0, session.lastTX.Load())) >= heartbeatEvery(idle) {
+				if err := b.sessionWrite(session, nil); err != nil && session.conn != nil {
+					_ = session.conn.Close()
+				}
+			}
 		}
 	}
+}
+
+// keepWarm redials a dropped outbound session in the background (with
+// backoff) while WireGuard still uses dst, instead of waiting for the next
+// packet or keepalive to pay for the dial and camouflage handshake.
+func (b *TCPBind) keepWarm(dst netip.AddrPort) {
+	key := dst.String()
+	if b.isClosed() || !b.recentlyUsed(key) {
+		return
+	}
+	if _, busy := b.redialing.LoadOrStore(key, struct{}{}); busy {
+		return
+	}
+	go func() {
+		defer b.redialing.Delete(key)
+		backoff := b.getReconnectConfig().initial
+		for {
+			if b.isClosed() || !b.recentlyUsed(key) || b.lookupSession(dst) != nil {
+				return
+			}
+			if _, err := b.getOrDialSession(dst); err == nil || errors.Is(err, ErrWaitingInboundReconnect) || errors.Is(err, net.ErrClosed) {
+				return
+			}
+			done := b.getDone()
+			if done == nil {
+				return
+			}
+			select {
+			case <-done:
+				return
+			case <-time.After(backoff):
+			}
+			backoff = min(backoff*2, b.getReconnectConfig().max)
+		}
+	}()
+}
+
+func (b *TCPBind) recentlyUsed(key string) bool {
+	v, ok := b.lastSend.Load(key)
+	return ok && time.Since(time.Unix(0, v.(int64))) < keepWarmWindow
 }
 
 func (b *TCPBind) receive(packets [][]byte, sizes []int, eps []Endpoint) (int, error) {

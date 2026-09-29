@@ -247,6 +247,8 @@ type ipcSetPeer struct {
 	dummy   bool // dummy reports whether this peer is a temporary, placeholder peer
 	created bool // new reports whether this is a newly created peer
 	pkaOn   bool // pkaOn reports whether the peer had the persistent keepalive turn on
+	// endpointSet reports whether this operation (re)pointed the endpoint.
+	endpointSet bool
 }
 
 func (peer *ipcSetPeer) handlePostConfig() {
@@ -258,7 +260,9 @@ func (peer *ipcSetPeer) handlePostConfig() {
 	}
 	if peer.device.isUp() {
 		peer.Start()
-		if peer.pkaOn {
+		// A kept-alive peer that just got (a new) endpoint connects now rather
+		// than on its next keepalive tick, so routes through it are warm.
+		if peer.pkaOn || (peer.endpointSet && peer.persistentKeepaliveInterval.Load() > 0) {
 			peer.SendKeepalive()
 		}
 		peer.SendStagedPackets()
@@ -340,6 +344,7 @@ func (device *Device) handlePeerLine(peer *ipcSetPeer, key, value string) error 
 		peer.endpoint.Lock()
 		defer peer.endpoint.Unlock()
 		peer.endpoint.val = endpoint
+		peer.endpointSet = true
 
 	case "persistent_keepalive_interval":
 		device.log.Verbosef("%v - UAPI: Updating persistent keepalive interval", peer.Peer)

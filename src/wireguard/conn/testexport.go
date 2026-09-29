@@ -26,6 +26,17 @@ func (b *TCPBind) SetMCConfig(c MCCamouflageConfig) {
 	b.mcConfig = c
 }
 
+// KillSessions closes every live TCP connection, as a network blip would.
+func (b *TCPBind) KillSessions() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, s := range b.sessions {
+		if s != nil && s.conn != nil {
+			_ = s.conn.Close()
+		}
+	}
+}
+
 func (b *TCPBind) DialToNATFlag() *atomic.Bool {
 	return &b.dialToNAT
 }
