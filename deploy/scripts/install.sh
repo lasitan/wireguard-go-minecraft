@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-line install / upgrade for lasitan-cluster (Linux):
-#   curl -fsSL https://raw.githubusercontent.com/lasitan/Lasitan-Cluster/main/deploy/scripts/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/deploy/scripts/install.sh | sudo bash
 # Env:
 #   LASITAN_VERSION   pin a version (e.g. 2.0.3); default = latest release
 #   LASITAN_GH_PROXY  download mirror prefix (e.g. https://ghfast.top/)
@@ -8,7 +8,7 @@
 #   LASITAN_NO_DEB=1  install the standalone binary even when dpkg exists
 set -euo pipefail
 
-REPO="lasitan/Lasitan-Cluster"
+REPO="lasitan/wireguard-go-minecraft"
 PROXY="${LASITAN_GH_PROXY:-}"
 if [[ -n "$PROXY" && "$PROXY" != */ ]]; then PROXY="$PROXY/"; fi
 

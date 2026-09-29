@@ -1,7 +1,7 @@
 import type { AgentInstallCommands } from "./models";
 import { state } from "./state";
 
-const RAW = "https://raw.githubusercontent.com/lasitan/Lasitan-Cluster/main/deploy/scripts";
+const RAW = "https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/deploy/scripts";
 
 /** Demo one-liners (same shape as GET /api/install/agent). */
 export function demoAgentInstallCommands(role: "client" | "server", endpoint: string): AgentInstallCommands {

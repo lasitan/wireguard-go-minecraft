@@ -24,6 +24,31 @@
 .node-wrap.is-dragging {
   cursor: grabbing;
 }
+
+/*
+ * While the camera flies, a card is dragged, or the canvas pans, stop every
+ * infinite decoration (card float, edge flow, pulses): each frame would
+ * otherwise re-rasterize all foreignObject cards and dashed paths.
+ */
+.stage.is-moving .node-card,
+.stage.is-moving .mesh-edge,
+.stage.is-moving .magnet-hot .node-card,
+.stage.is-moving .magnet-ghost rect,
+.stage.is-moving .magnet-ghost path,
+.mesh-svg.is-panning .node-card,
+.mesh-svg.is-panning .mesh-edge {
+  animation-play-state: paused !important;
+}
+.stage.is-moving .node-card,
+.stage.is-moving .mesh-edge,
+.stage.is-moving .node-wrap,
+.stage.is-moving .hub {
+  transition: none !important;
+}
+/* Selection dims the rest; no need to keep them wiggling. */
+.stage.has-selection .node-wrap:not(.is-selected) .node-card {
+  animation: none;
+}
 .node-wrap.is-dragging .node-card {
   animation: none;
   box-shadow: 0 10px 28px rgba(27, 36, 48, 0.16);

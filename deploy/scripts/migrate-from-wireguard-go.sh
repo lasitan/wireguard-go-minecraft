@@ -12,7 +12,7 @@
 #      but the binary file and/or /etc/wireguard configs remain
 set -euo pipefail
 
-REPO="lasitan/Lasitan-Cluster"
+REPO="lasitan/wireguard-go-minecraft"
 PROXY="${LASITAN_GH_PROXY:-}"
 if [[ -n "$PROXY" && "$PROXY" != */ ]]; then PROXY="$PROXY/"; fi
 

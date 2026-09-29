@@ -1,5 +1,5 @@
 # One-line install / upgrade for lasitan-cluster (Windows 10+ x64 / ARM64, run as Administrator):
-#   powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/lasitan/Lasitan-Cluster/main/deploy/scripts/install.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/deploy/scripts/install.ps1 | iex"
 # Env:
 #   LASITAN_VERSION   pin a version (e.g. 2.0.3); default = latest release
 #   LASITAN_GH_PROXY  download mirror prefix (e.g. https://ghfast.top/)
@@ -9,7 +9,7 @@
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$repo = 'lasitan/Lasitan-Cluster'
+$repo = 'lasitan/wireguard-go-minecraft'
 
 function Say($m) { Write-Host "==> $m" -ForegroundColor Green }
 function Die($m) { Write-Host "Error: $m" -ForegroundColor Red; exit 1 }

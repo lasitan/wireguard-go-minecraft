@@ -40,6 +40,39 @@ function magnetAttachChanged(target: string | null, parentAtStart: string | null
  */
 export function useAgentDrag() {
   const drag = useRef<DragState | null>(null);
+  const moveRaf = useRef(0);
+  const pendingMove = useRef<{
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+    el: SVGGElement;
+  } | null>(null);
+
+  function flushMove() {
+    moveRaf.current = 0;
+    const e = pendingMove.current;
+    pendingMove.current = null;
+    if (!e) return;
+    const d = drag.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    const dist = Math.hypot(e.clientX - d.startClientX, e.clientY - d.startClientY);
+    if (!d.moved && dist >= DRAG_CLICK_PX) {
+      d.moved = true;
+      state.draggingId = d.id;
+      e.el.classList.add("is-dragging");
+    }
+    if (!d.moved) return;
+
+    const svg = e.el.ownerSVGElement;
+    if (!svg) return;
+    const pt = clientToSvg(svg, e.clientX, e.clientY);
+    const x = pt.x - d.grabDx;
+    const y = pt.y - d.grabDy;
+    setNodePosition(d.id, x, y);
+    state.magnetTarget = d.canSnap ? findMagnetTarget(x, y, d.id) : null;
+    state.clusterTarget = state.magnetTarget ? null : findClusterTarget(x, y, d.id);
+    notify();
+  }
 
   function onPointerDown(e: ReactPointerEvent<SVGGElement>, id: string, x: number, y: number) {
     if (e.button !== 0) return;
@@ -67,29 +100,24 @@ export function useAgentDrag() {
     const d = drag.current;
     if (!d || e.pointerId !== d.pointerId) return;
     e.stopPropagation();
-    const dist = Math.hypot(e.clientX - d.startClientX, e.clientY - d.startClientY);
-    if (!d.moved && dist >= DRAG_CLICK_PX) {
-      d.moved = true;
-      state.draggingId = d.id;
-      e.currentTarget.classList.add("is-dragging");
-    }
-    if (!d.moved) return;
-
-    const svg = e.currentTarget.ownerSVGElement;
-    if (!svg) return;
-    const pt = clientToSvg(svg, e.clientX, e.clientY);
-    const x = pt.x - d.grabDx;
-    const y = pt.y - d.grabDy;
-    setNodePosition(d.id, x, y);
-    state.magnetTarget = d.canSnap ? findMagnetTarget(x, y, d.id) : null;
-    state.clusterTarget = state.magnetTarget ? null : findClusterTarget(x, y, d.id);
-    notify();
+    pendingMove.current = {
+      pointerId: e.pointerId,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      el: e.currentTarget,
+    };
+    if (!moveRaf.current) moveRaf.current = requestAnimationFrame(flushMove);
   }
 
   function onPointerUp(e: ReactPointerEvent<SVGGElement>) {
     const d = drag.current;
     if (!d || e.pointerId !== d.pointerId) return;
     e.stopPropagation();
+    if (moveRaf.current) {
+      cancelAnimationFrame(moveRaf.current);
+      moveRaf.current = 0;
+      flushMove();
+    }
     drag.current = null;
     e.currentTarget.classList.remove("is-dragging");
     try {

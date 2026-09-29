@@ -11,7 +11,9 @@ import (
 )
 
 const (
-	Repo        = "lasitan/Lasitan-Cluster"
+	// Repo is the GitHub repository that publishes releases. Product name is
+	// Lasitan-Cluster; the GitHub slug remains wireguard-go-minecraft.
+	Repo        = "lasitan/wireguard-go-minecraft"
 	ReleasesURL = "https://github.com/" + Repo + "/releases"
 	rawBase     = "https://raw.githubusercontent.com/" + Repo + "/main"
 

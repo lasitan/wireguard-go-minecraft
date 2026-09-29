@@ -61,3 +61,8 @@ export function tweenPos(id: string, target: Pt, last: Pt | undefined, instant: 
 export function forgetTween(id: string) {
   tweens.delete(id);
 }
+
+/** True while any card is gliding — callers should skip expensive PCB routing. */
+export function isTweening(): boolean {
+  return tweens.size > 0;
+}

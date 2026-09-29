@@ -3,6 +3,7 @@ import { VIEW } from "../../core/constants";
 import { state } from "../../core/state";
 import { camToAttr } from "../../camera/CameraMath";
 import { BuildEdgeGraph } from "../../topology/BuildEdgeGraph";
+import { isTweening } from "../../topology/PositionTween";
 import { ResolveIpConflicts } from "../../topology/ResolveIpConflicts";
 import { syncPlacedNodes } from "../../topology/SyncPlacedNodes";
 import { AgentNodes } from "./AgentNodes";
@@ -29,7 +30,8 @@ export function TopologyPage() {
 
   const conflicts = ResolveIpConflicts(m);
   const edges = BuildEdgeGraph(m, placed, conflicts, state.stacks, {
-    fast: !!state.draggingId,
+    // Drag / magnet glide: cheap L-bends. Idle clicks hit the geometry cache.
+    fast: !!state.draggingId || isTweening(),
   });
   const vb = camToAttr(state.camera);
 
@@ -37,6 +39,7 @@ export function TopologyPage() {
     "stage",
     state.selectedId ? "has-selection" : "",
     state.drawerOpen ? "drawer-open" : "",
+    state.busy || state.draggingId ? "is-moving" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -69,10 +72,10 @@ export function TopologyPage() {
         </defs>
         <rect
           className="stage-hit"
-          x={VIEW.cx - VIEW.w * 4}
-          y={VIEW.cy - VIEW.h * 4}
-          width={VIEW.w * 8}
-          height={VIEW.h * 8}
+          x={VIEW.cx - VIEW.w * 2}
+          y={VIEW.cy - VIEW.h * 2}
+          width={VIEW.w * 4}
+          height={VIEW.h * 4}
           fill="url(#cam-grid)"
         />
         <MeshEdges edges={edges} />

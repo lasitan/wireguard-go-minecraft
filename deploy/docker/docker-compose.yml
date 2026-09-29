@@ -4,7 +4,7 @@
 # Image: set LASITAN_IMAGE or build locally with deploy/scripts/package-docker.sh
 services:
   lasitan-cluster:
-    image: ${LASITAN_IMAGE:-ghcr.io/lasitan/Lasitan-Cluster:latest}
+    image: ${LASITAN_IMAGE:-ghcr.io/lasitan/wireguard-go-minecraft:latest}
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile

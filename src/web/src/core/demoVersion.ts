@@ -2,8 +2,8 @@ import type { Mesh, VersionInfo } from "./models";
 import { demoLink } from "./demoStats";
 import { isNewerVersion } from "../utils/compareVersion";
 
-const REPO = "https://github.com/lasitan/Lasitan-Cluster";
-const RAW = "https://raw.githubusercontent.com/lasitan/Lasitan-Cluster/main/scripts";
+const REPO = "https://github.com/lasitan/wireguard-go-minecraft";
+const RAW = "https://raw.githubusercontent.com/lasitan/wireguard-go-minecraft/main/scripts";
 const DEMO_LATEST = "2.1.1";
 let DEMO_CURRENT = "2.1.0";
 

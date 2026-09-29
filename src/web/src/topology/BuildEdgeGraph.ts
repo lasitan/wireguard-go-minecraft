@@ -106,6 +106,43 @@ function edgeStatus(
   return "green";
 }
 
+type PendingEdge = {
+  id: string;
+  fromId: string;
+  toId: string;
+  kind: EdgeKind;
+  status: EdgeStatus;
+  flowTowardMaster: boolean;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+};
+
+/** Cache PCB path strings by geometry so selection / online ticks don't re-A*. */
+let cachedGeomKey = "";
+let cachedPaths = new Map<string, string>();
+
+function roundPt(n: number): number {
+  return Math.round(n);
+}
+
+function geometryKey(placed: PlacedNode[], stacks: MagnetStacks, pending: PendingEdge[]): string {
+  const pos = placed
+    .map((p) => `${p.node.id}:${roundPt(p.x)},${roundPt(p.y)}`)
+    .sort()
+    .join(";");
+  const stack = [...stacks.parentOf.entries()]
+    .map(([c, p]) => `${c}>${p}`)
+    .sort()
+    .join(";");
+  const ends = pending
+    .map((p) => `${p.id}:${roundPt(p.x1)},${roundPt(p.y1)}-${roundPt(p.x2)},${roundPt(p.y2)}`)
+    .sort()
+    .join(";");
+  return `${pos}|${stack}|${ends}`;
+}
+
 /**
  * Build display edges:
  * - solid: active link or forward between the pair
@@ -117,7 +154,7 @@ function edgeStatus(
  * draws a single solid joint between adjacent stacked cards only.
  *
  * Paths are PCB-routed: orthogonal, avoid agent/Master widgets, and do not cross.
- * Pass `fast` while a card is dragged so we skip A* (L-bends only) per frame.
+ * Pass `fast` while a card is dragged / tweening so we skip A* (L-bends only).
  */
 export function BuildEdgeGraph(
   mesh: Mesh,
@@ -180,19 +217,7 @@ export function BuildEdgeGraph(
     }
   }
 
-  type Pending = {
-    id: string;
-    fromId: string;
-    toId: string;
-    kind: EdgeKind;
-    status: EdgeStatus;
-    flowTowardMaster: boolean;
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-  };
-  const pending: Pending[] = [];
+  const pending: PendingEdge[] = [];
 
   const pushAgentPair = (aId: string, bId: string, kind: EdgeKind) => {
     const a = byId.get(aId);
@@ -292,8 +317,8 @@ export function BuildEdgeGraph(
     return Math.hypot(b.x2 - b.x1, b.y2 - b.y1) - Math.hypot(a.x2 - a.x1, a.y2 - a.y1);
   });
 
-  if (opts?.fast) {
-    return pending.map((p) => ({
+  const finish = (paths: Map<string, string>): TopologyEdge[] =>
+    pending.map((p) => ({
       id: p.id,
       fromId: p.fromId,
       toId: p.toId,
@@ -301,11 +326,21 @@ export function BuildEdgeGraph(
       y1: p.y1,
       x2: p.x2,
       y2: p.y2,
-      pathD: pcbRouteD(p.x1, p.y1, p.x2, p.y2),
+      pathD: paths.get(p.id) || pcbRouteD(p.x1, p.y1, p.x2, p.y2),
       kind: p.kind,
       status: p.status,
       flowTowardMaster: p.flowTowardMaster,
     }));
+
+  if (opts?.fast) {
+    return finish(
+      new Map(pending.map((p) => [p.id, pcbRouteD(p.x1, p.y1, p.x2, p.y2)] as const)),
+    );
+  }
+
+  const gKey = geometryKey(placed, stacks, pending);
+  if (gKey === cachedGeomKey && cachedPaths.size > 0) {
+    return finish(cachedPaths);
   }
 
   const reqs: RouteRequest[] = pending.map((p) => ({
@@ -320,20 +355,7 @@ export function BuildEdgeGraph(
   const obstacles = buildAgentObstacles(placed);
   for (const [id, r] of magnetRailObstacles(placed, stacks)) obstacles.set(id, r);
   const paths = routePcbBundle(reqs, obstacles, masterObstacle());
-
-  const edges: TopologyEdge[] = pending.map((p) => ({
-    id: p.id,
-    fromId: p.fromId,
-    toId: p.toId,
-    x1: p.x1,
-    y1: p.y1,
-    x2: p.x2,
-    y2: p.y2,
-    pathD: paths.get(p.id) || "",
-    kind: p.kind,
-    status: p.status,
-    flowTowardMaster: p.flowTowardMaster,
-  }));
-
-  return edges;
+  cachedGeomKey = gKey;
+  cachedPaths = paths;
+  return finish(paths);
 }
