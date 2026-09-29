@@ -1,6 +1,7 @@
-import { VIEW, ZOOM_MAX_W, ZOOM_MIN_W } from "../core/constants";
+import { ZOOM_MAX_W, ZOOM_MIN_W } from "../core/constants";
 import type { Cam } from "../core/models";
 import { applyCamera, readSvgCamera, stopCameraTween } from "./CameraController";
+import { camWithAspect, homeCam, setViewportAspect, viewportAspect } from "./CameraMath";
 import { clientToSvg } from "./SvgCoords";
 
 export function clampZoomWidth(w: number): number {
@@ -34,16 +35,27 @@ export function zoomCameraAtClient(svg: SVGSVGElement, clientX: number, clientY:
   const focus = clientToSvg(svg, clientX, clientY);
   const nextW = clampZoomWidth(cam.w * factor);
   const ratio = nextW / cam.w;
-  const nextH = cam.h * ratio;
+  const nextH = nextW / viewportAspect();
   // Keep the point under cursor stable.
   applyCamera({
     x: focus.x - (focus.x - cam.x) * ratio,
-    y: focus.y - (focus.y - cam.y) * ratio,
+    y: focus.y - (focus.y - cam.y) * (nextH / cam.h),
     w: nextW,
     h: nextH,
   });
 }
 
+/** Match viewBox aspect to the SVG element's CSS box (call on mount / resize). */
+export function syncViewportAspect(svg: SVGSVGElement) {
+  const aw = svg.clientWidth;
+  const ah = svg.clientHeight;
+  if (aw < 2 || ah < 2) return;
+  const next = aw / ah;
+  if (Math.abs(next - viewportAspect()) < 0.001) return;
+  setViewportAspect(next);
+  applyCamera(camWithAspect(readSvgCamera(), next));
+}
+
 export function camAspectHome(): Cam {
-  return { x: 0, y: 0, w: VIEW.w, h: VIEW.h };
+  return homeCam();
 }

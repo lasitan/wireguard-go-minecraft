@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from "react";
 import { DRAG_CLICK_PX } from "../../core/constants";
-import { panCameraByScreenDelta, zoomCameraAtClient } from "../../camera/CameraGestures";
+import { panCameraByScreenDelta, syncViewportAspect, zoomCameraAtClient } from "../../camera/CameraGestures";
 import { stopCameraTween } from "../../camera/CameraController";
 import { goHome } from "../../app/FocusNav";
 
@@ -23,6 +23,12 @@ export function useCameraGestures(svgRef: RefObject<SVGSVGElement | null>) {
     if (!svg) return;
 
     let pan: PanSession | null = null;
+
+    const syncAspect = () => syncViewportAspect(svg);
+    syncAspect();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(syncAspect) : null;
+    ro?.observe(svg);
+    window.addEventListener("resize", syncAspect);
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
@@ -80,6 +86,8 @@ export function useCameraGestures(svgRef: RefObject<SVGSVGElement | null>) {
     svg.addEventListener("wheel", onWheel, { passive: false });
 
     return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", syncAspect);
       svg.removeEventListener("pointerdown", onPointerDown);
       svg.removeEventListener("pointermove", onPointerMove);
       svg.removeEventListener("pointerup", endPan);

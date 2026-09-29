@@ -70,7 +70,7 @@ export function AgentNodes({
             onPointerUp={drag.onPointerUp}
             onPointerCancel={drag.onPointerUp}
           >
-            <foreignObject x={-78} y={-34} width={156} height={68}>
+            <foreignObject x={-78} y={-34} width={156} height={58}>
               <div className={cardClass}>
                 {mother ? <span className="mother-badge">母卡 :{p.node.listenPort}</span> : null}
                 {p.node.cluster ? (

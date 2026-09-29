@@ -191,13 +191,15 @@
   display: flex;
   gap: 0.45rem;
   align-items: flex-start;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 0.45rem 0.55rem;
   box-shadow: 0 6px 18px rgba(27, 36, 48, 0.08);
   cursor: pointer;
-  height: 58px;
   user-select: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.28s ease,
     background-color 0.35s ease, filter 0.35s ease, opacity 0.35s ease;
