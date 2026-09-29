@@ -8,16 +8,11 @@ import type {
   PlacedNode,
   TopologyEdge,
 } from "../core/models";
+import { notify } from "../core/state";
 import { isOnline } from "../utils/isOnline";
-import {
-  buildAgentObstacles,
-  masterObstacle,
-  portOnAgent,
-  portOnMaster,
-  routePcbBundle,
-  type Rect,
-  type RouteRequest,
-} from "./PcbRouter";
+import { buildAgentObstacles, masterObstacle, portOnAgent, portOnMaster } from "./PcbPorts";
+import { routePcbBundle, type Rect, type RouteRequest } from "./PcbRouter";
+import type { RouteJob, RouteResult } from "./pcbRoute.worker";
 import { pcbRouteD } from "./PcbRoute";
 import { CARD_BOTTOM, CARD_HALF_W, CARD_TOP } from "./MagnetLayout";
 import { vpnPrefixFromAddress } from "./SubnetGroups";
@@ -119,12 +114,71 @@ type PendingEdge = {
   y2: number;
 };
 
-/** Cache PCB path strings by geometry so selection / online ticks don't re-A*. */
+/** Last routed layout; selection / online ticks with the same geometry reuse it. */
 let cachedGeomKey = "";
 let cachedPaths = new Map<string, string>();
+/** Endpoints each cached path was routed for, so unchanged edges keep their trace. */
+let cachedEnds = new Map<string, string>();
 
 function roundPt(n: number): number {
   return Math.round(n);
+}
+
+function endsKey(p: PendingEdge): string {
+  return `${roundPt(p.x1)},${roundPt(p.y1)}-${roundPt(p.x2)},${roundPt(p.y2)}`;
+}
+
+/*
+ * A* over the whole board takes tens of ms (more on big meshes), so it runs in
+ * a worker; the frame that changes geometry draws interim paths and the routed
+ * ones land on a later frame. One job in flight, newest queued job wins.
+ */
+type Job = RouteJob & { ends: Map<string, string> };
+let worker: Worker | null | undefined;
+let inflight: Job | null = null;
+let queued: Job | null = null;
+
+function routeWorker(): Worker | null {
+  if (worker !== undefined) return worker;
+  worker = null;
+  if (typeof Worker === "undefined") return null;
+  try {
+    worker = new Worker(new URL("./pcbRoute.worker.ts", import.meta.url), { type: "module" });
+  } catch {
+    return null;
+  }
+  worker.onmessage = (ev: MessageEvent<RouteResult>) => {
+    const done = inflight;
+    inflight = null;
+    if (queued) {
+      startJob(queued);
+      queued = null;
+      return;
+    }
+    if (!done || done.key !== ev.data.key) return;
+    cachedGeomKey = done.key;
+    cachedPaths = new Map(ev.data.paths);
+    cachedEnds = done.ends;
+    notify();
+  };
+  worker.onerror = () => {
+    worker?.terminate();
+    worker = null;
+    inflight = queued = null;
+  };
+  return worker;
+}
+
+function startJob(job: Job) {
+  inflight = job;
+  const { ends: _ends, ...msg } = job;
+  routeWorker()!.postMessage(msg satisfies RouteJob);
+}
+
+function requestRoute(job: Job) {
+  if (inflight?.key === job.key || queued?.key === job.key) return;
+  if (inflight) queued = job;
+  else startJob(job);
 }
 
 function geometryKey(placed: PlacedNode[], stacks: MagnetStacks, pending: PendingEdge[]): string {
@@ -317,7 +371,7 @@ export function BuildEdgeGraph(
     return Math.hypot(b.x2 - b.x1, b.y2 - b.y1) - Math.hypot(a.x2 - a.x1, a.y2 - a.y1);
   });
 
-  const finish = (paths: Map<string, string>): TopologyEdge[] =>
+  const finish = (pathOf: (p: PendingEdge) => string | undefined): TopologyEdge[] =>
     pending.map((p) => ({
       id: p.id,
       fromId: p.fromId,
@@ -326,24 +380,22 @@ export function BuildEdgeGraph(
       y1: p.y1,
       x2: p.x2,
       y2: p.y2,
-      pathD: paths.get(p.id) || pcbRouteD(p.x1, p.y1, p.x2, p.y2),
+      pathD: pathOf(p) || pcbRouteD(p.x1, p.y1, p.x2, p.y2),
       kind: p.kind,
       status: p.status,
       flowTowardMaster: p.flowTowardMaster,
     }));
+  // Until routed: edges whose ends did not move keep their trace, the rest bend.
+  const interim = () =>
+    finish((p) => (cachedEnds.get(p.id) === endsKey(p) ? cachedPaths.get(p.id) : undefined));
 
-  if (opts?.fast) {
-    return finish(
-      new Map(pending.map((p) => [p.id, pcbRouteD(p.x1, p.y1, p.x2, p.y2)] as const)),
-    );
-  }
+  // Drag / glide: geometry changes every frame, routing would never catch up.
+  if (opts?.fast) return interim();
 
   const gKey = geometryKey(placed, stacks, pending);
-  if (gKey === cachedGeomKey && cachedPaths.size > 0) {
-    return finish(cachedPaths);
-  }
+  if (gKey === cachedGeomKey) return finish((p) => cachedPaths.get(p.id));
 
-  const reqs: RouteRequest[] = pending.map((p) => ({
+  const requests: RouteRequest[] = pending.map((p) => ({
     id: p.id,
     fromId: p.fromId,
     toId: p.toId,
@@ -354,8 +406,14 @@ export function BuildEdgeGraph(
   }));
   const obstacles = buildAgentObstacles(placed);
   for (const [id, r] of magnetRailObstacles(placed, stacks)) obstacles.set(id, r);
-  const paths = routePcbBundle(reqs, obstacles, masterObstacle());
+  const ends = new Map(pending.map((p) => [p.id, endsKey(p)] as const));
+
+  if (routeWorker()) {
+    requestRoute({ key: gKey, requests, obstacles: [...obstacles], master: masterObstacle(), ends });
+    return interim();
+  }
   cachedGeomKey = gKey;
-  cachedPaths = paths;
-  return finish(paths);
+  cachedPaths = routePcbBundle(requests, obstacles, masterObstacle());
+  cachedEnds = ends;
+  return finish((p) => cachedPaths.get(p.id));
 }

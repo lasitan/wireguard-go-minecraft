@@ -42,7 +42,7 @@ export function TopologyPage() {
 
   const conflicts = ResolveIpConflicts(m);
   const edges = BuildEdgeGraph(m, placed, conflicts, state.stacks, {
-    // Drag / magnet glide: cheap L-bends. Idle clicks hit the geometry cache.
+    // Drag / magnet glide: skip routing; unchanged edges keep their traces.
     fast: !!state.draggingId || isTweening(),
   });
   const vb = camToAttr(state.camera);

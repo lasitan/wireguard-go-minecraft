@@ -1,6 +1,5 @@
+// Runs inside the routing Web Worker: keep imports free of app state / DOM.
 import { VIEW } from "../core/constants";
-import type { PlacedNode } from "../core/models";
-import { CARD_BOTTOM, CARD_HALF_W, CARD_TOP } from "./MagnetLayout";
 import { pathDFromPoints } from "./PcbRoute";
 
 export type Pt = { x: number; y: number };
@@ -19,61 +18,10 @@ export type RouteRequest = {
 
 /** Match the camera grid so traces sit on visible lines. */
 const CELL = 10;
-const CLEAR = 8;
+/** Clearance kept between traces and widgets. */
+export const CLEAR = 8;
 const TURN_COST = 0.35;
 const MAX_EXPAND = 250_000;
-
-function padRect(r: Rect, pad: number): Rect {
-  return { minX: r.minX - pad, minY: r.minY - pad, maxX: r.maxX + pad, maxY: r.maxY + pad };
-}
-
-/** Axis-aligned card box for a placed agent. */
-export function agentObstacle(p: PlacedNode, pad = CLEAR): Rect {
-  return padRect(
-    {
-      minX: p.x - CARD_HALF_W,
-      maxX: p.x + CARD_HALF_W,
-      minY: p.y + CARD_TOP,
-      maxY: p.y + CARD_BOTTOM,
-    },
-    pad,
-  );
-}
-
-/** Master hub exclusion (square approx of the ring + clearance). */
-export function masterObstacle(pad = CLEAR): Rect {
-  const r = 42 + pad;
-  return { minX: VIEW.cx - r, maxX: VIEW.cx + r, minY: VIEW.cy - r, maxY: VIEW.cy + r };
-}
-
-/** Attach point just outside a card edge facing `toward`. */
-export function portOnAgent(p: PlacedNode, towardX: number, towardY: number): Pt {
-  const cx = p.x;
-  const cy = p.y + (CARD_TOP + CARD_BOTTOM) / 2;
-  const left = p.x - CARD_HALF_W - CLEAR;
-  const right = p.x + CARD_HALF_W + CLEAR;
-  const top = p.y + CARD_TOP - CLEAR;
-  const bottom = p.y + CARD_BOTTOM + CLEAR;
-  const dx = towardX - cx;
-  const dy = towardY - cy;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return { x: dx >= 0 ? right : left, y: clamp(cy, top + 6, bottom - 6) };
-  }
-  return { x: clamp(cx, left + 6, right - 6), y: dy >= 0 ? bottom : top };
-}
-
-/** Attach point just outside the Master ring facing `toward`. */
-export function portOnMaster(towardX: number, towardY: number): Pt {
-  const dx = towardX - VIEW.cx;
-  const dy = towardY - VIEW.cy;
-  const len = Math.hypot(dx, dy) || 1;
-  const r = 42 + CLEAR;
-  return { x: VIEW.cx + (dx / len) * r, y: VIEW.cy + (dy / len) * r };
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
-}
 
 function pointInRect(x: number, y: number, r: Rect): boolean {
   return x >= r.minX && x <= r.maxX && y >= r.minY && y <= r.maxY;
@@ -96,6 +44,46 @@ function simplifyOrthogonal(pts: Pt[]): Pt[] {
 }
 
 type Cell = { i: number; j: number };
+
+type OpenNode = { i: number; j: number; g: number; f: number; dir: number };
+
+/** Binary heap on `f` for the A* open set. */
+class MinHeap {
+  private a: OpenNode[] = [];
+  get size(): number {
+    return this.a.length;
+  }
+  push(n: OpenNode) {
+    const a = this.a;
+    let i = a.push(n) - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (a[p].f <= n.f) break;
+      a[i] = a[p];
+      i = p;
+    }
+    a[i] = n;
+  }
+  pop(): OpenNode {
+    const a = this.a;
+    const top = a[0];
+    const last = a.pop()!;
+    if (a.length) {
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        if (l >= a.length) break;
+        const r = l + 1;
+        const c = r < a.length && a[r].f < a[l].f ? r : l;
+        if (a[c].f >= last.f) break;
+        a[i] = a[c];
+        i = c;
+      }
+      a[i] = last;
+    }
+    return top;
+  }
+}
 
 function cellKey(i: number, j: number): number {
   // 14 bits each → safe for ±8192 cells
@@ -188,12 +176,12 @@ export function routePcbBundle(
     }
   };
 
-  const isBlocked = (i: number, j: number, start: Cell, goal: Cell): boolean => {
+  const isBlocked = (i: number, j: number, start: Cell, goal: Cell, allowCross: boolean): boolean => {
     if (i < 0 || j < 0 || i > iMax || j > jMax) return true;
     const k = cellKey(i, j);
     // Reserved cells always block — shared ports are freed after marking so
     // a new edge may sit on them, but never cut through another trace's body.
-    if (reserved.has(k)) return true;
+    if (!allowCross && reserved.has(k)) return true;
     if ((i === start.i && j === start.j) || (i === goal.i && j === goal.j)) return false;
     if (blockedCells.has(k)) return true;
     return false;
@@ -310,11 +298,14 @@ export function routePcbBundle(
     return cells;
   };
 
-  const astar = (start: Cell, goal: Cell): Cell[] | null => {
+  /** `unreachable` means the search space was exhausted, not the budget. */
+  let unreachable = false;
+
+  const astar = (start: Cell, goal: Cell, allowCross = false): Cell[] | null => {
+    unreachable = false;
     if (start.i === goal.i && start.j === goal.j) return [start];
 
-    type Node = { i: number; j: number; g: number; f: number; dir: number };
-    const open: Node[] = [];
+    const open = new MinHeap();
     const gScore = new Map<number, number>();
     const parent = new Map<number, number>();
     const h = (i: number, j: number) => Math.abs(i - goal.i) + Math.abs(j - goal.j);
@@ -330,12 +321,8 @@ export function routePcbBundle(
     open.push({ i: start.i, j: start.j, g: 0, f: h(start.i, start.j), dir: 0 });
 
     let expands = 0;
-    while (open.length && expands++ < MAX_EXPAND) {
-      let best = 0;
-      for (let k = 1; k < open.length; k++) if (open[k].f < open[best].f) best = k;
-      const cur = open[best];
-      open[best] = open[open.length - 1];
-      open.pop();
+    while (open.size && expands++ < MAX_EXPAND) {
+      const cur = open.pop();
 
       if (cur.i === goal.i && cur.j === goal.j) {
         return reconstruct(parent, cellKey(cur.i, cur.j), start);
@@ -348,7 +335,7 @@ export function routePcbBundle(
       for (const { di, dj, d } of dirs) {
         const ni = cur.i + di;
         const nj = cur.j + dj;
-        if (isBlocked(ni, nj, start, goal)) continue;
+        if (isBlocked(ni, nj, start, goal, allowCross)) continue;
         const turn = cur.dir !== 0 && cur.dir !== d ? TURN_COST : 0;
         const ng = cur.g + 1 + turn;
         const nk = cellKey(ni, nj);
@@ -359,6 +346,7 @@ export function routePcbBundle(
         open.push({ i: ni, j: nj, g: ng, f: ng + h(ni, nj), dir: d });
       }
     }
+    unreachable = open.size === 0;
     return null;
   };
 
@@ -445,11 +433,15 @@ export function routePcbBundle(
     const start = snapPort(req.x1, req.y1, req.x2, req.y2);
     const goal = snapPort(req.x2, req.y2, req.x1, req.y1);
     let cells = astar(start, goal);
-    if (!cells) cells = outerDetour(start, goal, laneIndex++);
-    if (!cells) {
+    // Waypoints live on the same grid: if the goal is walled off, no detour
+    // can reach it either, so only a budget cut-off is worth retrying.
+    if (!cells && !unreachable) cells = outerDetour(start, goal, laneIndex++);
+    if (!cells && !unreachable) {
       cells = outerDetour(start, goal, laneIndex + 17);
       laneIndex++;
     }
+    // Walled in by other traces: cross them rather than draw a diagonal.
+    if (!cells) cells = astar(start, goal, true);
     if (!cells) cells = [start, goal];
 
     const worldPts = cellsToWorld(cells, req.x1, req.y1, req.x2, req.y2);
@@ -483,11 +475,4 @@ export function routePcbBundle(
     out.set(req.id, pathDFromPoints(worldPts));
   }
   return out;
-}
-
-/** Build obstacle map for every placed agent. */
-export function buildAgentObstacles(placed: PlacedNode[]): Map<string, Rect> {
-  const m = new Map<string, Rect>();
-  for (const p of placed) m.set(p.node.id, agentObstacle(p));
-  return m;
 }
