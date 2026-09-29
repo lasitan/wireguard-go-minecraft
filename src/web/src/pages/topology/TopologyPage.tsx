@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type ReactElement } from "react";
 import { VIEW } from "../../core/constants";
 import { state } from "../../core/state";
 import { camToAttr } from "../../camera/CameraMath";
@@ -23,6 +23,18 @@ import "./magnet.css";
 export function TopologyPage() {
   const svgRef = useRef<SVGSVGElement>(null);
   useCameraGestures(svgRef);
+  // Reusing the same element makes React skip these subtrees while a card is
+  // dragged (the drawer panel is heavy and nothing in it changes mid-drag).
+  const chrome = useRef<ReactElement | null>(null);
+  if (!state.draggingId || !chrome.current) {
+    chrome.current = (
+      <>
+        <EdgeLegend />
+        <UpdatePill />
+        <SettingsDrawer />
+      </>
+    );
+  }
 
   const m = state.mesh || { revision: 0, nodes: [], links: [], forwards: [] };
   const nodes = m.nodes || [];
@@ -86,14 +98,11 @@ export function TopologyPage() {
         <MagnetGhost />
       </svg>
 
-      <EdgeLegend />
-      <UpdatePill />
-
       {nodes.length === 0 ? <div className="topo-empty">等待 Agent 持 key 入网…</div> : null}
       {state.demo ? <div className="dev-chip">DEV</div> : null}
       {state.err ? <div className="toast error">{state.err}</div> : null}
 
-      <SettingsDrawer />
+      {chrome.current}
     </div>
   );
 }

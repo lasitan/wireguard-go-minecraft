@@ -56,10 +56,20 @@ export const state: AppState = {
 };
 
 const listeners = new Set<() => void>();
+let notifyRaf = 0;
 
-/** Push UI re-render after mutating `state` (not every camera RAF frame). */
-export function notify() {
+function flushNotify() {
+  notifyRaf = 0;
   listeners.forEach((fn) => fn());
+}
+
+/**
+ * Push UI re-render after mutating `state`. Coalesced to one render per
+ * animation frame so drag moves and card glides never render twice a frame.
+ */
+export function notify() {
+  if (notifyRaf) return;
+  notifyRaf = requestAnimationFrame(flushNotify);
 }
 
 export function subscribe(fn: () => void): () => void {

@@ -51,7 +51,8 @@
 }
 .node-wrap.is-dragging .node-card {
   animation: none;
-  box-shadow: 0 10px 28px rgba(27, 36, 48, 0.16);
+  transition: none;
+  box-shadow: 0 4px 10px rgba(27, 36, 48, 0.14);
 }
 
 

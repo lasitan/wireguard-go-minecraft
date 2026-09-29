@@ -5,7 +5,6 @@ type Tween = { from: Pt; to: Pt; start: number };
 
 const DURATION_MS = 420;
 const tweens = new Map<string, Tween>();
-let raf = 0;
 
 function ease(t: number): number {
   return 1 - Math.pow(1 - t, 3);
@@ -18,13 +17,6 @@ function sample(tw: Tween, now: number): { pos: Pt; done: boolean } {
     pos: { x: tw.from.x + (tw.to.x - tw.from.x) * k, y: tw.from.y + (tw.to.y - tw.from.y) * k },
     done: t >= 1,
   };
-}
-
-function tick() {
-  raf = 0;
-  if (tweens.size === 0) return;
-  notify();
-  raf = requestAnimationFrame(tick);
 }
 
 function near(a: Pt, b: Pt): boolean {
@@ -54,7 +46,8 @@ export function tweenPos(id: string, target: Pt, last: Pt | undefined, instant: 
   if (!tw) return target;
   const s = sample(tw, now);
   if (s.done) tweens.delete(id);
-  if (!raf) raf = requestAnimationFrame(tick);
+  // Next frame shares the single coalesced render with drag / other updates.
+  notify();
   return s.pos;
 }
 
