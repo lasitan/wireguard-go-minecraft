@@ -64,6 +64,18 @@ func (a *applier) resolveRelay(d *core.DesiredConfig) *core.DesiredConfig {
 	return out
 }
 
+// withLocalIface pins the config to the TUN device this agent actually opened
+// (e.g. lc0). Master's DefaultIface is only an install-time hint; following it
+// would aim MTU, address and route setup at an interface that does not exist.
+func (a *applier) withLocalIface(d *core.DesiredConfig) *core.DesiredConfig {
+	if a.iface == "" || d.InterfaceName == a.iface {
+		return d
+	}
+	cp := *d
+	cp.InterfaceName = a.iface
+	return &cp
+}
+
 func (a *applier) revision() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -87,10 +99,8 @@ func (a *applier) apply(desired *core.DesiredConfig) error {
 	if len(desired.Transport) > 0 {
 		conn.SetTransportConfigJSON(desired.Transport)
 	}
-	applyIface := a.iface
-	if desired.InterfaceName != "" {
-		applyIface = desired.InterfaceName
-	}
+	desired = a.withLocalIface(desired)
+	applyIface := desired.InterfaceName
 	if desired.PollInterval != "" {
 		if d, err := time.ParseDuration(desired.PollInterval); err == nil && d >= time.Second {
 			a.pollEvery = d

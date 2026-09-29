@@ -20,6 +20,10 @@ func (a *Applier) ResolveRelay(d *core.DesiredConfig) *core.DesiredConfig {
 	return a.resolveRelay(d)
 }
 
+func (a *Applier) WithLocalIface(d *core.DesiredConfig) *core.DesiredConfig {
+	return a.withLocalIface(d)
+}
+
 func WsURL(masterURL string) string {
 	return wsURL(masterURL)
 }
