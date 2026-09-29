@@ -85,8 +85,34 @@ func HandleCommand() bool {
 		return true
 
 	case "update":
+		// Best-effort: finish any interrupted wireguard-go → lasitan-cluster migration.
+		_ = MigrateLegacy(false)
 		if err := update.RunCommand(os.Args[2:], ensureElevated, applyUpdate); err != nil {
 			fmt.Fprintf(os.Stderr, "update: %v\n", err)
+			os.Exit(core.ExitSetupFailed)
+		}
+		_ = MigrateLegacy(true)
+		return true
+
+	case "migrate":
+		start := true
+		for _, a := range os.Args[2:] {
+			switch a {
+			case "--no-start":
+				start = false
+			case "--start":
+				start = true
+			case "-h", "--help":
+				fmt.Fprintln(os.Stderr, "Usage: lasitan-cluster migrate [--no-start|--start]")
+				fmt.Fprintln(os.Stderr, "  检测并迁移旧版 wireguard-go / wireguard-mc（配置、systemd、二进制）到 lasitan-cluster")
+				return true
+			default:
+				fmt.Fprintf(os.Stderr, "unknown flag %q\nUsage: lasitan-cluster migrate [--no-start|--start]\n", a)
+				os.Exit(core.ExitSetupFailed)
+			}
+		}
+		if err := MigrateLegacy(start); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate: %v\n", err)
 			os.Exit(core.ExitSetupFailed)
 		}
 		return true
@@ -100,6 +126,7 @@ func serviceInstall(iface string) error {
 	if err := ensureElevated(); err != nil {
 		return err
 	}
+	_ = MigrateLegacy(false)
 	if err := role.AssertCanInstall(config.RoleAgent); err != nil {
 		return err
 	}
@@ -152,6 +179,7 @@ func serviceInstallMaster() error {
 	if err := ensureElevated(); err != nil {
 		return err
 	}
+	_ = MigrateLegacy(false)
 	if err := role.AssertCanInstall(config.RoleMaster); err != nil {
 		return err
 	}

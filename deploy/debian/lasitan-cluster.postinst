@@ -58,6 +58,10 @@ restart_lasitan_cluster_instances() {
 
 case "$1" in
 configure)
+	# Lossless replace: import leftover wireguard-go / wireguard-mc if present.
+	if command -v lasitan-cluster >/dev/null 2>&1; then
+		lasitan-cluster migrate --start >/dev/null 2>&1 || true
+	fi
 	# Fresh install and apt upgrade/reconfigure: reload unit + restart tunnels.
 	restart_lasitan_cluster_instances
 	;;

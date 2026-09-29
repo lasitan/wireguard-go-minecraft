@@ -22,6 +22,7 @@ Master / Agent / 升级：
 $ sudo lasitan-cluster install master
 $ sudo lasitan-cluster install
 $ sudo lasitan-cluster update
+$ sudo lasitan-cluster migrate          # 从旧版 wireguard-go 无损迁移
 $ lasitan-cluster --version
 ```
 

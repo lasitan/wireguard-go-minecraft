@@ -74,23 +74,45 @@ restart_units() {
   done
 }
 
+# Download first so we can migrate leftover wireguard-go even when PATH entry is gone.
+BIN="lasitan-cluster-${FRIENDLY}-${VERSION}"
+DEB="lasitan-cluster_${VERSION}-1_${DEBARCH}.deb"
+MIGRATE_BIN=""
+
 if command -v dpkg >/dev/null 2>&1 && [[ "${LASITAN_NO_DEB:-0}" != "1" ]]; then
-  DEB="lasitan-cluster_${VERSION}-1_${DEBARCH}.deb"
   fetch "${BASE}/${DEB}" "$TMP/$DEB"
-  # postinst reloads units and restarts running tunnels + master.
-  dpkg -i "$TMP/$DEB"
+  # Extract binary from the deb for pre-install migrate (dpkg may conflict with wireguard-mc).
+  dpkg-deb -x "$TMP/$DEB" "$TMP/debroot" 2>/dev/null || true
+  if [[ -x "$TMP/debroot/usr/bin/lasitan-cluster" ]]; then
+    MIGRATE_BIN="$TMP/debroot/usr/bin/lasitan-cluster"
+  fi
 else
-  BIN="lasitan-cluster-${FRIENDLY}-${VERSION}"
   fetch "${BASE}/${BIN}" "$TMP/lasitan-cluster"
   chmod 0755 "$TMP/lasitan-cluster"
   "$TMP/lasitan-cluster" --version >/dev/null || die "下载的二进制无法运行"
+  MIGRATE_BIN="$TMP/lasitan-cluster"
+fi
+
+if [[ -n "$MIGRATE_BIN" ]]; then
+  say "检测并迁移旧版 wireguard-go（若存在）…"
+  "$MIGRATE_BIN" migrate --no-start || true
+fi
+
+if command -v dpkg >/dev/null 2>&1 && [[ "${LASITAN_NO_DEB:-0}" != "1" ]]; then
+  # postinst reloads units and restarts running tunnels + master.
+  dpkg -i "$TMP/$DEB"
+else
   DEST="$(command -v lasitan-cluster || echo /usr/local/bin/lasitan-cluster)"
   DEST="$(readlink -f "$DEST" 2>/dev/null || echo "$DEST")"
   install -D -m 0755 "$TMP/lasitan-cluster" "${DEST}.new"
   mv -f "${DEST}.new" "$DEST"
   say "已安装到 $DEST"
-  restart_units
 fi
+
+# Start services recorded by migrate (or restart already-active lasitan units).
+say "启动 / 恢复服务…"
+lasitan-cluster migrate --start || true
+restart_units
 
 say "完成：$(lasitan-cluster --version 2>/dev/null | head -n1)"
 
