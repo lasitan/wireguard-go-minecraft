@@ -94,7 +94,7 @@ export function TransportCard() {
               disabled={busy}
               onChange={(e) => setCamo({ ...camo, secure: e.target.checked })}
             />
-            防中间人加密（双向密钥认证 + 全流加密，防机房解包/重放探测；所有节点需同为新版）
+            防中间人加密（双向密钥认证 + 全流加密；开启后旧版 Agent 无法入网，需全体升级）
           </label>
           <label className="transport-field">
             <span>共享密钥</span>

@@ -28,7 +28,9 @@ export function TopologyPage() {
   const placed = syncPlacedNodes(m);
 
   const conflicts = ResolveIpConflicts(m);
-  const edges = BuildEdgeGraph(m, placed, conflicts, state.stacks);
+  const edges = BuildEdgeGraph(m, placed, conflicts, state.stacks, {
+    fast: !!state.draggingId,
+  });
   const vb = camToAttr(state.camera);
 
   const stageClass = [

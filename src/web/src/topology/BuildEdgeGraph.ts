@@ -18,6 +18,7 @@ import {
   type Rect,
   type RouteRequest,
 } from "./PcbRouter";
+import { pcbRouteD } from "./PcbRoute";
 import { CARD_BOTTOM, CARD_HALF_W, CARD_TOP } from "./MagnetLayout";
 import { vpnPrefixFromAddress } from "./SubnetGroups";
 
@@ -116,12 +117,14 @@ function edgeStatus(
  * draws a single solid joint between adjacent stacked cards only.
  *
  * Paths are PCB-routed: orthogonal, avoid agent/Master widgets, and do not cross.
+ * Pass `fast` while a card is dragged so we skip A* (L-bends only) per frame.
  */
 export function BuildEdgeGraph(
   mesh: Mesh,
   placed: PlacedNode[],
   conflicts: IpConflictMap,
   stacks: MagnetStacks,
+  opts?: { fast?: boolean },
 ): TopologyEdge[] {
   // Cards in one magnet stack / cluster are drawn with MagnetRails; no mesh lines between them.
   const stackOf = (id: string) => stacks.parentOf.get(id) || (stacks.childrenOf.has(id) ? id : "");
@@ -288,6 +291,22 @@ export function BuildEdgeGraph(
     if (r !== 0) return r;
     return Math.hypot(b.x2 - b.x1, b.y2 - b.y1) - Math.hypot(a.x2 - a.x1, a.y2 - a.y1);
   });
+
+  if (opts?.fast) {
+    return pending.map((p) => ({
+      id: p.id,
+      fromId: p.fromId,
+      toId: p.toId,
+      x1: p.x1,
+      y1: p.y1,
+      x2: p.x2,
+      y2: p.y2,
+      pathD: pcbRouteD(p.x1, p.y1, p.x2, p.y2),
+      kind: p.kind,
+      status: p.status,
+      flowTowardMaster: p.flowTowardMaster,
+    }));
+  }
 
   const reqs: RouteRequest[] = pending.map((p) => ({
     id: p.id,

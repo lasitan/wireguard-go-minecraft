@@ -193,6 +193,24 @@ func TestLegacyPeerGetsClearError(t *testing.T) {
 	}
 }
 
+func TestOmitSecureDefaultsOff(t *testing.T) {
+	js, _ := json.Marshal(map[string]any{"camouflage": map[string]any{
+		"profile": "minecraft", "deep": true,
+		"loginPluginSecret": "s3cret", "handshakeTimeout": "3s",
+	}})
+	var f TransportConfigFile
+	if err := json.Unmarshal(js, &f); err != nil {
+		t.Fatal(err)
+	}
+	shared, _, err := LoadCamouflageConfig(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if shared.SecureEnabled() {
+		t.Fatal("omitted camouflage.secure must stay false for old-client compat")
+	}
+}
+
 func TestSecureBlobLooksLikeRSAModulus(t *testing.T) {
 	hello, _, err := SecureServerHello(SecurePSK("x"))
 	if err != nil {

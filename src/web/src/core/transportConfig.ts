@@ -25,11 +25,11 @@ export type TransportView = {
 };
 
 export const CAMO_PROFILES: { id: CamoProfile; label: string; hint: string }[] = [
-  { id: "none", label: "关闭伪装", hint: "�?TCP 长度前缀，无游戏握手" },
-  { id: "minecraft", label: "Minecraft Java", hint: "状态查�?+ 登录插件（深度伪装）" },
+  { id: "none", label: "关闭伪装", hint: "�?TCP 长度剝缀，无游戝条手" },
+  { id: "minecraft", label: "Minecraft Java", hint: "状思查�?+ 登录杒件（深度伪装）" },
   { id: "bedrock", label: "Minecraft Bedrock", hint: "RakNet 风格离线 Ping/Pong" },
   { id: "source", label: "Source / CS2", hint: "Source Engine A2S 查询" },
-  { id: "terraria", label: "Terraria", hint: "连接�?+ 断开提示" },
+  { id: "terraria", label: "Terraria", hint: "连接�?+ 断开杝示" },
   { id: "steam", label: "Steam（Rust / Valheim 等）", hint: "Steam 挑战/应答" },
   { id: "fivem", label: "FiveM / GTA", hint: "HTTP info.json 探针" },
 ];
@@ -37,7 +37,9 @@ export const CAMO_PROFILES: { id: CamoProfile; label: string; hint: string }[] =
 const defaultCamo = (): TransportCamouflage => ({
   profile: "minecraft",
   deep: true,
-  secure: true,
+  // Missing field = legacy (off). Fresh Masters still get secure:true from
+  // DefaultTransportJSON; parsing that JSON sets this true explicitly.
+  secure: false,
   handshakeTimeout: "10s",
   loginUsername: "Steve",
   loginPluginChannel: "minecraft:register",

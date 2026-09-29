@@ -82,6 +82,10 @@ func (c MCCamouflageConfig) PluginSecret() string {
 	return c.pluginSecret
 }
 
+func (c CamoSharedConfig) SecureEnabled() bool {
+	return c.secure
+}
+
 func SecurePSK(secret string) []byte {
 	return securePSK(secret)
 }

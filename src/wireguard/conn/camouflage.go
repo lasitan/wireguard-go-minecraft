@@ -120,7 +120,9 @@ func loadCamouflageConfig(fileCfg transportConfigFile) (camoSharedConfig, mcCamo
 		pluginSecret:  secret,
 		rejectMessage: reject,
 		serverName:    name,
-		secure:        cf.Secure == nil || *cf.Secure,
+		// Omit → false so pre-secure agents keep working; new Masters ship
+		// "secure": true explicitly in DefaultTransportJSON.
+		secure: cf.Secure != nil && *cf.Secure,
 	}
 	if profile == camoProfileMinecraft {
 		mc.enabled = true
