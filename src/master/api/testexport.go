@@ -28,3 +28,8 @@ func (s *Server) Stats() *stats.StatsService {
 func (s *Server) Updates() *update.Checker {
 	return s.updates
 }
+
+// RunUI starts the admin UI push loop (ListenAndServe does this in production).
+func (s *Server) RunUI(stop <-chan struct{}) {
+	s.ui.run(stop)
+}

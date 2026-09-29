@@ -40,6 +40,7 @@ type Server struct {
 	updates  *update.Checker
 	paths    *pathsel.Selector
 	relay    *relay.Service
+	ui       *uiHub
 
 	httpGeoAt sync.Map // nodeID -> time.Time of last legacy-agent IP observation
 }
@@ -68,7 +69,7 @@ func NewServer(cfg config.MasterConfig) (*Server, error) {
 	geo := geoip.NewGeoIP(st, cfg.DataDir, cfg.GeoIPDB, !cfg.DisableGeoIPOnline)
 	agentHub.OnPublicIPs = geo.ResolveNode
 	relaySvc := &relay.Service{Store: st}
-	return &Server{
+	s := &Server{
 		cfg:      cfg,
 		store:    st,
 		sessions: newSessionStore(cfg.AdminPassword),
@@ -76,12 +77,17 @@ func NewServer(cfg config.MasterConfig) (*Server, error) {
 		hub:      agentHub,
 		geo:      geo,
 		updates:  update.NewChecker(6*time.Hour, cfg.DisableUpdateCheck),
-		paths: &pathsel.Selector{Store: st, Stats: statsSvc, Alive: agentHub.IsConnected, Push: func() {
-			agentHub.PushAll()
-			relaySvc.Sync()
-		}},
-		relay: relaySvc,
-	}, nil
+		relay:    relaySvc,
+	}
+	s.ui = newUIHub(s)
+	s.paths = &pathsel.Selector{Store: st, Stats: statsSvc, Alive: agentHub.IsConnected, Push: func() {
+		agentHub.PushAll()
+		relaySvc.Sync()
+		s.ui.meshChanged()
+	}}
+	agentHub.OnConnChange = s.ui.presenceChanged
+	s.updates.OnChange = s.ui.versionChanged
+	return s, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -99,6 +105,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/agent/config", s.handleAgentConfig)
 	mux.HandleFunc("/api/agent/whoami", s.handleAgentWhoami)
 	mux.HandleFunc("/api/agent/ws", s.hub.ServeWS)
+	mux.HandleFunc("/api/ui/ws", s.ui.serveWS)
 	mux.HandleFunc("/api/meta", s.handleMeta)
 	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/version/upgrade", s.handleUpgrade)
@@ -131,6 +138,7 @@ func (s *Server) pushAll() {
 	s.hub.PushAll()
 	s.relay.Sync()
 	s.paths.Tick(time.Now())
+	s.ui.meshChanged()
 }
 
 func (s *Server) ListenAndServe() error {
@@ -141,6 +149,7 @@ func (s *Server) ListenAndServe() error {
 	go s.updates.Run(stop)
 	go s.paths.Run(stop)
 	go s.relay.Run(stop)
+	go s.ui.run(stop)
 	fmt.Fprintf(os.Stderr, "lasitan-cluster master: listening on %s (data %s)\n", s.cfg.Listen, s.cfg.DataDir)
 	if s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
 		return http.ListenAndServeTLS(s.cfg.Listen, s.cfg.TLSCert, s.cfg.TLSKey, h)
@@ -175,17 +184,26 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.pushAll()
+		s.ui.metaChanged()
 	}
-	settings, err := s.store.Settings()
+	meta, err := s.metaView()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	writeJSON(w, http.StatusOK, meta)
+}
+
+func (s *Server) metaView() (map[string]any, error) {
+	settings, err := s.store.Settings()
+	if err != nil {
+		return nil, err
 	}
 	var transport any
 	if len(settings.TransportJSON) > 0 {
 		_ = json.Unmarshal(settings.TransportJSON, &transport)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return map[string]any{
 		"enrollToken":  settings.EnrollToken,
 		"vpnSubnet":    settings.VPNSubnet,
 		"listen":       s.cfg.Listen,
@@ -193,7 +211,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		"defaultPoll":  settings.DefaultPoll,
 		"transport":    transport,
 		"relayPort":    settings.RelayPort,
-	})
+	}, nil
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

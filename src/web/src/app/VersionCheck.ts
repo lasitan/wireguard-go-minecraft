@@ -2,6 +2,7 @@ import { GetVersion } from "../api/GetVersion";
 import { RecheckVersion } from "../api/RecheckVersion";
 import { demoVersion } from "../core/demoVersion";
 import { notify, state } from "../core/state";
+import { isLive } from "./LiveSocket";
 
 const POLL_MS = 10 * 60_000;
 const RECHECK_WAIT_MS = 2500;
@@ -21,6 +22,7 @@ export async function recheckVersion() {
     return;
   }
   await RecheckVersion();
+  if (isLive()) return; // the result is pushed when the check finishes
   await new Promise((r) => setTimeout(r, RECHECK_WAIT_MS));
   await loadVersion();
 }
@@ -29,7 +31,7 @@ export function startVersionPoll() {
   stopVersionPoll();
   loadVersion().catch(() => {});
   timer = window.setInterval(() => {
-    if (state.token) loadVersion().catch(() => {});
+    if (state.token && !isLive()) loadVersion().catch(() => {});
   }, POLL_MS);
 }
 

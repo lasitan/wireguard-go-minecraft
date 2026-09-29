@@ -7,8 +7,10 @@ import { homeCam } from "../camera/CameraMath";
 import { MASTER_ID, TOKEN_KEY } from "../core/constants";
 import { demoMesh, demoMeta, touchDemoHeartbeats } from "../core/demoData";
 import { notify, state } from "../core/state";
+import type { Mesh } from "../core/models";
 import { hydrateNodePositions } from "../topology/NodePositionStore";
 import { goHome } from "./FocusNav";
+import { isLive, startLive, stopLive } from "./LiveSocket";
 import { startVersionPoll, stopVersionPoll } from "./VersionCheck";
 
 export async function login(password: string) {
@@ -28,8 +30,12 @@ export async function refresh() {
     return;
   }
   const [mesh, meta] = await Promise.all([GetMesh(), GetMeta()]);
-  state.mesh = mesh;
   state.meta = meta;
+  applyMesh(mesh);
+}
+
+function applyMesh(mesh: Mesh) {
+  state.mesh = mesh;
   hydrateNodePositions(mesh);
   const lost =
     state.selectedId &&
@@ -37,6 +43,29 @@ export async function refresh() {
     !(mesh.nodes || []).some((n) => n.id === state.selectedId);
   notify();
   if (lost) void goHome();
+}
+
+const PUSH_RETRY_MS = 300;
+let pendingMesh: Mesh | null = null;
+let pendingTimer: number | null = null;
+
+/** Pushed meshes wait until no drag, camera move or request is in flight. */
+function onPushedMesh(mesh: Mesh) {
+  pendingMesh = mesh;
+  if (pendingTimer != null) return;
+  const attempt = () => {
+    pendingTimer = null;
+    const m = pendingMesh;
+    if (!m || !state.token) return;
+    if (state.busy || state.draggingId || isCameraAnimating()) {
+      pendingTimer = window.setTimeout(attempt, PUSH_RETRY_MS);
+      return;
+    }
+    pendingMesh = null;
+    if (state.mesh && m.revision < state.mesh.revision) return;
+    applyMesh(m);
+  };
+  attempt();
 }
 
 export async function removeNode(id: string) {
@@ -65,6 +94,7 @@ export function logout() {
     state.pollTimer = null;
   }
   stopVersionPoll();
+  stopLive();
   state.token = "";
   localStorage.removeItem(TOKEN_KEY);
   state.mesh = null;
@@ -88,8 +118,17 @@ export function startPoll() {
     }, 8000);
     return;
   }
+  startLive({
+    mesh: onPushedMesh,
+    authFailed: (message) => {
+      logout();
+      state.err = message;
+      notify();
+    },
+  });
+  // Fallback while the push channel is down.
   state.pollTimer = window.setInterval(() => {
-    if (!state.token || state.busy || isCameraAnimating()) return;
+    if (!state.token || isLive() || state.busy || isCameraAnimating()) return;
     refresh().catch(() => {});
   }, 8000);
 }

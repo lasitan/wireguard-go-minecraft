@@ -174,11 +174,32 @@ func (s *Server) handleNodeStats(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	v, ok := s.nodeStats(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "node not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+// nodeLink reports how a node currently talks to Master.
+func (s *Server) nodeLink(n *core.Node, now time.Time) (uint8, string) {
+	if ver, ok := s.hub.AgentVersion(n.ID); ok {
+		return wire.LinkWS, ver
+	}
+	if !n.LastSeen.IsZero() && now.Sub(n.LastSeen) < httpOnlineWindow {
+		return wire.LinkHTTP, ""
+	}
+	return wire.LinkOffline, ""
+}
+
+var linkNames = map[uint8]string{wire.LinkOffline: "offline", wire.LinkHTTP: "http", wire.LinkWS: "ws"}
+
+func (s *Server) nodeStats(id string) (nodeStatsView, bool) {
 	m := s.store.Snapshot()
 	n := m.FindNode(id)
 	if n == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "node not found"})
-		return
+		return nodeStatsView{}, false
 	}
 	live, ipRates := s.stats.Live(id)
 	totals, _ := s.store.TrafficTotal(id)
@@ -194,9 +215,11 @@ func (s *Server) handleNodeStats(w http.ResponseWriter, r *http.Request) {
 		byKey[nn.PublicKey] = nn
 	}
 
+	link, ver := s.nodeLink(n, time.Now())
 	v := nodeStatsView{
 		NodeID:         id,
-		Link:           "offline",
+		Link:           linkNames[link],
+		AgentVersion:   ver,
 		LastSeen:       n.LastSeen,
 		ConnectedAt:    live.ConnectedAt,
 		RTTMillis:      live.RTTMillis,
@@ -211,12 +234,6 @@ func (s *Server) handleNodeStats(w http.ResponseWriter, r *http.Request) {
 		Peers:          []peerView{},
 		Forwards:       live.Forwards,
 		IPs:            []ipTrafficView{},
-	}
-	if ver, ok := s.hub.AgentVersion(id); ok {
-		v.Link = "ws"
-		v.AgentVersion = ver
-	} else if !n.LastSeen.IsZero() && time.Since(n.LastSeen) < httpOnlineWindow {
-		v.Link = "http"
 	}
 	if v.Forwards == nil {
 		v.Forwards = []stats.LiveForward{}
@@ -248,7 +265,7 @@ func (s *Server) handleNodeStats(w http.ResponseWriter, r *http.Request) {
 			addIP(ip, 0, 0, 0)
 		}
 	}
-	writeJSON(w, http.StatusOK, v)
+	return v, true
 }
 
 var trafficRanges = map[string]struct {

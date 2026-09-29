@@ -2,6 +2,7 @@ import { demoMesh, demoMeta } from "./demoData";
 import { homeCam } from "../camera/CameraMath";
 import { isDevPreview, TOKEN_KEY } from "./constants";
 import type { Cam, MagnetStacks, Mesh, Meta, PlacedNode, UpgradeStatus, VersionInfo } from "./models";
+import type { PresenceNode } from "../api/uiWire";
 
 export type AppState = {
   token: string;
@@ -30,6 +31,10 @@ export type AppState = {
   /** Web-triggered upgrades keyed by node id, or "master". */
   upgrades: Record<string, UpgradeStatus>;
   busy: boolean;
+  /** Binary push channel to the Master is up. */
+  live: boolean;
+  /** Latest pushed link/traffic per node id. */
+  presence: Record<string, PresenceNode>;
 };
 
 export const state: AppState = {
@@ -53,6 +58,8 @@ export const state: AppState = {
   clusterTarget: null,
   upgrades: {},
   busy: false,
+  live: false,
+  presence: {},
 };
 
 const listeners = new Set<() => void>();

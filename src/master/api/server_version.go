@@ -50,6 +50,10 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		s.updates.Refresh()
 	}
+	writeJSON(w, http.StatusOK, s.versionView())
+}
+
+func (s *Server) versionView() versionView {
 	st := s.updates.Status()
 	target := st.Latest
 	if target == "" || update.Newer(st.Current, target) {
@@ -75,5 +79,5 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 			v.OutdatedAgents = append(v.OutdatedAgents, outdatedAgent{NodeID: id, Name: name, Version: ver})
 		}
 	}
-	writeJSON(w, http.StatusOK, v)
+	return v
 }

@@ -46,6 +46,14 @@ type Hub struct {
 	// OnPublicIPs is called (in its own goroutine) when an agent reports
 	// public addresses; used to trigger GeoIP resolution.
 	OnPublicIPs func(nodeID, v4, v6 string)
+	// OnConnChange is called after an agent connects or disconnects.
+	OnConnChange func()
+}
+
+func (h *Hub) connChanged() {
+	if h.OnConnChange != nil {
+		h.OnConnChange()
+	}
 }
 
 type hubShard struct {
@@ -282,12 +290,14 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 		c.queueConfig(d)
 	}
 
+	h.connChanged()
 	go h.writeLoop(c)
 	h.readLoop(c)
 
 	cancel()
 	if h.unregister(c) {
 		h.stats.MarkDisconnected(node.ID)
+		h.connChanged()
 	}
 	ws.Close(websocket.StatusNormalClosure, "")
 }

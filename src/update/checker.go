@@ -26,6 +26,9 @@ type Checker struct {
 	status Status
 	Fetch  func(context.Context) (*Release, error)
 	kick   chan struct{}
+
+	// OnChange runs after every completed check (set before Run).
+	OnChange func()
 }
 
 func NewChecker(interval time.Duration, disabled bool) *Checker {
@@ -75,6 +78,13 @@ func (c *Checker) CheckNow() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	rel, err := c.Fetch(ctx)
+	c.store(rel, err)
+	if c.OnChange != nil {
+		c.OnChange()
+	}
+}
+
+func (c *Checker) store(rel *Release, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.status.CheckedAt = time.Now().UTC()
