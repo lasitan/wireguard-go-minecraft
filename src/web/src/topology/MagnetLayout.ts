@@ -36,6 +36,18 @@ export function stackColumnX(mother: Pt, slotCount: number): number {
   return x;
 }
 
+/**
+ * X shift that moves a whole cluster row clear of Master when any mother's
+ * stack column in it would cover the hub, so the row never splits apart.
+ */
+export function clusterRowShift(members: { pos: Pt; mother: boolean; slots: number }[]): number {
+  if (!members.some((m) => m.mother && stackColumnX(m.pos, m.slots) !== m.pos.x)) return 0;
+  const xs = members.map((m) => m.pos.x);
+  const toRight = VIEW.cx + MASTER_EXCLUSION_R + CARD_HALF_W * 0.9 - Math.min(...xs);
+  const toLeft = VIEW.cx - MASTER_EXCLUSION_R - CARD_HALF_W * 0.9 - Math.max(...xs);
+  return Math.abs(toRight) <= Math.abs(toLeft) ? toRight : toLeft;
+}
+
 /** Render / hit-test anchor for a mother (stored Y, dodged X). */
 export function motherAnchor(mother: Pt, slotCount: number): Pt {
   return { x: stackColumnX(mother, slotCount), y: mother.y };

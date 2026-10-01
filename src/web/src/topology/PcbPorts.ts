@@ -30,8 +30,13 @@ export function masterObstacle(pad = CLEAR): Rect {
   return { minX: VIEW.cx - r, maxX: VIEW.cx + r, minY: VIEW.cy - r, maxY: VIEW.cy + r };
 }
 
-/** Attach point just outside a card edge facing `toward`. */
-export function portOnAgent(p: PlacedNode, towardX: number, towardY: number): Pt {
+export type CardSide = "left" | "right" | "top" | "bottom";
+
+/**
+ * Attach point just outside a card edge facing `toward`. Sides in `blocked`
+ * (taken by magnet / cluster joints) are skipped for the next best edge.
+ */
+export function portOnAgent(p: PlacedNode, towardX: number, towardY: number, blocked?: ReadonlySet<CardSide>): Pt {
   const cx = p.x;
   const cy = p.y + (CARD_TOP + CARD_BOTTOM) / 2;
   const left = p.x - CARD_HALF_W - CLEAR;
@@ -40,10 +45,21 @@ export function portOnAgent(p: PlacedNode, towardX: number, towardY: number): Pt
   const bottom = p.y + CARD_BOTTOM + CLEAR;
   const dx = towardX - cx;
   const dy = towardY - cy;
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return { x: dx >= 0 ? right : left, y: clamp(cy, top + 6, bottom - 6) };
+  const h: CardSide = dx >= 0 ? "right" : "left";
+  const v: CardSide = dy >= 0 ? "bottom" : "top";
+  const flip: Record<CardSide, CardSide> = { left: "right", right: "left", top: "bottom", bottom: "top" };
+  const order: CardSide[] = Math.abs(dx) >= Math.abs(dy) ? [h, v, flip[v], flip[h]] : [v, h, flip[h], flip[v]];
+  const side = order.find((s) => !blocked?.has(s)) ?? order[0];
+  switch (side) {
+    case "left":
+      return { x: left, y: clamp(cy, top + 6, bottom - 6) };
+    case "right":
+      return { x: right, y: clamp(cy, top + 6, bottom - 6) };
+    case "top":
+      return { x: clamp(cx, left + 6, right - 6), y: top };
+    default:
+      return { x: clamp(cx, left + 6, right - 6), y: bottom };
   }
-  return { x: clamp(cx, left + 6, right - 6), y: dy >= 0 ? bottom : top };
 }
 
 /** Attach point just outside the Master ring facing `toward`. */

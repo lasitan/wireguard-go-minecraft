@@ -10,7 +10,7 @@ import type {
 } from "../core/models";
 import { notify } from "../core/state";
 import { isOnline } from "../utils/isOnline";
-import { buildAgentObstacles, masterObstacle, portOnAgent, portOnMaster } from "./PcbPorts";
+import { buildAgentObstacles, masterObstacle, portOnAgent, portOnMaster, type CardSide } from "./PcbPorts";
 import { routePcbBundle, type Rect, type RouteRequest } from "./PcbRouter";
 import type { RouteJob, RouteResult } from "./pcbRoute.worker";
 import { pcbRouteD } from "./PcbRoute";
@@ -67,6 +67,37 @@ function magnetRailObstacles(placed: PlacedNode[], stacks: MagnetStacks): Map<st
   return out;
 }
 
+/** Card edges already taken by a magnet rail or cluster joint; traces leave elsewhere. */
+function jointSides(placed: PlacedNode[], stacks: MagnetStacks): Map<string, Set<CardSide>> {
+  const out = new Map<string, Set<CardSide>>();
+  const add = (id: string, s: CardSide) => {
+    if (!out.has(id)) out.set(id, new Set());
+    out.get(id)!.add(s);
+  };
+  for (const [motherId, kids] of stacks.childrenOf) {
+    let above = motherId;
+    for (const kid of kids) {
+      add(above, "bottom");
+      add(kid, "top");
+      above = kid;
+    }
+  }
+  const groups = new Map<string, PlacedNode[]>();
+  for (const p of placed) {
+    const c = p.node.cluster;
+    if (!c || stacks.parentOf.has(p.node.id)) continue;
+    groups.set(c, [...(groups.get(c) || []), p]);
+  }
+  for (const members of groups.values()) {
+    members.sort((a, b) => a.x - b.x);
+    for (let i = 1; i < members.length; i++) {
+      add(members[i - 1].node.id, "right");
+      add(members[i].node.id, "left");
+    }
+  }
+  return out;
+}
+
 function distToMaster(x: number, y: number): number {
   const dx = x - VIEW.cx;
   const dy = y - VIEW.cy;
@@ -99,6 +130,41 @@ function edgeStatus(
   if (aConflict || bConflict) return "yellow";
   if (!aOnline || !bOnline) return "red";
   return "green";
+}
+
+const STATUS_RANK: Record<EdgeStatus, number> = { green: 0, yellow: 1, red: 2, grey: 3 };
+
+/** A merged unit edge is as healthy as its healthiest member link. */
+function betterStatus(a: EdgeStatus, b: EdgeStatus): EdgeStatus {
+  return STATUS_RANK[b] < STATUS_RANK[a] ? b : a;
+}
+
+/**
+ * Wiring representative per card. A cluster plus every card stacked under a
+ * member wires as one unit through the member closest to Master; other cards
+ * represent themselves.
+ */
+function clusterReps(placed: PlacedNode[], stacks: MagnetStacks): (id: string) => string {
+  const byId = new Map(placed.map((p) => [p.node.id, p]));
+  const unitOf = (id: string): string => {
+    const parent = stacks.parentOf.get(id);
+    const parentCluster = parent ? byId.get(parent)?.node.cluster : "";
+    return parentCluster || byId.get(id)?.node.cluster || "";
+  };
+  const rep = new Map<string, PlacedNode>();
+  for (const p of placed) {
+    const c = p.node.cluster;
+    if (!c || unitOf(p.node.id) !== c) continue;
+    const cur = rep.get(c);
+    const d = distToMaster(p.x, p.y);
+    if (!cur || d < distToMaster(cur.x, cur.y) || (d === distToMaster(cur.x, cur.y) && p.node.id < cur.node.id)) {
+      rep.set(c, p);
+    }
+  }
+  return (id) => {
+    const u = unitOf(id);
+    return (u && rep.get(u)?.node.id) || id;
+  };
 }
 
 type PendingEdge = {
@@ -205,7 +271,8 @@ function geometryKey(placed: PlacedNode[], stacks: MagnetStacks, pending: Pendin
  * Kinds are mutually exclusive per pair.
  *
  * Magnet-stack members (mother + adsorbed children) are omitted here — MagnetRails
- * draws a single solid joint between adjacent stacked cards only.
+ * draws a single solid joint between adjacent stacked cards only. A cluster and the
+ * cards stacked under its members are wired as one unit from a single representative.
  *
  * Paths are PCB-routed: orthogonal, avoid agent/Master widgets, and do not cross.
  * Pass `fast` while a card is dragged / tweening so we skip A* (L-bends only).
@@ -232,6 +299,8 @@ export function BuildEdgeGraph(
   const magnetJoined = (a: string, b: string) => sameStack(a, b) || sameCluster(a, b);
   const online = new Map(placed.map((p) => [p.node.id, isOnline(p.node)]));
   const disabled = new Set(placed.filter((p) => p.node.disabled).map((p) => p.node.id));
+  const repOf = clusterReps(placed, stacks);
+  const taken = jointSides(placed, stacks);
 
   const solidPairs = new Set<string>();
   for (const l of mesh.links || []) {
@@ -273,14 +342,13 @@ export function BuildEdgeGraph(
 
   const pending: PendingEdge[] = [];
 
+  // Unit-level pairs (cluster → its representative); first kind wins, status is the best member pair.
+  const unitPairs = new Map<string, { a: string; b: string; kind: EdgeKind; status: EdgeStatus }>();
   const pushAgentPair = (aId: string, bId: string, kind: EdgeKind) => {
-    const a = byId.get(aId);
-    const b = byId.get(bId);
-    if (!a || !b) return;
-    // Attach on card borders so the trace never enters a widget.
-    const aPort = portOnAgent(a, b.x, b.y);
-    const bPort = portOnAgent(b, a.x, a.y);
-    const o = orientTowardMaster(aPort.x, aPort.y, bPort.x, bPort.y, aId, bId);
+    if (magnetJoined(aId, bId)) return;
+    const ra = repOf(aId);
+    const rb = repOf(bId);
+    if (ra === rb) return;
     const status = edgeStatus(
       !!online.get(aId),
       !!online.get(bId),
@@ -288,6 +356,20 @@ export function BuildEdgeGraph(
       !!conflicts.get(bId),
       disabled.has(aId) || disabled.has(bId),
     );
+    const key = pairKey(ra, rb);
+    const prev = unitPairs.get(key);
+    if (!prev) unitPairs.set(key, { a: ra, b: rb, kind, status });
+    else if (prev.kind === kind) prev.status = betterStatus(prev.status, status);
+  };
+
+  const emitAgentPair = (aId: string, bId: string, kind: EdgeKind, status: EdgeStatus) => {
+    const a = byId.get(aId);
+    const b = byId.get(bId);
+    if (!a || !b) return;
+    // Attach on card borders so the trace never enters a widget.
+    const aPort = portOnAgent(a, b.x, b.y, taken.get(aId));
+    const bPort = portOnAgent(b, a.x, a.y, taken.get(bId));
+    const o = orientTowardMaster(aPort.x, aPort.y, bPort.x, bPort.y, aId, bId);
     pending.push({
       id: `${kind}:${pairKey(aId, bId)}`,
       fromId: o.fromId,
@@ -324,38 +406,47 @@ export function BuildEdgeGraph(
 
   for (const key of solidPairs) {
     const [a, b] = key.split("|");
-    if (!magnetJoined(a, b)) pushAgentPair(a, b, "solid");
+    pushAgentPair(a, b, "solid");
   }
   for (const key of gatewayPairs) {
     const [a, b] = key.split("|");
-    if (!magnetJoined(a, b)) pushAgentPair(a, b, "gateway");
+    pushAgentPair(a, b, "gateway");
   }
   for (const key of indirectPairs) {
     if (solidPairs.has(key) || gatewayPairs.has(key)) continue;
     const [a, b] = key.split("|");
-    if (!magnetJoined(a, b)) pushAgentPair(a, b, "dashed");
+    pushAgentPair(a, b, "dashed");
   }
+  for (const e of unitPairs.values()) emitAgentPair(e.a, e.b, e.kind, e.status);
 
-  // Control-plane spokes: agent ↔ Master. Attached cards share their mother's spoke.
+  // Control-plane spokes: agent ↔ Master. Attached cards share their mother's
+  // spoke; a cluster (with its stacked cards) shares one from its representative.
+  const spokes = new Map<string, { status: EdgeStatus; relay: boolean }>();
   for (const p of placed) {
-    const onRelay = relayNodes.has(p.node.id);
-    if (stacks.parentOf.has(p.node.id) && !onRelay) continue;
-    const masterPort = portOnMaster(p.x, p.y);
-    const agentPort = portOnAgent(p, VIEW.cx, VIEW.cy);
-    const o = orientTowardMaster(agentPort.x, agentPort.y, masterPort.x, masterPort.y, p.node.id, MASTER_ID);
-    const nodeOnline = !!online.get(p.node.id);
-    const conflict = !!conflicts.get(p.node.id);
+    const id = p.node.id;
+    const onRelay = relayNodes.has(id);
+    if (stacks.parentOf.has(id) && !onRelay) continue;
     let status: EdgeStatus = "green";
-    if (disabled.has(p.node.id)) status = "grey";
-    else if (conflict) status = "yellow";
-    else if (!nodeOnline) status = "red";
+    if (disabled.has(id)) status = "grey";
+    else if (conflicts.get(id)) status = "yellow";
+    else if (!online.get(id)) status = "red";
+    const rep = repOf(id);
+    const prev = spokes.get(rep);
+    spokes.set(rep, prev ? { status: betterStatus(prev.status, status), relay: prev.relay || onRelay } : { status, relay: onRelay });
+  }
+  for (const [id, s] of spokes) {
+    const p = byId.get(id);
+    if (!p) continue;
+    const masterPort = portOnMaster(p.x, p.y);
+    const agentPort = portOnAgent(p, VIEW.cx, VIEW.cy, taken.get(id));
+    const o = orientTowardMaster(agentPort.x, agentPort.y, masterPort.x, masterPort.y, id, MASTER_ID);
     pending.push({
-      id: `spoke:${p.node.id}`,
+      id: `spoke:${id}`,
       fromId: o.fromId,
       toId: o.toId,
-      kind: onRelay ? "gateway" : "dashed",
-      status,
-      flowTowardMaster: status === "green",
+      kind: s.relay ? "gateway" : "dashed",
+      status: s.status,
+      flowTowardMaster: s.status === "green",
       x1: o.x1,
       y1: o.y1,
       x2: o.x2,
