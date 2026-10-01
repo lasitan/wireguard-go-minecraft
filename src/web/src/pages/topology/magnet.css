@@ -62,6 +62,14 @@
   to { opacity: 0.55; width: 34px; }
 }
 
+/* Touch long-press armed "add mother" (Ctrl/Shift on desktop). */
+.node-wrap { -webkit-touch-callout: none; }
+.node-wrap.is-armed .node-card {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(243, 128, 32, 0.28), 0 10px 26px rgba(243, 128, 32, 0.22);
+  transform: scale(1.04);
+}
+
 /* Hovered mother while a card is dragged over its column. */
 .node-wrap.magnet-hot .node-card {
   border-color: var(--accent);

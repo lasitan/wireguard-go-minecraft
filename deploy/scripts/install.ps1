@@ -42,6 +42,32 @@ if (-not $version) {
 }
 $version = $version.TrimStart('v')
 
+function Apply-AgentBootstrap {
+    if ($env:LASITAN_BOOTSTRAP -ne 'agent') { return }
+    $url = "$env:LASITAN_MASTER_URL".Trim()
+    $key = "$env:LASITAN_ENROLL_KEY".Trim()
+    if (-not $url -or -not $key) { Die 'LASITAN_BOOTSTRAP=agent requires LASITAN_MASTER_URL and LASITAN_ENROLL_KEY' }
+    $conf = Join-Path $dir 'lasitan-cluster-agent.json'
+    $iface = if ($env:LASITAN_IFACE) { $env:LASITAN_IFACE } else { 'lc0' }
+    $role = if ($env:LASITAN_ROLE) { $env:LASITAN_ROLE.ToLower() } else { 'client' }
+    if ((Test-Path $conf) -and $env:LASITAN_FORCE -ne '1') {
+        Say "kept existing $conf (LASITAN_FORCE=1 to overwrite)"
+    } else {
+        $cfg = [ordered]@{ masterUrl = $url; key = $key }
+        if ($role -eq 'server') {
+            $cfg['role'] = 'server'
+            if ($env:LASITAN_ENDPOINT) { $cfg['endpoint'] = $env:LASITAN_ENDPOINT.Trim() }
+            if ($env:LASITAN_LISTEN_PORT) { $cfg['listenPort'] = [int]$env:LASITAN_LISTEN_PORT }
+        }
+        [IO.File]::WriteAllText($conf, (($cfg | ConvertTo-Json) + "`n"), (New-Object Text.UTF8Encoding $false))
+        Say "wrote $conf"
+    }
+    Say "registering autostart service ($iface)..."
+    & $dest install $iface
+    if ($LASTEXITCODE -ne 0) { Die "lasitan-cluster install failed" }
+    Say "agent configured for Master $url; it will enroll on start"
+}
+
 $existing = Get-Command lasitan-cluster -ErrorAction SilentlyContinue
 $current = ''
 if ($existing) {
@@ -50,13 +76,17 @@ if ($existing) {
 Say "windows/${arch}: latest $version, installed $(if ($current) { $current } else { 'none' })"
 if ($current -eq $version -and $env:LASITAN_FORCE -ne '1') {
     Say 'Already up to date (set LASITAN_FORCE=1 to reinstall)'
+    $dest = $existing.Source
+    $dir = Split-Path $dest
+    Apply-AgentBootstrap
     exit 0
 }
 
 $dir = if ($env:LASITAN_DIR) { $env:LASITAN_DIR } elseif ($existing) { Split-Path $existing.Source } else { Join-Path $env:ProgramFiles 'lasitan-cluster' }
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 $dest = Join-Path $dir 'lasitan-cluster.exe'
-$tmp = "$dest.new"
+# Must end in .exe: PowerShell opens any other extension as a document instead of running it.
+$tmp = Join-Path $dir 'lasitan-cluster.new.exe'
 
 $url = "${proxy}https://github.com/$repo/releases/download/v$version/lasitan-cluster-windows10-$arch-$version.exe"
 Say "downloading $url"
@@ -85,32 +115,6 @@ if (($machinePath -split ';') -notcontains $dir) {
 }
 
 Say "done: $(& $dest --version)"
-
-function Apply-AgentBootstrap {
-    if ($env:LASITAN_BOOTSTRAP -ne 'agent') { return }
-    $url = "$env:LASITAN_MASTER_URL".Trim()
-    $key = "$env:LASITAN_ENROLL_KEY".Trim()
-    if (-not $url -or -not $key) { Die 'LASITAN_BOOTSTRAP=agent requires LASITAN_MASTER_URL and LASITAN_ENROLL_KEY' }
-    $conf = Join-Path $dir 'lasitan-cluster-agent.json'
-    $iface = if ($env:LASITAN_IFACE) { $env:LASITAN_IFACE } else { 'lc0' }
-    $role = if ($env:LASITAN_ROLE) { $env:LASITAN_ROLE.ToLower() } else { 'client' }
-    if ((Test-Path $conf) -and $env:LASITAN_FORCE -ne '1') {
-        Say "kept existing $conf (LASITAN_FORCE=1 to overwrite)"
-    } else {
-        $cfg = [ordered]@{ masterUrl = $url; key = $key }
-        if ($role -eq 'server') {
-            $cfg['role'] = 'server'
-            if ($env:LASITAN_ENDPOINT) { $cfg['endpoint'] = $env:LASITAN_ENDPOINT.Trim() }
-            if ($env:LASITAN_LISTEN_PORT) { $cfg['listenPort'] = [int]$env:LASITAN_LISTEN_PORT }
-        }
-        [IO.File]::WriteAllText($conf, (($cfg | ConvertTo-Json) + "`n"), (New-Object Text.UTF8Encoding $false))
-        Say "wrote $conf"
-    }
-    Say "registering autostart service ($iface)…"
-    & $dest install $iface
-    if ($LASTEXITCODE -ne 0) { Die "lasitan-cluster install failed" }
-    Say "agent configured for Master $url; it will enroll on start"
-}
 
 Apply-AgentBootstrap
 

@@ -16,6 +16,6 @@ export function demoAgentInstallCommands(role: "client" | "server", endpoint: st
     masterUrl,
     linux: `curl -fsSL ${RAW}/install.sh | sudo env ${env} bash`,
     linuxCn: `curl -fsSL https://ghfast.top/${RAW}/install.sh | sudo env ${env} LASITAN_GH_PROXY=https://ghfast.top/ bash`,
-    windows: `powershell -ExecutionPolicy Bypass -c "$env:LASITAN_BOOTSTRAP='agent'; $env:LASITAN_MASTER_URL='${masterUrl}'; $env:LASITAN_ENROLL_KEY='${key}'; $env:LASITAN_ROLE='${role}'; irm ${RAW}/install.ps1 | iex"`,
+    windows: `$env:LASITAN_BOOTSTRAP='agent'; $env:LASITAN_MASTER_URL='${masterUrl}'; $env:LASITAN_ENROLL_KEY='${key}'; $env:LASITAN_ROLE='${role}'; powershell -ExecutionPolicy Bypass -c "irm ${RAW}/install.ps1 | iex"`,
   };
 }

@@ -24,6 +24,13 @@ func TestAgentInstallCommandsAPI(t *testing.T) {
 	if !strings.Contains(out.Linux, "25590") {
 		t.Fatalf("listen port: %q", out.Linux)
 	}
+	// Pasted into PowerShell, a double-quoted -c body would have $env: expanded by the outer shell.
+	if !strings.HasPrefix(out.Windows, "$env:LASITAN_BOOTSTRAP='agent';") {
+		t.Fatalf("windows env must be set in the pasting shell: %q", out.Windows)
+	}
+	if i := strings.Index(out.Windows, `-c "`); i < 0 || strings.Contains(out.Windows[i:], "$") {
+		t.Fatalf("windows -c body must not reference variables: %q", out.Windows)
+	}
 }
 
 func TestMasterPublicURL(t *testing.T) {

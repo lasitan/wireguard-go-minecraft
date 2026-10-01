@@ -1,5 +1,5 @@
 import { useRef, type PointerEvent as ReactPointerEvent } from "react";
-import { DRAG_CLICK_PX } from "../../core/constants";
+import { dragClickPx, LONG_PRESS_MS } from "../../core/constants";
 import { clientToSvg } from "../../camera/SvgCoords";
 import { notify, state } from "../../core/state";
 import { setNodePosition } from "../../topology/SyncPlacedNodes";
@@ -24,7 +24,17 @@ type DragState = {
   moved: boolean;
   parentAtStart: string | null;
   canSnap: boolean;
+  threshold: number;
+  /** Touch long-press armed the Ctrl/Shift add-mother mode. */
+  addMode: boolean;
+  pressTimer: number | null;
+  el: SVGGElement;
 };
+
+function clearPress(d: DragState) {
+  if (d.pressTimer != null) window.clearTimeout(d.pressTimer);
+  d.pressTimer = null;
+}
 
 function magnetAttachChanged(target: string | null, parentAtStart: string | null): boolean {
   return !(target === parentAtStart || (!target && !parentAtStart));
@@ -36,7 +46,8 @@ function magnetAttachChanged(target: string | null, parentAtStart: string | null
  * Ctrl/Shift adds that mother instead of switching. Dragging an attached card
  * out of its stack detaches it from that mother only. Dropping a card right
  * beside another card of the same kind joins its cluster; dragging a cluster
- * member away from its siblings leaves the cluster.
+ * member away from its siblings leaves the cluster. On touch, holding a card
+ * still for LONG_PRESS_MS before dragging stands in for Ctrl/Shift.
  */
 export function useAgentDrag() {
   const drag = useRef<DragState | null>(null);
@@ -45,11 +56,12 @@ export function useAgentDrag() {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
+    if (drag.current) return;
     const svg = e.currentTarget.ownerSVGElement;
     if (!svg) return;
     const pt = clientToSvg(svg, e.clientX, e.clientY);
     const node = state.mesh?.nodes.find((n) => n.id === id);
-    drag.current = {
+    const d: DragState = {
       id,
       pointerId: e.pointerId,
       startClientX: e.clientX,
@@ -59,7 +71,21 @@ export function useAgentDrag() {
       moved: false,
       parentAtStart: state.stacks.parentOf.get(id) || null,
       canSnap: !isMother(node),
+      threshold: dragClickPx(e.pointerType),
+      addMode: false,
+      pressTimer: null,
+      el: e.currentTarget,
     };
+    if (e.pointerType === "touch" && d.canSnap) {
+      d.pressTimer = window.setTimeout(() => {
+        d.pressTimer = null;
+        if (d.moved || drag.current !== d) return;
+        d.addMode = true;
+        d.el.classList.add("is-armed");
+        navigator.vibrate?.(15);
+      }, LONG_PRESS_MS);
+    }
+    drag.current = d;
     e.currentTarget.setPointerCapture(e.pointerId);
   }
 
@@ -68,8 +94,9 @@ export function useAgentDrag() {
     if (!d || e.pointerId !== d.pointerId) return;
     e.stopPropagation();
     const dist = Math.hypot(e.clientX - d.startClientX, e.clientY - d.startClientY);
-    if (!d.moved && dist >= DRAG_CLICK_PX) {
+    if (!d.moved && dist >= d.threshold) {
       d.moved = true;
+      clearPress(d);
       state.draggingId = d.id;
       e.currentTarget.classList.add("is-dragging");
     }
@@ -91,14 +118,16 @@ export function useAgentDrag() {
     if (!d || e.pointerId !== d.pointerId) return;
     e.stopPropagation();
     drag.current = null;
-    e.currentTarget.classList.remove("is-dragging");
+    clearPress(d);
+    e.currentTarget.classList.remove("is-dragging", "is-armed");
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
       /* ignore */
     }
     if (!d.moved) {
-      void focusTarget(d.id);
+      // A long-press that never moved is not a tap.
+      if (!d.addMode && e.type !== "pointercancel") void focusTarget(d.id);
       return;
     }
 
@@ -165,7 +194,7 @@ export function useAgentDrag() {
       return;
     }
 
-    const addMode = e.ctrlKey || e.metaKey || e.shiftKey;
+    const addMode = e.ctrlKey || e.metaKey || e.shiftKey || d.addMode;
     if (d.canSnap && mesh && addMode && magnetTarget) {
       const current = attachedMothers(mesh, d.id);
       notify();

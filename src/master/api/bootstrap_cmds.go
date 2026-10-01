@@ -53,8 +53,11 @@ func buildAgentInstallCommands(masterURL, enrollKey, role, endpoint string) agen
 		update.InstallScriptURL, envLinux,
 	)
 
+	// Pasted into PowerShell: $env:... inside the child's double-quoted -c would be
+	// expanded (to empty) by the outer shell, so set them here; the child inherits
+	// them and the script's `exit` only ends the child.
 	winEnv := buildWindowsEnv(masterURL, enrollKey, role, endpoint)
-	windows := fmt.Sprintf(`powershell -ExecutionPolicy Bypass -c "%s; irm %s | iex"`, winEnv, update.InstallPS1URL)
+	windows := fmt.Sprintf(`%s; powershell -ExecutionPolicy Bypass -c "irm %s | iex"`, winEnv, update.InstallPS1URL)
 
 	return agentInstallCommands{MasterURL: masterURL, Linux: linux, LinuxCN: linuxCN, Windows: windows}
 }

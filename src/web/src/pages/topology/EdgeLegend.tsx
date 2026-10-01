@@ -49,7 +49,7 @@ export function EdgeLegend() {
             </li>
           </ul>
           <p className="edge-legend-note">
-            拖动画布平移 · 滚轮缩放 · 拖拽 Agent 改位置。虚实互斥；同 IP 仅前端标黄。
+            拖动画布平移 · 滚轮 / 双指缩放 · 拖拽 Agent 改位置（触屏长按再拖 = Ctrl 追加母卡）。虚实互斥；同 IP 仅前端标黄。
           </p>
         </div>
       </div>

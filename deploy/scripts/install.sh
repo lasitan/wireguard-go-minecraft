@@ -45,6 +45,47 @@ VERSION="${LASITAN_VERSION:-$(latest_version)}"
 VERSION="${VERSION#v}"
 BASE="${PROXY}https://github.com/${REPO}/releases/download/v${VERSION}"
 
+json_str() {
+  # Escape for JSON string values (enroll keys are restricted; URLs are trusted from Master UI).
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  printf '%s' "$s"
+}
+
+apply_agent_bootstrap() {
+  [[ "${LASITAN_BOOTSTRAP:-}" == "agent" ]] || return 0
+  local url="${LASITAN_MASTER_URL:-}"
+  local key="${LASITAN_ENROLL_KEY:-}"
+  [[ -n "$url" && -n "$key" ]] || die "LASITAN_BOOTSTRAP=agent 需要 LASITAN_MASTER_URL 与 LASITAN_ENROLL_KEY"
+  local conf="/etc/lasitan-cluster/lasitan-cluster-agent.json"
+  local iface="${LASITAN_IFACE:-lc0}"
+  local role="${LASITAN_ROLE:-client}"
+  mkdir -p /etc/lasitan-cluster
+  if [[ -f "$conf" && "${LASITAN_FORCE:-0}" != "1" ]]; then
+    say "保留已有 $conf（LASITAN_FORCE=1 可覆盖）"
+  else
+    {
+      printf '{\n  "masterUrl": "%s",\n  "key": "%s"' "$(json_str "$url")" "$(json_str "$key")"
+      if [[ "$role" == "server" ]]; then
+        printf ',\n  "role": "server"'
+        if [[ -n "${LASITAN_ENDPOINT:-}" ]]; then
+          printf ',\n  "endpoint": "%s"' "$(json_str "$LASITAN_ENDPOINT")"
+        fi
+        if [[ -n "${LASITAN_LISTEN_PORT:-}" ]]; then
+          printf ',\n  "listenPort": %s' "$LASITAN_LISTEN_PORT"
+        fi
+      fi
+      printf '\n}\n'
+    } >"$conf"
+    chmod 600 "$conf"
+    say "已写入 $conf"
+  fi
+  say "注册开机自启并启动 Agent（$iface）…"
+  lasitan-cluster install "$iface" || die "lasitan-cluster install 失败"
+  say "Agent 已安装并指向 Master $url，启动后会自动入网"
+}
+
 CURRENT=""
 if command -v lasitan-cluster >/dev/null 2>&1; then
   CURRENT="$(lasitan-cluster --version 2>/dev/null | sed -n '1s/^lasitan-cluster v*//p' | tr -d '[:space:]')" || true
@@ -52,6 +93,7 @@ fi
 say "最新版本 ${VERSION}，当前 ${CURRENT:-未安装}"
 if [[ "$CURRENT" == "$VERSION" && "${LASITAN_FORCE:-0}" != "1" ]]; then
   say "已是最新版本（LASITAN_FORCE=1 可强制重装）"
+  apply_agent_bootstrap
   exit 0
 fi
 
@@ -115,47 +157,6 @@ lasitan-cluster migrate --start || true
 restart_units
 
 say "完成：$(lasitan-cluster --version 2>/dev/null | head -n1)"
-
-json_str() {
-  # Escape for JSON string values (enroll keys are restricted; URLs are trusted from Master UI).
-  local s=$1
-  s=${s//\\/\\\\}
-  s=${s//\"/\\\"}
-  printf '%s' "$s"
-}
-
-apply_agent_bootstrap() {
-  [[ "${LASITAN_BOOTSTRAP:-}" == "agent" ]] || return 0
-  local url="${LASITAN_MASTER_URL:-}"
-  local key="${LASITAN_ENROLL_KEY:-}"
-  [[ -n "$url" && -n "$key" ]] || die "LASITAN_BOOTSTRAP=agent 需要 LASITAN_MASTER_URL 与 LASITAN_ENROLL_KEY"
-  local conf="/etc/lasitan-cluster/lasitan-cluster-agent.json"
-  local iface="${LASITAN_IFACE:-lc0}"
-  local role="${LASITAN_ROLE:-client}"
-  mkdir -p /etc/lasitan-cluster
-  if [[ -f "$conf" && "${LASITAN_FORCE:-0}" != "1" ]]; then
-    say "保留已有 $conf（LASITAN_FORCE=1 可覆盖）"
-  else
-    {
-      printf '{\n  "masterUrl": "%s",\n  "key": "%s"' "$(json_str "$url")" "$(json_str "$key")"
-      if [[ "$role" == "server" ]]; then
-        printf ',\n  "role": "server"'
-        if [[ -n "${LASITAN_ENDPOINT:-}" ]]; then
-          printf ',\n  "endpoint": "%s"' "$(json_str "$LASITAN_ENDPOINT")"
-        fi
-        if [[ -n "${LASITAN_LISTEN_PORT:-}" ]]; then
-          printf ',\n  "listenPort": %s' "$LASITAN_LISTEN_PORT"
-        fi
-      fi
-      printf '\n}\n'
-    } >"$conf"
-    chmod 600 "$conf"
-    say "已写入 $conf"
-  fi
-  say "注册开机自启并启动 Agent（$iface）…"
-  lasitan-cluster install "$iface" || die "lasitan-cluster install 失败"
-  say "Agent 已安装并指向 Master $url，启动后会自动入网"
-}
 
 apply_agent_bootstrap
 

@@ -69,6 +69,7 @@ export function AgentNodes({
             onPointerMove={drag.onPointerMove}
             onPointerUp={drag.onPointerUp}
             onPointerCancel={drag.onPointerUp}
+            onContextMenu={(e) => e.preventDefault()}
           >
             <foreignObject x={-78} y={-34} width={156} height={58}>
               <div className={cardClass}>
