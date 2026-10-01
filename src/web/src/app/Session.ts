@@ -2,6 +2,7 @@ import { DeleteNode } from "../api/DeleteNode";
 import { GetMesh } from "../api/GetMesh";
 import { GetMeta } from "../api/GetMeta";
 import { Login as LoginApi } from "../api/Login";
+import { LoginWithPasskey as LoginWithPasskeyApi } from "../api/WebAuthn";
 import { isCameraAnimating } from "../camera/CameraController";
 import { homeCam } from "../camera/CameraMath";
 import { MASTER_ID, TOKEN_KEY } from "../core/constants";
@@ -13,12 +14,19 @@ import { goHome } from "./FocusNav";
 import { isLive, startLive, stopLive } from "./LiveSocket";
 import { startVersionPoll, stopVersionPoll } from "./VersionCheck";
 
-export async function login(password: string) {
-  const token = await LoginApi(password);
+async function acceptToken(token: string) {
   state.token = token;
   localStorage.setItem(TOKEN_KEY, state.token);
   await refresh();
   startPoll();
+}
+
+export async function login(password: string) {
+  await acceptToken(await LoginApi(password));
+}
+
+export async function loginWithPasskey() {
+  await acceptToken(await LoginWithPasskeyApi());
 }
 
 export async function refresh() {

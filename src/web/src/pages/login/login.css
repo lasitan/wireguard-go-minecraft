@@ -13,3 +13,8 @@
   box-shadow: 0 10px 30px rgba(27, 36, 48, 0.06);
 }
 .login-card h2 { margin: 0 0 0.5rem; font-size: 1.1rem; }
+.login-card .passkey-btn {
+  width: 100%;
+  margin-top: 0.65rem;
+}
+

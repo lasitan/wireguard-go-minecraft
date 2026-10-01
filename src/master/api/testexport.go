@@ -14,6 +14,19 @@ func MasterPublicURL(r *http.Request) string {
 	return masterPublicURL(r)
 }
 
+func ClientIP(r *http.Request) string {
+	return clientIP(r)
+}
+
+func IsCloudflareIPString(ip string) bool {
+	addr, ok := parseIPString(ip)
+	return ok && isCloudflareIP(addr)
+}
+
+func IsBanableAuthIP(ip string) bool {
+	return isBanableAuthIP(ip)
+}
+
 type NodeStatsView = nodeStatsView
 type VersionView = versionView
 

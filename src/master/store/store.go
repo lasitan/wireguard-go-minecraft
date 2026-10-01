@@ -132,6 +132,9 @@ CREATE TABLE IF NOT EXISTS forwards (
 	if err := s.addMissingNodeColumns(); err != nil {
 		return err
 	}
+	if err := s.migrateAuth(); err != nil {
+		return err
+	}
 	return s.migrateTraffic()
 }
 

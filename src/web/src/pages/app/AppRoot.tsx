@@ -4,6 +4,8 @@ import { demoMesh, demoMeta } from "../../core/demoData";
 import { state, subscribe } from "../../core/state";
 import { refresh, startPoll } from "../../app/Session";
 import { hydrateNodePositions } from "../../topology/NodePositionStore";
+import { ToastHost } from "../../ui/ToastHost";
+import { showToast } from "../../ui/toastStore";
 import { LoginPage } from "../login/LoginPage";
 import { TopologyPage } from "../topology/TopologyPage";
 
@@ -26,7 +28,7 @@ export function AppRoot() {
         .catch((e) => {
           state.token = "";
           localStorage.removeItem(TOKEN_KEY);
-          state.err = e.message;
+          showToast(e.message || "会话失效", "error");
           bump();
         });
     }
@@ -38,7 +40,12 @@ export function AppRoot() {
       hydrateNodePositions(state.mesh);
     }
     if (!state.meta) state.meta = demoMeta();
-    return <TopologyPage />;
+    return (
+      <>
+        <ToastHost />
+        <TopologyPage />
+      </>
+    );
   }
 
   if (!state.token) return <LoginPage />;
@@ -46,10 +53,16 @@ export function AppRoot() {
   if (!state.mesh) {
     return (
       <main className="login-wrap">
+        <ToastHost />
         <p className="muted">加载中…</p>
       </main>
     );
   }
 
-  return <TopologyPage />;
+  return (
+    <>
+      <ToastHost />
+      <TopologyPage />
+    </>
+  );
 }

@@ -1,0 +1,75 @@
+.passkey-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem 0.8rem 0.65rem;
+  margin-bottom: 1rem;
+  background: #f8fafc;
+}
+.passkey-title { font-size: 1rem; letter-spacing: -0.01em; }
+.passkey-lead { margin: 0.25rem 0 0.65rem; line-height: 1.4; font-size: 0.82rem; }
+.passkey-list {
+  list-style: none;
+  margin: 0 0 0.65rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.passkey-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.5rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.passkey-list b { display: block; font-size: 0.88rem; }
+.passkey-list .tiny { font-size: 0.72rem; }
+.passkey-actions { display: flex; gap: 0.35rem; flex-shrink: 0; }
+.passkey-actions button { padding: 0.25rem 0.55rem; font-size: 0.78rem; }
+.danger-btn { color: var(--danger); }
+.passkey-add {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+.passkey-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+.passkey-stepup {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid #ffd2a1;
+  border-radius: 10px;
+  background: #fffaf4;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  animation: update-in 0.25s ease;
+}
+.passkey-stepup-title { font-weight: 650; font-size: 0.9rem; }
+.passkey-stepup label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+}
+.passkey-stepup input {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.passkey-step-modes { display: flex; gap: 0.4rem; }
+.passkey-step-modes button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.passkey-step-actions { display: flex; justify-content: flex-end; gap: 0.45rem; }

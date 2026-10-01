@@ -8,33 +8,67 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"golang.zx2c4.com/wireguard/src/master/store"
 )
+
+const sessionTTL = 24 * time.Hour
 
 type sessionStore struct {
 	mu       sync.Mutex
 	sessions map[string]time.Time
 	password string
 	ttl      time.Duration
+	store    *store.Store
 }
 
-func newSessionStore(password string) *sessionStore {
-	return &sessionStore{
+func newSessionStore(password string, st *store.Store) *sessionStore {
+	s := &sessionStore{
 		sessions: make(map[string]time.Time),
 		password: password,
-		ttl:      24 * time.Hour,
+		ttl:      sessionTTL,
+		store:    st,
 	}
+	if st != nil {
+		if list, err := st.ListAdminSessions(); err == nil {
+			for _, sess := range list {
+				s.sessions[sess.Token] = sess.ExpiresAt
+			}
+		}
+	}
+	return s
+}
+
+func (s *sessionStore) checkPassword(password string) bool {
+	return subtle.ConstantTimeCompare([]byte(password), []byte(s.password)) == 1
+}
+
+func (s *sessionStore) issue() (string, error) {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	tok := base64.RawURLEncoding.EncodeToString(b[:])
+	exp := time.Now().Add(s.ttl)
+	if s.store != nil {
+		if err := s.store.PutAdminSession(tok, exp); err != nil {
+			return "", err
+		}
+	}
+	s.mu.Lock()
+	s.sessions[tok] = exp
+	s.mu.Unlock()
+	return tok, nil
 }
 
 func (s *sessionStore) login(password string) (string, bool) {
-	if subtle.ConstantTimeCompare([]byte(password), []byte(s.password)) != 1 {
+	if !s.checkPassword(password) {
 		return "", false
 	}
-	var b [32]byte
-	_, _ = rand.Read(b[:])
-	tok := base64.RawURLEncoding.EncodeToString(b[:])
-	s.mu.Lock()
-	s.sessions[tok] = time.Now().Add(s.ttl)
-	s.mu.Unlock()
+	tok, err := s.issue()
+	if err != nil {
+		return "", false
+	}
 	return tok, true
 }
 
@@ -43,16 +77,35 @@ func (s *sessionStore) valid(tok string) bool {
 		return false
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	exp, ok := s.sessions[tok]
-	if !ok {
+	s.mu.Unlock()
+	if ok {
+		if time.Now().After(exp) {
+			s.revoke(tok)
+			return false
+		}
+		return true
+	}
+	if s.store == nil {
 		return false
 	}
-	if time.Now().After(exp) {
-		delete(s.sessions, tok)
+	exp, found, err := s.store.AdminSessionExpiry(tok)
+	if err != nil || !found {
 		return false
 	}
+	s.mu.Lock()
+	s.sessions[tok] = exp
+	s.mu.Unlock()
 	return true
+}
+
+func (s *sessionStore) revoke(tok string) {
+	s.mu.Lock()
+	delete(s.sessions, tok)
+	s.mu.Unlock()
+	if s.store != nil {
+		_ = s.store.DeleteAdminSession(tok)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

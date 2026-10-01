@@ -1,9 +1,7 @@
 package api
 
 import (
-	"net"
 	"net/http"
-	"net/netip"
 	"strings"
 	"time"
 
@@ -334,13 +332,5 @@ func (s *Server) handleAgentWhoami(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	ip := host
-	if a, err := netip.ParseAddr(host); err == nil {
-		ip = a.Unmap().String()
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"ip": ip})
+	writeJSON(w, http.StatusOK, map[string]string{"ip": clientIP(r)})
 }

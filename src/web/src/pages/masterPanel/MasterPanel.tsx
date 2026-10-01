@@ -7,6 +7,7 @@ import { SettingField } from "./SettingField";
 import { BootstrapInstallCard } from "./BootstrapInstallCard";
 import { TransportCard } from "./TransportCard";
 import { UpdateCard } from "./UpdateCard";
+import { PasskeyCard } from "./PasskeyCard";
 import "./masterPanel.css";
 
 export function MasterPanel() {
@@ -25,6 +26,7 @@ export function MasterPanel() {
         <UpdateCard />
         <BootstrapInstallCard />
         <TransportCard />
+        <PasskeyCard />
         <div className="detail">
           <span>Listen</span>
           <b>{state.meta?.listen || "—"}</b>

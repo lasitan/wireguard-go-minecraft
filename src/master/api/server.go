@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -34,6 +33,7 @@ type Server struct {
 	cfg      config.MasterConfig
 	store    *store.Store
 	sessions *sessionStore
+	waSessions *waCeremonyStore
 	stats    *stats.StatsService
 	hub      *hub.Hub
 	geo      *geoip.GeoIP
@@ -70,14 +70,15 @@ func NewServer(cfg config.MasterConfig) (*Server, error) {
 	agentHub.OnPublicIPs = geo.ResolveNode
 	relaySvc := &relay.Service{Store: st}
 	s := &Server{
-		cfg:      cfg,
-		store:    st,
-		sessions: newSessionStore(cfg.AdminPassword),
-		stats:    statsSvc,
-		hub:      agentHub,
-		geo:      geo,
-		updates:  update.NewChecker(6*time.Hour, cfg.DisableUpdateCheck),
-		relay:    relaySvc,
+		cfg:        cfg,
+		store:      st,
+		sessions:   newSessionStore(cfg.AdminPassword, st),
+		waSessions: newWACeremonyStore(),
+		stats:      statsSvc,
+		hub:        agentHub,
+		geo:        geo,
+		updates:    update.NewChecker(6*time.Hour, cfg.DisableUpdateCheck),
+		relay:      relaySvc,
 	}
 	s.ui = newUIHub(s)
 	s.paths = &pathsel.Selector{Store: st, Stats: statsSvc, Alive: agentHub.IsConnected, Push: func() {
@@ -94,6 +95,12 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/login", s.handleLogin)
+	mux.HandleFunc("/api/webauthn/login/begin", s.handleWebAuthnLoginBegin)
+	mux.HandleFunc("/api/webauthn/login/finish", s.handleWebAuthnLoginFinish)
+	mux.HandleFunc("/api/webauthn/register/begin", s.handleWebAuthnRegisterBegin)
+	mux.HandleFunc("/api/webauthn/register/finish", s.handleWebAuthnRegisterFinish)
+	mux.HandleFunc("/api/webauthn/credentials", s.handleWebAuthnCredentials)
+	mux.HandleFunc("/api/webauthn/assert/begin", s.handleWebAuthnAssertBegin)
 	mux.HandleFunc("/api/mesh", s.handleMesh)
 	mux.HandleFunc("/api/nodes", s.handleNodes)
 	mux.HandleFunc("/api/nodes/swap", s.handleNodesSwap)
@@ -219,6 +226,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	ip, ok := s.authGate(w, r)
+	if !ok {
+		return
+	}
 	var body struct {
 		Password string `json:"password"`
 	}
@@ -228,15 +239,16 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	tok, ok := s.sessions.login(body.Password)
 	if !ok {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid password"})
+		s.recordLoginFailure(w, ip, errInvalidPass)
 		return
 	}
+	s.clearLoginFailures(ip)
 	writeJSON(w, http.StatusOK, map[string]string{"token": tok})
 }
 
 func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	if !s.sessions.valid(bearerToken(r)) {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": errUnauthorized})
 		return false
 	}
 	return true
@@ -342,28 +354,6 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
 		"address":   created.Address,
 		"name":      created.Name,
 	})
-}
-
-// enrollSourceHost is the agent's public IP as seen by Master. X-Forwarded-For
-// is only trusted when the direct peer is a loopback/private reverse proxy.
-func enrollSourceHost(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return ""
-	}
-	ip, err := netip.ParseAddr(host)
-	if err != nil {
-		return ""
-	}
-	if ip.IsLoopback() || ip.IsPrivate() {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			first := strings.TrimSpace(strings.Split(xff, ",")[0])
-			if fip, err := netip.ParseAddr(first); err == nil {
-				return fip.Unmap().String()
-			}
-		}
-	}
-	return ip.Unmap().String()
 }
 
 // mustEnroll returns the current enroll token, or a value no agent can send on error.
