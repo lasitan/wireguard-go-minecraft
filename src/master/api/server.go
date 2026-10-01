@@ -30,17 +30,17 @@ import (
 
 // Server is the Master control-plane HTTP API + embedded UI.
 type Server struct {
-	cfg      config.MasterConfig
-	store    *store.Store
-	sessions *sessionStore
+	cfg        config.MasterConfig
+	store      *store.Store
+	sessions   *sessionStore
 	waSessions *waCeremonyStore
-	stats    *stats.StatsService
-	hub      *hub.Hub
-	geo      *geoip.GeoIP
-	updates  *update.Checker
-	paths    *pathsel.Selector
-	relay    *relay.Service
-	ui       *uiHub
+	stats      *stats.StatsService
+	hub        *hub.Hub
+	geo        *geoip.GeoIP
+	updates    *update.Checker
+	paths      *pathsel.Selector
+	relay      *relay.Service
+	ui         *uiHub
 
 	httpGeoAt sync.Map // nodeID -> time.Time of last legacy-agent IP observation
 }

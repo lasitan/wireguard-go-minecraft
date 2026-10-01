@@ -25,8 +25,8 @@ type adminUser struct {
 }
 
 func (u *adminUser) WebAuthnID() []byte                         { return adminUserID }
-func (u *adminUser) WebAuthnName() string                        { return "admin" }
-func (u *adminUser) WebAuthnDisplayName() string                 { return "Master 控制台" }
+func (u *adminUser) WebAuthnName() string                       { return "admin" }
+func (u *adminUser) WebAuthnDisplayName() string                { return "Master 控制台" }
 func (u *adminUser) WebAuthnCredentials() []webauthn.Credential { return u.creds }
 
 type waPending struct {
@@ -434,11 +434,11 @@ func (s *Server) handleWebAuthnAssertBegin(w http.ResponseWriter, r *http.Reques
 }
 
 type stepUpBody struct {
-	ID                   string          `json:"id"`
-	Name                 string          `json:"name"`
-	Password             string          `json:"password"`
-	WebAuthnSessionID    string          `json:"webauthnSessionId"`
-	WebAuthnCredential   json.RawMessage `json:"webauthnCredential"`
+	ID                 string          `json:"id"`
+	Name               string          `json:"name"`
+	Password           string          `json:"password"`
+	WebAuthnSessionID  string          `json:"webauthnSessionId"`
+	WebAuthnCredential json.RawMessage `json:"webauthnCredential"`
 }
 
 func (s *Server) verifyStepUp(r *http.Request, body stepUpBody, excludeID []byte) error {
