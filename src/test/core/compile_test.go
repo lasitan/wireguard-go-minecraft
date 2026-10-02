@@ -75,7 +75,7 @@ func TestCompileRoutes(t *testing.T) {
 		t.Fatalf("server allowed for C1: %v", got)
 	}
 	c1Peer := c1.Peers[0].AllowedIPs
-	if len(c1Peer) != 2 || c1Peer[0] != "10.10.0.0/24" || c1Peer[1] != "192.168.50.0/24" {
+	if !sameSet(c1Peer, "10.10.0.0/24", "192.168.50.0/24", "10.10.0.1/32") {
 		t.Fatalf("client outbound allowed: %v", c1Peer)
 	}
 }
@@ -148,7 +148,7 @@ func TestCompileDesiredClientAndServer(t *testing.T) {
 	if len(client.Peers) != 1 || client.Peers[0].Endpoint != "1.2.3.4:25590" {
 		t.Fatalf("client peers: %+v", client.Peers)
 	}
-	if len(client.Peers[0].AllowedIPs) != 1 || client.Peers[0].AllowedIPs[0] != "10.10.0.0/24" {
+	if !sameSet(client.Peers[0].AllowedIPs, "10.10.0.0/24", "10.10.0.1/32") {
 		t.Fatalf("client allowed: %v", client.Peers[0].AllowedIPs)
 	}
 	if len(client.Forwards) != 0 {

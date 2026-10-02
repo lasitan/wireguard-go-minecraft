@@ -83,14 +83,14 @@ func TestCrossSubnetConnectsEveryCandidateButRoutesViaChosen(t *testing.T) {
 	if len(c) != 3 {
 		t.Fatalf("child should dial A1 plus both 10.20 mothers: %+v", c)
 	}
-	if !sameSet(c["A1"].AllowedIPs, "10.10.0.0/24") || c["A1"].Endpoint != "1.1.1.1:25590" {
+	if !sameSet(c["A1"].AllowedIPs, "10.10.0.0/24", "10.10.0.1/32") || c["A1"].Endpoint != "1.1.1.1:25590" {
 		t.Fatalf("home mother: %+v", c["A1"])
 	}
-	if !sameSet(c["B2"].AllowedIPs, "10.20.0.0/24") || c["B2"].Endpoint != "2.2.2.2:25590" {
+	if !sameSet(c["B2"].AllowedIPs, "10.20.0.0/24", "10.20.0.2/32") || c["B2"].Endpoint != "2.2.2.2:25590" {
 		t.Fatalf("chosen gateway must carry the subnet: %+v", c["B2"])
 	}
-	if !sameSet(c["B1"].AllowedIPs) || c["B1"].Endpoint == "" {
-		t.Fatalf("other candidate stays connected without routes: %+v", c["B1"])
+	if !sameSet(c["B1"].AllowedIPs, "10.20.0.1/32") || c["B1"].Endpoint == "" {
+		t.Fatalf("other candidate stays connected with host /32: %+v", c["B1"])
 	}
 
 	b2 := peerMap(t, &m, pB2)
@@ -111,7 +111,7 @@ func TestCrossSubnetConnectsEveryCandidateButRoutesViaChosen(t *testing.T) {
 	if !sameSet(y["B2"].AllowedIPs, "10.20.0.2/32", "10.10.0.5/32") || y["B2"].Endpoint == "" {
 		t.Fatalf("a mother target is reached directly; C's gateway B2 also carries Y<->C both ways: %+v", y["B2"])
 	}
-	if !sameSet(y["A1"].AllowedIPs, "10.10.0.0/24") {
+	if !sameSet(y["A1"].AllowedIPs, "10.10.0.0/24", "10.10.0.1/32") {
 		t.Fatalf("Y's own gateway still carries the rest of 10.10: %+v", y["A1"])
 	}
 }
@@ -128,7 +128,7 @@ func TestSameSubnetGoesThroughTargetsMother(t *testing.T) {
 		Links: []Link{{FromNodeID: pC, ToNodeID: pA1}, {FromNodeID: pX, ToNodeID: pA2}},
 	}
 	c := peerMap(t, &m, pC)
-	if !sameSet(c["A1"].AllowedIPs, "10.10.0.0/24") {
+	if !sameSet(c["A1"].AllowedIPs, "10.10.0.0/24", "10.10.0.1/32") {
 		t.Fatalf("own mother carries the subnet: %+v", c["A1"])
 	}
 	if !sameSet(c["A2"].AllowedIPs, "10.10.0.2/32", "10.10.0.6/32") || c["A2"].Endpoint != "1.1.1.2:25590" {
@@ -159,12 +159,12 @@ func TestSameSubnetGoesThroughTargetsMother(t *testing.T) {
 func TestCrossSubnetDefaultsToFirstCandidate(t *testing.T) {
 	m := crossMesh()
 	c := peerMap(t, &m, pC)
-	if !sameSet(c["B1"].AllowedIPs, "10.20.0.0/24") || !sameSet(c["B2"].AllowedIPs) {
+	if !sameSet(c["B1"].AllowedIPs, "10.20.0.0/24", "10.20.0.1/32") || !sameSet(c["B2"].AllowedIPs, "10.20.0.2/32") {
 		t.Fatalf("default gateway: %+v", c)
 	}
 	m.Paths = PathChoices{pC: {"10.20.0.0/24": pA1}}
 	c = peerMap(t, &m, pC)
-	if !sameSet(c["B1"].AllowedIPs, "10.20.0.0/24") {
+	if !sameSet(c["B1"].AllowedIPs, "10.20.0.0/24", "10.20.0.1/32") {
 		t.Fatalf("invalid choice must fall back: %+v", c)
 	}
 }
@@ -182,14 +182,14 @@ func TestRelayFallbackOnlyWhenNoMother(t *testing.T) {
 	if !sameSet(c["R"].AllowedIPs, "10.20.0.0/24") || c["R"].Endpoint != "@master:25599" {
 		t.Fatalf("no 10.20 mother reachable: go via Master: %+v", c["R"])
 	}
-	if !sameSet(c["A1"].AllowedIPs, "10.10.0.0/24", "10.20.0.9/32") {
+	if !sameSet(c["A1"].AllowedIPs, "10.10.0.0/24", "10.20.0.9/32", "10.10.0.1/32") {
 		t.Fatalf("same subnet never uses the relay; Y answers via A1 so C talks to Y via A1 too: %+v", c["A1"])
 	}
 	y := peerMap(t, &m, pY)
 	if y["R"].Endpoint == "" || !sameSet(y["R"].AllowedIPs) {
 		t.Fatalf("nodes of a relay-served subnet join the relay: %+v", y["R"])
 	}
-	if !sameSet(y["A1"].AllowedIPs, "10.10.0.0/24") {
+	if !sameSet(y["A1"].AllowedIPs, "10.10.0.0/24", "10.10.0.1/32") {
 		t.Fatalf("Y still reaches 10.10 through its mother: %+v", y["A1"])
 	}
 	got := map[string][]string{}
@@ -209,12 +209,12 @@ func TestRelayChosenWhenMothersDown(t *testing.T) {
 	m.Relay = &Relay{PublicKey: "R", Port: 25599}
 	m.Paths = PathChoices{pC: {"10.20.0.0/24": RelayNodeID}}
 	c := peerMap(t, &m, pC)
-	if !sameSet(c["R"].AllowedIPs, "10.20.0.0/24") || !sameSet(c["B1"].AllowedIPs) {
+	if !sameSet(c["R"].AllowedIPs, "10.20.0.0/24") || !sameSet(c["B1"].AllowedIPs, "10.20.0.1/32") {
 		t.Fatalf("Master picked the relay: %+v", c)
 	}
 	m.Relay = nil
 	c = peerMap(t, &m, pC)
-	if _, ok := c["R"]; ok || !sameSet(c["B1"].AllowedIPs, "10.20.0.0/24") {
+	if _, ok := c["R"]; ok || !sameSet(c["B1"].AllowedIPs, "10.20.0.0/24", "10.20.0.1/32") {
 		t.Fatalf("relay disabled falls back to mothers: %+v", c)
 	}
 }
@@ -248,7 +248,7 @@ func TestMultiMotherChild(t *testing.T) {
 		Paths: PathChoices{pC: {"10.10.0.0/24": pA1}},
 	}
 	c := peerMap(t, &m, pC)
-	if !sameSet(c["A1"].AllowedIPs, "10.10.0.0/24") {
+	if !sameSet(c["A1"].AllowedIPs, "10.10.0.0/24", "10.10.0.1/32") {
 		t.Fatalf("fastest mother carries the subnet: %+v", c["A1"])
 	}
 	if !sameSet(c["A2"].AllowedIPs, "10.10.0.2/32", "10.10.0.6/32") {

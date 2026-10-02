@@ -49,11 +49,14 @@ func (p *planPeer) allow(pfx netip.Prefix) {
 //
 // Model:
 //   - A mother (ListenPort > 0) serves its VPN subnet; same-subnet mothers mesh
-//     with each other so their children can reach one another.
+//     with each other so their children can reach one another. Cluster mothers
+//     also mesh across subnets so every member stays reachable for failover.
 //   - To reach a VPN subnet listed in its Routes, a node picks one gateway mother
 //     in that subnet: among the mothers it is explicitly attached to, else among
 //     every exposed mother there. Every candidate stays connected (so its RTT is
 //     measured and failover is instant); only the chosen one carries the prefix.
+//     Non-chosen dialed mothers still carry their own host /32 so the tunnel
+//     stays warm and directly reachable while pathsel moves the subnet route.
 //   - Same-subnet access also needs a connection to the target's mother: a child
 //     connects to every dialable mother in its subnet, reaches a mother target
 //     directly and a child target through one of that child's own mothers.
@@ -263,10 +266,21 @@ func PlanMesh(mesh *Mesh) *Plan {
 		}
 	}
 
-	// Same-subnet mothers mesh: the lower id dials when the other is exposed.
+	// Mothers mesh when they share a VPN subnet, or when they share a cluster
+	// (members may sit on different prefixes after route sync).
 	meshEdge := func(a, b string) bool {
 		pa, pb := p.nodes[a], p.nodes[b]
-		return pa != nil && pb != nil && a != b && pa.mother && pb.mother && pa.subnet == pb.subnet && (pa.exposed || pb.exposed)
+		if pa == nil || pb == nil || a == b || !pa.mother || !pb.mother {
+			return false
+		}
+		if !pa.exposed && !pb.exposed {
+			return false
+		}
+		if pa.subnet == pb.subnet {
+			return true
+		}
+		ca, cb := pa.n.Cluster, pb.n.Cluster
+		return ca != "" && ca == cb
 	}
 
 	// Dial intents: from -> to.
@@ -276,6 +290,19 @@ func PlanMesh(mesh *Mesh) *Plan {
 		k := intent{from, to}
 		if cur, ok := intents[k]; !ok || (ka > 0 && (cur == 0 || ka < cur)) {
 			intents[k] = ka
+		}
+	}
+	meshDial := func(a, b string) {
+		if !meshEdge(a, b) {
+			return
+		}
+		if a > b {
+			a, b = b, a
+		}
+		if p.nodes[b].exposed {
+			addIntent(a, b, motherKeepalive)
+		} else {
+			addIntent(b, a, motherKeepalive)
 		}
 	}
 	for child, ms := range attached {
@@ -309,18 +336,16 @@ func PlanMesh(mesh *Mesh) *Plan {
 	for _, ms := range mothersIn {
 		for i := 0; i < len(ms); i++ {
 			for j := i + 1; j < len(ms); j++ {
-				if !meshEdge(ms[i], ms[j]) {
-					continue
-				}
-				a, b := ms[i], ms[j]
-				if a > b {
-					a, b = b, a
-				}
-				if p.nodes[b].exposed {
-					addIntent(a, b, motherKeepalive)
-				} else {
-					addIntent(b, a, motherKeepalive)
-				}
+				meshDial(ms[i], ms[j])
+			}
+		}
+	}
+	// Cluster mothers on different VPN prefixes still keep long-lived tunnels
+	// so pathsel / standby can fail over without a cold dial.
+	for _, ms := range clusterMothers {
+		for i := 0; i < len(ms); i++ {
+			for j := i + 1; j < len(ms); j++ {
+				meshDial(ms[i], ms[j])
 			}
 		}
 	}
@@ -602,6 +627,20 @@ func PlanMesh(mesh *Mesh) *Plan {
 		}
 		if tp != nil && !p.nodes[g.to].mother {
 			tp.allow(p.nodes[g.from].host)
+		}
+	}
+	// Every dialed listening mother keeps its host /32 on the peer so the
+	// tunnel stays warm and directly reachable while pathsel only moves the
+	// broader subnet AllowedIPs between candidates.
+	for _, id := range p.order {
+		for _, pid := range p.peerOrder[id] {
+			pn := p.nodes[pid]
+			if pn == nil || !pn.mother {
+				continue
+			}
+			if pp := p.peers[id][pid]; pp != nil {
+				pp.allow(pn.host)
+			}
 		}
 	}
 	return p

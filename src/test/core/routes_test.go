@@ -23,8 +23,8 @@ func TestOutboundRequiresLocalRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c1.Peers) != 1 || len(c1.Peers[0].AllowedIPs) != 0 {
-		t.Fatalf("client with no routes should not send prefixes: %v", c1.Peers[0].AllowedIPs)
+	if len(c1.Peers) != 1 || !sameSet(c1.Peers[0].AllowedIPs, "10.10.0.1/32") {
+		t.Fatalf("client with no routes still keeps a host /32 to its mother: %v", c1.Peers[0].AllowedIPs)
 	}
 }
 
@@ -35,7 +35,7 @@ func TestUnknownCIDRGoesViaHomeMother(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c1.Peers) != 1 || !sameSet(c1.Peers[0].AllowedIPs, "10.10.0.0/24", "10.20.0.0/24") {
+	if len(c1.Peers) != 1 || !sameSet(c1.Peers[0].AllowedIPs, "10.10.0.0/24", "10.20.0.0/24", "10.10.0.1/32") {
 		t.Fatalf("non-VPN CIDR is a LAN route via the home mother: %+v", c1.Peers)
 	}
 }
@@ -45,7 +45,7 @@ func TestVPNSubnetWithoutExposedMotherIsDropped(t *testing.T) {
 	m.Nodes[1].Endpoint = ""
 	m.Nodes[2].Endpoint = ""
 	c := peerMap(t, &m, pC)
-	if len(c) != 1 || !sameSet(c["A1"].AllowedIPs, "10.10.0.0/24", "10.20.0.9/32") {
+	if len(c) != 1 || !sameSet(c["A1"].AllowedIPs, "10.10.0.0/24", "10.20.0.9/32", "10.10.0.1/32") {
 		t.Fatalf("no subnet route to 10.20, only Y (who reaches us via A1) back through A1: %+v", c)
 	}
 }
