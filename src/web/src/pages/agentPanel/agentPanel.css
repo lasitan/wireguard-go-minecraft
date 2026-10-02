@@ -376,6 +376,7 @@ button.mini.ghost { background: #fff; color: var(--text); border: 1px solid var(
 }
 .rule-badge.tcp { background: #e8f1ff; color: #2459c7; }
 .rule-badge.udp { background: #f3e9ff; color: #7a3ec2; }
+.rule-badge.both { background: #e7f8ef; color: #0e8a52; }
 .rule-del {
   background: transparent;
   color: var(--muted);
@@ -389,7 +390,7 @@ button.mini.ghost { background: #fff; color: var(--text); border: 1px solid var(
 .rule-del:hover { background: #fdecef; color: var(--danger); }
 .fwd-form {
   display: grid;
-  grid-template-columns: 64px 1fr auto 1.4fr 64px auto;
+  grid-template-columns: 88px 1fr auto 1.4fr 64px auto;
   gap: 0.35rem;
   align-items: center;
 }

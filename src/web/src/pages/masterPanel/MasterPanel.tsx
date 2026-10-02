@@ -41,7 +41,6 @@ export function MasterPanel() {
         </div>
         <SettingField
           label="入网密钥"
-          hint="填入 Agent 配置的 key 字段即可入网。修改后旧密钥立即失效，已入网节点不受影响。"
           value={state.meta?.enrollToken || ""}
           validate={validateEnrollToken}
           onSave={(v) => patchMeta({ enrollToken: v })}
@@ -51,7 +50,6 @@ export function MasterPanel() {
         />
         <SettingField
           label="新节点地址池"
-          hint="Agent 入网时从此网段自动分配 VPN 地址；修改只影响之后入网的节点。"
           value={state.meta?.vpnSubnet || ""}
           validate={validatePool}
           onSave={(v) => patchMeta({ vpnSubnet: v })}
@@ -59,7 +57,6 @@ export function MasterPanel() {
         />
         <SettingField
           label="跨网段兜底中转端口"
-          hint="某网段找不到可用的暴露母卡时，节点临时经此端口中转；填 0 关闭。"
           value={String(state.meta?.relayPort ?? 0)}
           validate={validateRelayPort}
           onSave={(v) => patchMeta({ relayPort: Number(v) })}

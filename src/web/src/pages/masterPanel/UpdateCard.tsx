@@ -52,10 +52,8 @@ export function UpdateCard() {
           ) : null}
           <div className="upgrade-row">
             <UpgradeButton label="一键升级 Master" req={{ master: true }} keys={[MASTER_KEY]} />
-            <span className="tiny muted">下载新版并重启 Master 服务，页面会自动刷新</span>
           </div>
           <UpgradeStatusText status={state.upgrades[MASTER_KEY]} />
-          <p className="tiny muted upgrade-manual">也可在服务器上手动执行：</p>
           <UpdateCommandBox commands={v.commands} />
         </div>
       </div>
@@ -124,7 +122,6 @@ function OutdatedAgents({ v }: { v: VersionInfo }) {
             </li>
           ))}
         </ul>
-        <p className="tiny muted">「升级」由 Master 远程下发；不支持远程升级的旧版 Agent，请在该机器上执行上方「已安装」命令。</p>
       </div>
     </div>
   );

@@ -36,7 +36,6 @@ export function TransportCard() {
   const [msg, setMsg] = useState("");
 
   const err = validateCamo(camo);
-  const profileHint = CAMO_PROFILES.find((p) => p.id === camo.profile)?.hint ?? "";
 
   async function save(next: TransportCamouflage) {
     setBusy(true);
@@ -47,7 +46,7 @@ export function TransportCard() {
       const saved = parseTransport(state.meta?.transport).camouflage;
       setSynced(saved);
       setCamo(saved);
-      setMsg("已保存；Agent 下次拉取配置后生效");
+      setMsg("已保存");
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -58,9 +57,6 @@ export function TransportCard() {
   return (
     <section className="transport-card">
       <h3 className="transport-title">TCP 传输伪装</h3>
-      <p className="transport-hint">
-        在 WireGuard 帧外先做公开游戏协议握手，深度模式下用共享密钥完成第二段认证。所有 Agent 必须使用相同配置。
-      </p>
       <label className="transport-field">
         <span>伪装协议</span>
         <select
@@ -75,7 +71,6 @@ export function TransportCard() {
           ))}
         </select>
       </label>
-      {profileHint ? <p className="transport-subhint">{profileHint}</p> : null}
       {camo.profile !== "none" ? (
         <>
           <label className="transport-check">
@@ -85,7 +80,7 @@ export function TransportCard() {
               disabled={busy}
               onChange={(e) => setCamo({ ...camo, deep: e.target.checked })}
             />
-            深度伪装（完整握手 + 密钥认证后再传 VPN 数据）
+            深度伪装
           </label>
           <label className="transport-check">
             <input
@@ -94,7 +89,7 @@ export function TransportCard() {
               disabled={busy}
               onChange={(e) => setCamo({ ...camo, secure: e.target.checked })}
             />
-            防中间人加密（双向密钥认证 + 全流加密；开启后旧版 Agent 无法入网，需全体升级）
+            防中间人加密
           </label>
           <label className="transport-field">
             <span>共享密钥</span>

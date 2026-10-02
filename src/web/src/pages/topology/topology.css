@@ -105,21 +105,46 @@
 .mesh-edge.status-grey { stroke: var(--edge-grey); opacity: 0.6; }
 
 /*
- * Green edges: dash pattern slowly rolls toward Master (x2 is nearer hub).
- * Offset travel must be a whole multiple of the dash period, or the loop jumps.
+ * Card float disabled for paint cost; selection still uses static elevation.
+ */
+.node-wrap.is-jitter .node-card {
+  animation: none;
+}
+
+/*
+ * Edge flow only when not reduced-motion; paused while stage is moving.
  */
 .mesh-edge.kind-solid.status-green.is-flowing {
   stroke-dasharray: 6 10;
-  animation: edge-flow-solid 2.8s linear infinite;
 }
 .mesh-edge.kind-dashed.status-green.is-flowing {
   stroke-dasharray: 5 7;
-  animation: edge-flow-dashed 3.6s linear infinite;
 }
 .mesh-edge.kind-gateway.status-green.is-flowing {
   stroke-dasharray: 0.1 6;
-  animation: edge-flow-gateway 2.4s linear infinite;
 }
+@media (prefers-reduced-motion: no-preference) {
+  .mesh-edge.kind-solid.status-green.is-flowing {
+    animation: edge-flow-solid 2.8s linear infinite;
+  }
+  .mesh-edge.kind-dashed.status-green.is-flowing {
+    animation: edge-flow-dashed 3.6s linear infinite;
+  }
+  .mesh-edge.kind-gateway.status-green.is-flowing {
+    animation: edge-flow-gateway 2.4s linear infinite;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mesh-edge.is-flowing,
+  .magnet-hot .node-card,
+  .magnet-ghost rect,
+  .magnet-ghost path,
+  .update-pill .badge-dot,
+  .link-pulse {
+    animation: none !important;
+  }
+}
+
 @keyframes edge-flow-gateway {
   from { stroke-dashoffset: 30.5; }
   to { stroke-dashoffset: 0; }
@@ -165,26 +190,6 @@
 }
 .hub.is-selected .hub-ring {
   filter: drop-shadow(0 0 12px rgba(243, 128, 32, 0.45));
-}
-
-/*
- * Jitter lives on the HTML card inside foreignObject so it never fights
- * the SVG transform="translate(x,y)" used for layout.
- */
-.node-wrap.is-jitter .node-card {
-  animation: card-float 5.5s ease-in-out infinite;
-  animation-delay: var(--jitter-delay, 0s);
-}
-.node-wrap[data-jitter="1"] .node-card { animation-duration: 5.2s; }
-.node-wrap[data-jitter="2"] .node-card { animation-duration: 5.8s; }
-.node-wrap[data-jitter="3"] .node-card { animation-duration: 6.1s; }
-.node-wrap[data-jitter="4"] .node-card { animation-duration: 5.4s; }
-.node-wrap[data-jitter="5"] .node-card { animation-duration: 6.4s; }
-@keyframes card-float {
-  0%, 100% { transform: translate(0, 0); }
-  25% { transform: translate(1.1px, -1.2px); }
-  50% { transform: translate(-1.2px, 0.6px); }
-  75% { transform: translate(0.6px, 1px); }
 }
 
 .node-card {

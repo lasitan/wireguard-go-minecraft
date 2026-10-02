@@ -21,8 +21,38 @@ function validListen(s: string): string {
   return "";
 }
 
+function protoBadge(p: string): string {
+  if (p === "tcp/udp") return "TCP/UDP";
+  return p.toUpperCase();
+}
+
+function coversListen(existing: Forward, proto: string, listen: string): boolean {
+  if (existing.listen !== listen) return false;
+  if (existing.protocol === proto) return true;
+  if (existing.protocol === "tcp/udp" && (proto === "tcp" || proto === "udp" || proto === "tcp/udp")) return true;
+  if (proto === "tcp/udp" && (existing.protocol === "tcp" || existing.protocol === "udp")) return true;
+  return false;
+}
+
 function liveFor(f: Forward, live: LiveForward[] | undefined): LiveForward | undefined {
+  if (f.protocol === "tcp/udp") {
+    return live?.find((l) => (l.protocol === "tcp" || l.protocol === "udp") && l.listen === f.listen);
+  }
   return live?.find((l) => l.protocol === f.protocol && l.listen === f.listen);
+}
+
+function liveBytes(f: Forward, live: LiveForward[] | undefined): { rx: number; tx: number } | null {
+  if (!live) return null;
+  if (f.protocol !== "tcp/udp") {
+    const one = liveFor(f, live);
+    return one ? { rx: one.rx, tx: one.tx } : null;
+  }
+  const parts = live.filter((l) => (l.protocol === "tcp" || l.protocol === "udp") && l.listen === f.listen);
+  if (!parts.length) return null;
+  return {
+    rx: parts.reduce((s, p) => s + p.rx, 0),
+    tx: parts.reduce((s, p) => s + p.tx, 0),
+  };
 }
 
 export function ForwardsTab({
@@ -49,8 +79,9 @@ export function ForwardsTab({
   const [busy, setBusy] = useState(false);
 
   const listenErr = listen ? validListen(listen) : "";
+  const listenTrim = listen.trim();
   const dupErr =
-    !busy && listen && forwards.some((f) => f.protocol === proto && f.listen === listen.trim()) ? "该协议下监听端口已被占用" : "";
+    !busy && listenTrim && forwards.some((f) => coversListen(f, proto, listenTrim)) ? "监听端口已被占用" : "";
   const portNum = Number(destPort);
   const portErr = destPort && (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) ? "目标端口范围 1-65535" : "";
   const err = listenErr || dupErr || portErr || (dest ? "" : "请选择目标节点");
@@ -71,8 +102,32 @@ export function ForwardsTab({
 
   const add = async () => {
     if (!ready) return;
-    const f: Forward = { nodeId: node.id, protocol: proto, listen: listen.trim(), destNodeId: dest, destPort: portNum };
-    if (await commit([...forwards, f])) {
+    let next = [...forwards];
+    // Promote a matching single-protocol sibling to tcp/udp when adding the other half or dual.
+    if (proto === "tcp/udp") {
+      next = next.filter(
+        (f) => !(f.listen === listenTrim && f.destNodeId === dest && f.destPort === portNum && (f.protocol === "tcp" || f.protocol === "udp")),
+      );
+    } else {
+      const sibling = next.find(
+        (f) =>
+          f.listen === listenTrim &&
+          f.destNodeId === dest &&
+          f.destPort === portNum &&
+          ((proto === "tcp" && f.protocol === "udp") || (proto === "udp" && f.protocol === "tcp")),
+      );
+      if (sibling) {
+        next = next.filter((f) => f !== sibling);
+        next.push({ nodeId: node.id, protocol: "tcp/udp", listen: listenTrim, destNodeId: dest, destPort: portNum });
+        if (await commit(next)) {
+          setListen("");
+          setDestPort("");
+        }
+        return;
+      }
+    }
+    const f: Forward = { nodeId: node.id, protocol: proto, listen: listenTrim, destNodeId: dest, destPort: portNum };
+    if (await commit([...next, f])) {
       setListen("");
       setDestPort("");
     }
@@ -80,13 +135,11 @@ export function ForwardsTab({
 
   return (
     <>
-      <p className="tab-intro muted">
-        在本节点监听端口，把连接转发到 VPN 内的目标节点。目标节点停用或 IP 冲突时，Master 会暂停下发对应规则。
-      </p>
       <div className="fwd-form">
         <select value={proto} onChange={(e) => setProto(e.target.value)} aria-label="协议">
           <option value="tcp">TCP</option>
           <option value="udp">UDP</option>
+          <option value="tcp/udp">TCP/UDP</option>
         </select>
         <input placeholder="监听端口" value={listen} onChange={(e) => setListen(e.target.value)} aria-invalid={!!listenErr || !!dupErr} />
         <span className="fwd-arrow">→</span>
@@ -105,23 +158,23 @@ export function ForwardsTab({
       <div className={`field-err${(listen || destPort) && err ? " show" : ""}`}>{(listen || destPort) && err ? err : " "}</div>
 
       {forwards.length === 0 ? (
-        <div className="muted empty-note">尚未配置端口转发。</div>
+        <div className="muted empty-note">暂无</div>
       ) : (
         <ul className="rule-list">
           {forwards.map((f) => {
-            const live = liveFor(f, stats?.forwards);
+            const bytes = liveBytes(f, stats?.forwards);
             const target = mesh?.nodes.find((n) => n.id === f.destNodeId);
             const paused = !!target?.disabled;
             return (
-              <li key={`${f.protocol} ${f.listen}`} className={`rule-item${paused ? " paused" : ""}`}>
-                <span className={`rule-badge ${f.protocol}`}>{f.protocol.toUpperCase()}</span>
+              <li key={`${f.protocol} ${f.listen} ${f.destNodeId} ${f.destPort}`} className={`rule-item${paused ? " paused" : ""}`}>
+                <span className={`rule-badge ${f.protocol === "tcp/udp" ? "both" : f.protocol}`}>{protoBadge(f.protocol)}</span>
                 <div className="rule-main">
                   <div>
                     <code>:{f.listen}</code> → {nodeName(f.destNodeId)}
                     <code>:{f.destPort}</code>
                   </div>
                   <div className="tiny muted">
-                    {paused ? "目标已停用 · 规则暂停" : live ? `↓ ${formatBytes(live.rx)} · ↑ ${formatBytes(live.tx)}` : "暂无流量"}
+                    {paused ? "已暂停" : bytes ? `↓ ${formatBytes(bytes.rx)} · ↑ ${formatBytes(bytes.tx)}` : "—"}
                   </div>
                 </div>
                 <button

@@ -46,7 +46,6 @@ export function PasskeyCard() {
     return (
       <div className="passkey-card">
         <div className="passkey-title">通行密钥</div>
-        <p className="muted passkey-lead">预览模式下不可管理通行密钥。</p>
       </div>
     );
   }
@@ -111,13 +110,10 @@ export function PasskeyCard() {
   return (
     <div className="passkey-card">
       <div className="passkey-head">
-        <div>
-          <div className="passkey-title">通行密钥</div>
-          <p className="muted passkey-lead">可添加多枚；改名或删除需用密码或其他通行密钥验证。</p>
-        </div>
+        <div className="passkey-title">通行密钥</div>
       </div>
       {loading ? <p className="muted">加载中…</p> : null}
-      {!loading && list.length === 0 ? <p className="muted">尚未添加通行密钥</p> : null}
+      {!loading && list.length === 0 ? <p className="muted">暂无</p> : null}
       <ul className="passkey-list">
         {list.map((item) => (
           <li key={item.id}>
@@ -159,9 +155,7 @@ export function PasskeyCard() {
               新名称
               <input type="text" value={renameTo} disabled={busy} onChange={(e) => setRenameTo(e.target.value)} />
             </label>
-          ) : (
-            <p className="muted">删除后不可恢复。请用密码或其他通行密钥确认。</p>
-          )}
+          ) : null}
           <div className="passkey-step-modes">
             <button type="button" className={stepMode === "password" ? "active" : "secondary"} disabled={busy} onClick={() => setStepMode("password")}>
               密码验证
@@ -171,7 +165,6 @@ export function PasskeyCard() {
               className={stepMode === "passkey" ? "active" : "secondary"}
               disabled={busy || !passkeySupported() || (stepUp.kind === "delete" && list.length < 2)}
               onClick={() => setStepMode("passkey")}
-              title={stepUp.kind === "delete" && list.length < 2 ? "仅一枚密钥时请使用密码" : undefined}
             >
               通行密钥验证
             </button>
@@ -181,9 +174,7 @@ export function PasskeyCard() {
               管理员密码
               <input type="password" value={password} disabled={busy} autoFocus onChange={(e) => setPassword(e.target.value)} />
             </label>
-          ) : (
-            <p className="muted">点击确认后将弹出通行密钥验证。</p>
-          )}
+          ) : null}
           <div className="passkey-step-actions">
             <button type="button" className="secondary" disabled={busy} onClick={() => setStepUp(null)}>
               取消

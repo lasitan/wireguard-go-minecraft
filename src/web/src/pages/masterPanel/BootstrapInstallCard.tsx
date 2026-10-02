@@ -6,9 +6,9 @@ import { GetAgentInstallCommands } from "../../api/GetAgentInstallCommands";
 import { UpdateCommandBox } from "./UpdateCommandBox";
 
 const INSTALL_TABS = [
-  { key: "linux" as const, label: "Linux", hint: "需要 curl 与 sudo；有 dpkg 时装 .deb，否则装二进制" },
-  { key: "linuxCn" as const, label: "国内镜像", hint: "经 ghfast.top 下载，适合无法直连 GitHub 的机器" },
-  { key: "windows" as const, label: "Windows", hint: "以管理员身份打开 PowerShell，粘贴整行执行" },
+  { key: "linux" as const, label: "Linux" },
+  { key: "linuxCn" as const, label: "国内镜像" },
+  { key: "windows" as const, label: "Windows" },
 ];
 
 export function BootstrapInstallCard() {
@@ -55,22 +55,18 @@ export function BootstrapInstallCard() {
           <b className="bootstrap-title">一键安装 Agent</b>
         </div>
       </div>
-      <p className="tiny muted bootstrap-lead">
-        在<strong>尚未安装</strong> lasitan-cluster 的 Linux / Windows 上以管理员执行下方整行命令：自动下载、写入配置、注册开机自启并连接本 Master（
-        {cmds?.masterUrl || "…"}）。
-      </p>
 
       <label className="bootstrap-check">
         <input type="checkbox" checked={asServer} onChange={(e) => setAsServer(e.target.checked)} />
-        <span>作为磁吸母卡 / 服务端（监听 TCP 25590，其他节点可连本机）</span>
+        <span>磁吸母卡</span>
       </label>
 
       <div className={`bootstrap-endpoint${asServer ? " show" : ""}`}>
         <label className="bootstrap-ep-label">
-          <span className="tiny muted">公网 dial 地址（可选，留空则入网时用本机公网 IP）</span>
+          <span className="tiny muted">公网 dial 地址</span>
           <input
             type="text"
-            placeholder="例如 203.0.113.10:25590"
+            placeholder="host:port"
             value={endpoint}
             disabled={!asServer}
             onChange={(e) => setEndpoint(e.target.value)}

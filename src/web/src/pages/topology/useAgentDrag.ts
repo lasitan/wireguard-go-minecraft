@@ -179,6 +179,22 @@ export function useAgentDrag() {
     const mesh = state.mesh;
     const self = mesh?.nodes.find((n) => n.id === d.id);
 
+    // Leave cluster first when dragged away from siblings (before magnet branches),
+    // but skip when landing on a new clusterTarget — join replaces membership.
+    let leavingCluster = false;
+    if (mesh && self?.cluster && !clusterTarget) {
+      const me = state.nodePositions[d.id];
+      const members = clusterMembers(mesh, d.id);
+      const nearSibling = members.some((id) => {
+        const p = id !== d.id ? state.nodePositions[id] : undefined;
+        return !!p && !!me && Math.hypot(p.x - me.x, p.y - me.y) < CLUSTER_PITCH * 1.8;
+      });
+      if (!nearSibling || members.length < 2) {
+        leavingCluster = true;
+        setNodeCluster(d.id, "").catch(fail);
+      }
+    }
+
     if (mesh && clusterTarget) {
       const anchor = state.nodePositions[clusterTarget.id];
       if (anchor) {
@@ -187,9 +203,7 @@ export function useAgentDrag() {
       }
       notify();
       if (!clusterMembers(mesh, clusterTarget.id).includes(d.id)) {
-        const target = mesh.nodes.find((n) => n.id === clusterTarget.id);
-        const warn = `加入集群后，本卡的磁吸、路由与端口转发配置将改为与「${target?.name || clusterTarget.id}」一致。继续？`;
-        if (window.confirm(warn)) setNodeCluster(d.id, clusterTarget.id).catch(fail);
+        setNodeCluster(d.id, clusterTarget.id).catch(fail);
       }
       return;
     }
@@ -215,17 +229,9 @@ export function useAgentDrag() {
       return;
     }
 
-    if (mesh && self?.cluster && !magnetTarget) {
-      const me = state.nodePositions[d.id];
-      const nearSibling = clusterMembers(mesh, d.id).some((id) => {
-        const p = id !== d.id ? state.nodePositions[id] : undefined;
-        return !!p && !!me && Math.hypot(p.x - me.x, p.y - me.y) < CLUSTER_PITCH * 1.8;
-      });
-      if (!nearSibling) {
-        notify();
-        setNodeCluster(d.id, "").catch(fail);
-        return;
-      }
+    if (leavingCluster) {
+      notify();
+      return;
     }
 
     notify();

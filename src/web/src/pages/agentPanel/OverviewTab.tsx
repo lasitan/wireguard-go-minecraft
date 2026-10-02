@@ -6,15 +6,16 @@ import { removeNode } from "../../app/Session";
 import { countryFlag } from "../../utils/countryFlag";
 import { formatDateTime, formatRelativeTime } from "../../utils/formatRelativeTime";
 import { formatRate } from "../../utils/formatRate";
-import { hostOf } from "../../utils/hostOf";
 import { isNewerVersion } from "../../utils/compareVersion";
 import { isOnline } from "../../utils/isOnline";
 import { validateNodeAddress } from "../../utils/validateCidr";
+import { dialEndpoint } from "../../utils/dialEndpoint";
+import { validateEndpoint, validateListenPort } from "../../utils/validateMagnet";
 import { isUpgrading } from "../../app/UpgradeActions";
 import { UpgradeButton } from "../upgrade/UpgradeButton";
 import { UpgradeStatusText } from "../upgrade/UpgradeStatusText";
 import { AnimatedNumber } from "./AnimatedNumber";
-import { MagnetSection } from "./MagnetSection";
+import { InlineField } from "./InlineField";
 import { Toggle } from "./Toggle";
 
 export function OverviewTab({
@@ -65,11 +66,27 @@ export function OverviewTab({
             disabled={busy}
             onChange={(next) => void run(() => patchNode(node.id, { enabled: next }))}
           />
-          <span className="muted">{node.disabled ? "隧道已关闭，控制连接保留" : "隧道运行中"}</span>
         </div>
       </div>
       <AddressEditor node={node} busy={busy} run={run} />
-      <MagnetSection node={node} stats={stats} onError={onError} />
+      <InlineField
+        label="监听端口"
+        value={node.listenPort ? String(node.listenPort) : ""}
+        display={node.listenPort ? <b>{node.listenPort}</b> : <b className="muted">未设置</b>}
+        placeholder="端口"
+        busy={busy}
+        validate={validateListenPort}
+        onSave={(draft) => run(() => patchNode(node.id, { listenPort: draft ? Number(draft) : 0 }))}
+      />
+      <InlineField
+        label="连接地址"
+        value={node.endpoint || ""}
+        display={<b className={dialEndpoint(node) ? "" : "muted"}>{dialEndpoint(node) || "—"}</b>}
+        placeholder="host 或 host:端口"
+        busy={busy}
+        validate={validateEndpoint}
+        onSave={(draft) => run(() => patchNode(node.id, { endpoint: draft }))}
+      />
 
       <div className="speed-grid">
         <div className="speed-card up">
@@ -116,15 +133,11 @@ export function OverviewTab({
       <div className="ov-row">
         <span className="ov-label">控制链路</span>
         <div>
-          <b>{stats?.link === "ws" ? "WebSocket 二进制" : stats?.link === "http" ? "HTTP 轮询（旧版）" : "未连接"}</b>
+          <b>{stats?.link === "ws" ? "WebSocket 二进制" : stats?.link === "http" ? "HTTP 轮询" : "未连接"}</b>
           {stats?.connectedAt ? <div className="tiny muted">连接于 {formatDateTime(stats.connectedAt)}</div> : null}
         </div>
       </div>
       <AgentVersionRow nodeId={node.id} stats={stats} />
-      <div className="ov-row">
-        <span className="ov-label">Endpoint</span>
-        <b>{node.endpoint || "—"}</b>
-      </div>
       <div className="ov-row">
         <span className="ov-label">UUID</span>
         <code className="tiny">{node.id}</code>
@@ -133,11 +146,7 @@ export function OverviewTab({
         <span className="ov-label">Token</span>
         <code className="tiny">{node.token || ""}</code>
       </div>
-      {conflict && !node.disabled ? (
-        <p className="warn-note">
-          与另一节点共用 {hostOf(node.address)}，且本节点改地址较晚：Master 不会把它下发给其他节点，已在运行的一方不受影响。
-        </p>
-      ) : null}
+      {conflict && !node.disabled ? <p className="warn-note">IP 冲突</p> : null}
       <button
         type="button"
         className="danger"

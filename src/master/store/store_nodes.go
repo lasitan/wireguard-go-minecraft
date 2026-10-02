@@ -195,6 +195,78 @@ func validListen(listen string) bool {
 	return err == nil && n > 0 && n <= 65535
 }
 
+func normalizeForwardProtocol(p string) string {
+	switch strings.ToLower(strings.TrimSpace(p)) {
+	case "tcp":
+		return "tcp"
+	case "udp":
+		return "udp"
+	case "tcp/udp", "udp/tcp", "tcp,udp", "udp,tcp", "both":
+		return "tcp/udp"
+	default:
+		return ""
+	}
+}
+
+func expandForwardProtocols(p string) []string {
+	if p == "tcp/udp" {
+		return []string{"tcp", "udp"}
+	}
+	return []string{p}
+}
+
+// mergeForwardPairs collapses matching tcp+udp rules on the same listen/dest into tcp/udp.
+func mergeForwardPairs(fwds []core.Forward) []core.Forward {
+	type key struct {
+		listen, dest string
+		port         uint16
+	}
+	type pair struct {
+		tcp, udp *core.Forward
+		others   []core.Forward
+	}
+	by := map[key]*pair{}
+	order := []key{}
+	for i := range fwds {
+		f := fwds[i]
+		k := key{listen: f.Listen, dest: f.DestNodeID, port: f.DestPort}
+		p, ok := by[k]
+		if !ok {
+			p = &pair{}
+			by[k] = p
+			order = append(order, k)
+		}
+		switch f.Protocol {
+		case "tcp":
+			cp := f
+			p.tcp = &cp
+		case "udp":
+			cp := f
+			p.udp = &cp
+		default:
+			p.others = append(p.others, f)
+		}
+	}
+	out := make([]core.Forward, 0, len(fwds))
+	for _, k := range order {
+		p := by[k]
+		out = append(out, p.others...)
+		if p.tcp != nil && p.udp != nil {
+			m := *p.tcp
+			m.Protocol = "tcp/udp"
+			out = append(out, m)
+			continue
+		}
+		if p.tcp != nil {
+			out = append(out, *p.tcp)
+		}
+		if p.udp != nil {
+			out = append(out, *p.udp)
+		}
+	}
+	return out
+}
+
 // PutNodeForwards replaces the forwards listening on node id.
 func (s *Store) PutNodeForwards(id string, fwds []core.Forward) ([]core.Forward, error) {
 	if len(fwds) > maxNodeFwds {
@@ -213,10 +285,10 @@ func (s *Store) PutNodeForwards(id string, fwds []core.Forward) ([]core.Forward,
 	clean := make([]core.Forward, 0, len(fwds))
 	for i, f := range fwds {
 		f.NodeID = id
-		f.Protocol = strings.ToLower(strings.TrimSpace(f.Protocol))
+		f.Protocol = normalizeForwardProtocol(f.Protocol)
 		f.Listen = strings.TrimSpace(f.Listen)
-		if f.Protocol != "tcp" && f.Protocol != "udp" {
-			return nil, fmt.Errorf("forward %d: protocol must be tcp or udp", i+1)
+		if f.Protocol == "" {
+			return nil, fmt.Errorf("forward %d: protocol must be tcp, udp, or tcp/udp", i+1)
 		}
 		if !validListen(f.Listen) {
 			return nil, fmt.Errorf("forward %d: listen must be port or ip:port", i+1)
@@ -227,13 +299,16 @@ func (s *Store) PutNodeForwards(id string, fwds []core.Forward) ([]core.Forward,
 		if m.FindNode(f.DestNodeID) == nil {
 			return nil, fmt.Errorf("forward %d: unknown destination node", i+1)
 		}
-		key := f.Protocol + " " + f.Listen
-		if _, dup := seen[key]; dup {
-			return nil, fmt.Errorf("forward %d: duplicate %s listen %s", i+1, f.Protocol, f.Listen)
+		for _, p := range expandForwardProtocols(f.Protocol) {
+			key := p + " " + f.Listen
+			if _, dup := seen[key]; dup {
+				return nil, fmt.Errorf("forward %d: duplicate %s listen %s", i+1, p, f.Listen)
+			}
+			seen[key] = struct{}{}
 		}
-		seen[key] = struct{}{}
 		clean = append(clean, f)
 	}
+	clean = mergeForwardPairs(clean)
 	var rest []core.Forward
 	for _, f := range m.Forwards {
 		if f.NodeID != id {

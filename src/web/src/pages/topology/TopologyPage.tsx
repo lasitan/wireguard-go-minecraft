@@ -2,6 +2,7 @@ import { useRef, type ReactElement } from "react";
 import { VIEW } from "../../core/constants";
 import { state } from "../../core/state";
 import { camToAttr } from "../../camera/CameraMath";
+import { isCameraAnimating } from "../../camera/CameraController";
 import { BuildEdgeGraph } from "../../topology/BuildEdgeGraph";
 import { isTweening } from "../../topology/PositionTween";
 import { ResolveIpConflicts } from "../../topology/ResolveIpConflicts";
@@ -23,8 +24,6 @@ import "./magnet.css";
 export function TopologyPage() {
   const svgRef = useRef<SVGSVGElement>(null);
   useCameraGestures(svgRef);
-  // Reusing the same element makes React skip these subtrees while a card is
-  // dragged (the drawer panel is heavy and nothing in it changes mid-drag).
   const chrome = useRef<ReactElement | null>(null);
   if (!state.draggingId || !chrome.current) {
     chrome.current = (
@@ -42,7 +41,6 @@ export function TopologyPage() {
 
   const conflicts = ResolveIpConflicts(m);
   const edges = BuildEdgeGraph(m, placed, conflicts, state.stacks, {
-    // Drag / magnet glide: skip routing; unchanged edges keep their traces.
     fast: !!state.draggingId || isTweening(),
   });
   const vb = camToAttr(state.camera);
@@ -51,7 +49,7 @@ export function TopologyPage() {
     "stage",
     state.selectedId ? "has-selection" : "",
     state.drawerOpen ? "drawer-open" : "",
-    state.busy || state.draggingId ? "is-moving" : "",
+    state.busy || state.draggingId || isCameraAnimating() || isTweening() ? "is-moving" : "",
   ]
     .filter(Boolean)
     .join(" ");

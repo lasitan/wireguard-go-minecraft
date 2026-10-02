@@ -44,9 +44,6 @@ export function RoutesTab({
 
   return (
     <>
-      <p className="tab-intro muted">
-        路由表决定本机经 VPN 可访问的网段。入网时已包含自身 VPN 前缀：访问同网段目标时，本机会连接目标所在的母卡（目标本身是母卡则直连）。添加另一 VPN 网段后，本机会连接该网段内所有已暴露监听的母卡，并经延迟最低的一张打通网段（Master 自动择优切换）；该网段找不到可用母卡时，才临时经 Master 中转兜底。其他 CIDR 视为子网路由，经本网段母卡转发。
-      </p>
       <div className="add-row">
         <input
           placeholder="192.168.1.0/24"

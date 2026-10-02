@@ -38,7 +38,6 @@ export function LoginPage() {
       <ToastHost />
       <div className="login-card">
         <h2>Master 控制台</h2>
-        <p className="muted">使用 lasitan-cluster-master.json 中的 adminPassword，或已注册的通行密钥</p>
         <form onSubmit={onSubmit}>
           <label>密码</label>
           <input type="password" name="password" required autoFocus disabled={busy} />

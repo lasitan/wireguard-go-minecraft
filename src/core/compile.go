@@ -174,12 +174,18 @@ func CompileDesiredWithPlan(mesh *Mesh, plan *Plan, nodeID string, defaults Desi
 		if proto == "" {
 			proto = "tcp"
 		}
-		out.Forwards = append(out.Forwards, DesiredForward{
-			Protocol: proto,
-			Listen:   fw.Listen,
-			DestHost: host,
-			DestPort: fw.DestPort,
-		})
+		protos := []string{proto}
+		if proto == "tcp/udp" || proto == "udp/tcp" {
+			protos = []string{"tcp", "udp"}
+		}
+		for _, p := range protos {
+			out.Forwards = append(out.Forwards, DesiredForward{
+				Protocol: p,
+				Listen:   fw.Listen,
+				DestHost: host,
+				DestPort: fw.DestPort,
+			})
+		}
 	}
 
 	return out, nil

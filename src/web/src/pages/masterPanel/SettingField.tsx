@@ -2,17 +2,15 @@ import { useEffect, useRef, useState } from "react";
 
 type Props = {
   label: string;
-  hint: string;
   value: string;
   validate: (draft: string) => string;
   onSave: (draft: string) => Promise<void>;
-  /** Fills the draft with a generated value (shown as a button while editing). */
   generate?: () => string;
   copyable?: boolean;
   mono?: boolean;
 };
 
-export function SettingField({ label, hint, value, validate, onSave, generate, copyable, mono }: Props) {
+export function SettingField({ label, value, validate, onSave, generate, copyable, mono }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [busy, setBusy] = useState(false);
@@ -122,7 +120,6 @@ export function SettingField({ label, hint, value, validate, onSave, generate, c
           {value || "—"}
         </code>
       )}
-      <p className="tiny muted setting-hint">{hint}</p>
     </div>
   );
 }
