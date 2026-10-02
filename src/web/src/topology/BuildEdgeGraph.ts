@@ -8,13 +8,15 @@ import type {
   PlacedNode,
   TopologyEdge,
 } from "../core/models";
-import { notify } from "../core/state";
+import { notify, state } from "../core/state";
 import { isOnline } from "../utils/isOnline";
 import { buildAgentObstacles, masterObstacle, portOnAgent, portOnMaster, type CardSide } from "./PcbPorts";
 import { routePcbBundle, type Rect, type RouteRequest } from "./PcbRouter";
 import type { RouteJob, RouteResult } from "./pcbRoute.worker";
 import { pcbRouteD } from "./PcbRoute";
 import { CARD_BOTTOM, CARD_HALF_W, CARD_TOP } from "./MagnetLayout";
+import { ResolveIpConflicts } from "./ResolveIpConflicts";
+import { syncPlacedNodes } from "./SyncPlacedNodes";
 import { vpnPrefixFromAddress } from "./SubnetGroups";
 
 function pairKey(a: string, b: string): string {
@@ -203,6 +205,9 @@ type Job = RouteJob & { ends: Map<string, string> };
 let worker: Worker | null | undefined;
 let inflight: Job | null = null;
 let queued: Job | null = null;
+/** When true, worker completion does not notify (warmup before first paint). */
+let suppressRouteNotify = false;
+const routeWaiters = new Set<(key: string) => void>();
 
 function routeWorker(): Worker | null {
   if (worker !== undefined) return worker;
@@ -225,12 +230,14 @@ function routeWorker(): Worker | null {
     cachedGeomKey = done.key;
     cachedPaths = new Map(ev.data.paths);
     cachedEnds = done.ends;
-    notify();
+    for (const w of [...routeWaiters]) w(done.key);
+    if (!suppressRouteNotify) notify();
   };
   worker.onerror = () => {
     worker?.terminate();
     worker = null;
     inflight = queued = null;
+    for (const w of [...routeWaiters]) w("");
   };
   return worker;
 }
@@ -261,6 +268,37 @@ function geometryKey(placed: PlacedNode[], stacks: MagnetStacks, pending: Pendin
     .sort()
     .join(";");
   return `${pos}|${stack}|${ends}`;
+}
+
+/**
+ * Prefetch PCB routes into the cache before the first Topology paint.
+ * Keeps the loading screen up instead of flashing interim L-bends then re-routing.
+ */
+export async function warmEdgeGraph(timeoutMs = 800): Promise<void> {
+  const mesh = state.mesh;
+  if (!mesh) return;
+  suppressRouteNotify = true;
+  try {
+    const placed = syncPlacedNodes(mesh);
+    BuildEdgeGraph(mesh, placed, ResolveIpConflicts(mesh), state.stacks);
+    if (!inflight && !queued) return;
+    const want = inflight?.key || queued?.key || "";
+    await new Promise<void>((resolve) => {
+      const t = window.setTimeout(() => {
+        routeWaiters.delete(onDone);
+        resolve();
+      }, timeoutMs);
+      const onDone = (key: string) => {
+        if (want && key && key !== want) return;
+        window.clearTimeout(t);
+        routeWaiters.delete(onDone);
+        resolve();
+      };
+      routeWaiters.add(onDone);
+    });
+  } finally {
+    suppressRouteNotify = false;
+  }
 }
 
 /**

@@ -25,15 +25,25 @@ export function AgentPanel({ node, conflict }: { node: Node; conflict: boolean }
   const [tab, setTab] = useState<TabId>("overview");
   const [shown, setShown] = useState<TabId>("overview");
   const [leaving, setLeaving] = useState(false);
+  const [ready, setReady] = useState(false);
   const [toast, setToast] = useState("");
   const fadeTimer = useRef(0);
   const toastTimer = useRef(0);
-  const { stats, error } = useNodeStats(node.id);
+  const { stats, error } = useNodeStats(node.id, ready);
 
   useEffect(() => {
     setTab("overview");
     setShown("overview");
     setLeaving(false);
+    setReady(false);
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
   }, [node.id]);
 
   useEffect(
@@ -105,10 +115,15 @@ export function AgentPanel({ node, conflict }: { node: Node; conflict: boolean }
       </div>
 
       <div className={`drawer-body tab-pane${leaving ? " leaving" : ""}`} key={shown}>
-        {shown === "overview" ? <OverviewTab node={node} stats={stats} conflict={conflict} onError={report} /> : null}
-        {shown === "traffic" ? <TrafficTab node={node} stats={stats} /> : null}
-        {shown === "routes" ? <RoutesTab node={node} stats={stats} onError={report} /> : null}
-        {shown === "forwards" ? <ForwardsTab node={node} stats={stats} onError={report} /> : null}
+        {!ready ? null : shown === "overview" ? (
+          <OverviewTab node={node} stats={stats} conflict={conflict} onError={report} />
+        ) : shown === "traffic" ? (
+          <TrafficTab node={node} stats={stats} />
+        ) : shown === "routes" ? (
+          <RoutesTab node={node} stats={stats} onError={report} />
+        ) : (
+          <ForwardsTab node={node} stats={stats} onError={report} />
+        )}
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import { MASTER_ID, TOKEN_KEY } from "../core/constants";
 import { demoMesh, demoMeta, touchDemoHeartbeats } from "../core/demoData";
 import { notify, state } from "../core/state";
 import type { Mesh } from "../core/models";
+import { warmEdgeGraph } from "../topology/BuildEdgeGraph";
 import { hydrateNodePositions } from "../topology/NodePositionStore";
 import { goHome } from "./FocusNav";
 import { isLive, startLive, stopLive } from "./LiveSocket";
@@ -34,12 +35,22 @@ export async function refresh() {
     state.mesh = demoMesh();
     state.meta = demoMeta();
     hydrateNodePositions(state.mesh);
+    await warmEdgeGraph();
     notify();
     return;
   }
   const [mesh, meta] = await Promise.all([GetMesh(), GetMeta()]);
   state.meta = meta;
-  applyMesh(mesh);
+  state.mesh = mesh;
+  hydrateNodePositions(mesh);
+  // Route traces before first paint so Topology does not flash interim bends.
+  await warmEdgeGraph();
+  const lost =
+    state.selectedId &&
+    state.selectedId !== MASTER_ID &&
+    !(mesh.nodes || []).some((n) => n.id === state.selectedId);
+  notify();
+  if (lost) void goHome();
 }
 
 function applyMesh(mesh: Mesh) {

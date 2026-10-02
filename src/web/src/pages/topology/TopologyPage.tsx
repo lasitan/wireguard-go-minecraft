@@ -25,7 +25,8 @@ export function TopologyPage() {
   const svgRef = useRef<SVGSVGElement>(null);
   useCameraGestures(svgRef);
   const chrome = useRef<ReactElement | null>(null);
-  if (!state.draggingId || !chrome.current) {
+  const freezeChrome = !!state.draggingId || isCameraAnimating();
+  if (!freezeChrome || !chrome.current) {
     chrome.current = (
       <>
         <EdgeLegend />

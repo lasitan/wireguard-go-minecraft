@@ -110,7 +110,7 @@ export function SettingsDrawer() {
         <div className="drawer-resize drawer-resize-w" onPointerDown={onEdgeDown("w")} onPointerMove={onEdgeMove} onPointerUp={onEdgeUp} />
         <div className="drawer-resize drawer-resize-s" onPointerDown={onEdgeDown("s")} onPointerMove={onEdgeMove} onPointerUp={onEdgeUp} />
         <div className="drawer-resize drawer-resize-sw" onPointerDown={onEdgeDown("sw")} onPointerMove={onEdgeMove} onPointerUp={onEdgeUp} />
-        <DrawerBody id={id} />
+        <DrawerBody id={open ? id : null} />
       </aside>
     </>
   );

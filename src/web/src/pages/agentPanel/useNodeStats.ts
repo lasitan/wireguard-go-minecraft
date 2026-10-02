@@ -9,11 +9,16 @@ export const STATS_POLL_MS = 2000;
  * Live stats while the panel for `id` is open: pushed by the Master over the
  * UI socket, or polled every 2s when the socket is down (and in demo mode).
  */
-export function useNodeStats(id: string): { stats: NodeStats | null; error: string } {
+export function useNodeStats(id: string, enabled = true): { stats: NodeStats | null; error: string } {
   const [stats, setStats] = useState<NodeStats | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!enabled) {
+      setStats(null);
+      setError("");
+      return;
+    }
     let alive = true;
     setStats(null);
     setError("");
@@ -39,7 +44,7 @@ export function useNodeStats(id: string): { stats: NodeStats | null; error: stri
       unwatch();
       window.clearInterval(timer);
     };
-  }, [id]);
+  }, [id, enabled]);
 
   return { stats, error };
 }
