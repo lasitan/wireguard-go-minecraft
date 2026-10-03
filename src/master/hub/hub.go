@@ -146,6 +146,7 @@ func (h *Hub) register(c *agentConn) {
 	s.conns[c.nodeID] = c
 	s.mu.Unlock()
 	if old != nil {
+		fmt.Fprintf(os.Stderr, "lasitan-cluster master: node %s replaced an existing websocket\n", c.nodeID)
 		old.cancel()
 	}
 }

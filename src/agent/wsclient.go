@@ -38,6 +38,9 @@ type wsClient struct {
 	ap      *applier
 
 	seq atomic.Uint32
+	// coder/websocket allows one writer; statsLoop and the read loop
+	// (pong / config ack) would otherwise race and abort the socket.
+	writeMu sync.Mutex
 
 	ipMu  sync.Mutex
 	ipAt  time.Time
@@ -67,6 +70,8 @@ func (c *wsClient) publicIPs() (netip.Addr, netip.Addr) {
 }
 
 func (c *wsClient) write(ctx context.Context, ws *websocket.Conn, t wire.MsgType, payload []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	wctx, cancel := context.WithTimeout(ctx, wsWriteTimeout)
 	defer cancel()
 	return ws.Write(wctx, websocket.MessageBinary, wire.EncodeFrame(t, c.seq.Add(1), payload))
@@ -183,7 +188,9 @@ func (c *wsClient) statsLoop(ctx context.Context, ws *websocket.Conn, every time
 	defer t.Stop()
 	for {
 		if err := c.write(ctx, ws, wire.TypeStats, c.collect().Marshal()); err != nil {
-			ws.CloseNow()
+			if ctx.Err() == nil {
+				ws.CloseNow()
+			}
 			return
 		}
 		select {
