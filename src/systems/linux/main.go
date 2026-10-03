@@ -209,6 +209,13 @@ func Main() {
 	fwdCount := 0
 	confPath := ""
 	if boot, err := agent.LoadBootstrap(); err == nil {
+		unlock, err := agent.LockAgentInstance()
+		if err != nil {
+			logger.Errorf("%v", err)
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: %v\n", err)
+			os.Exit(core.ExitSetupFailed)
+		}
+		defer unlock()
 		fmt.Fprintf(os.Stderr, "lasitan-cluster: agent mode → %s (nodeId from Master)\n", boot.MasterURL)
 		go agent.ConfigLoop(dev, logger, interfaceName, &fwd, &fwdMu, boot, agentStop)
 	} else if os.Getenv("LASITAN_LEGACY_CONF") == "1" {

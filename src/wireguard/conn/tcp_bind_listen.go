@@ -43,6 +43,12 @@ func (b *TCPBind) startAcceptLocked(listener4, listener6 net.Listener) {
 	}
 }
 
+func (b *TCPBind) ListenPort() uint16 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.listenPortLocked()
+}
+
 func (b *TCPBind) listenPortLocked() uint16 {
 	for _, l := range []net.Listener{b.listener4, b.listener6} {
 		if l == nil {

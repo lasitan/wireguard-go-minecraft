@@ -630,6 +630,11 @@ func (device *Device) BindSetListenPort(port uint16) error {
 		device.net.Unlock()
 		return nil
 	}
+	if lp, ok := device.net.bind.(interface{ ListenPort() uint16 }); ok && port != 0 && lp.ListenPort() == port {
+		device.net.port = port
+		device.net.Unlock()
+		return nil
+	}
 	updater, ok := device.net.bind.(conn.ListenPortUpdater)
 	if !ok || !device.isUp() {
 		device.net.port = port

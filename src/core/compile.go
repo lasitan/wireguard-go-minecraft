@@ -145,7 +145,7 @@ func CompileDesiredWithPlan(mesh *Mesh, plan *Plan, nodeID string, defaults Desi
 		for _, a := range pp.allowed {
 			dp.AllowedIPs = append(dp.AllowedIPs, a.String())
 		}
-		if pp.dial {
+		if pp.dial && ep != "" {
 			dp.Endpoint = ep
 			dp.Keepalive = pp.keepalive
 		}

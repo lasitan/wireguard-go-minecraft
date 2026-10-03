@@ -88,6 +88,14 @@ func (m *wgWindowsService) Execute(args []string, r <-chan svc.ChangeRequest, ch
 	var fwdMu sync.Mutex
 	agentStop := make(chan struct{})
 	if boot, err := agent.LoadBootstrap(); err == nil {
+		unlock, err := agent.LockAgentInstance()
+		if err != nil {
+			logger.Errorf("%v", err)
+			_ = tcpBind.Close()
+			dev.Close()
+			return true, 1
+		}
+		defer unlock()
 		go agent.ConfigLoop(dev, logger, m.iface, &fwd, &fwdMu, boot, agentStop)
 	} else if os.Getenv("LASITAN_LEGACY_CONF") == "1" {
 		confFile := filepath.Join(config.ConfDir(), m.iface+".conf")

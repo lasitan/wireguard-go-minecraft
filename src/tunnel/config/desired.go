@@ -30,12 +30,10 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 		return nil, fmt.Errorf("privateKey: %w", err)
 	}
 	fmt.Fprintf(w, "private_key=%s\n", hexKey)
-	if prev == nil {
-		if d.Interface.ListenPort != 0 {
-			fmt.Fprintf(w, "listen_port=%d\n", d.Interface.ListenPort)
+	if want := d.Interface.ListenPort; want != 0 && want != dev.NetListenPort() {
+		if prev == nil || want != prev.Interface.ListenPort {
+			fmt.Fprintf(w, "listen_port=%d\n", want)
 		}
-	} else if d.Interface.ListenPort != prev.Interface.ListenPort {
-		fmt.Fprintf(w, "listen_port=%d\n", d.Interface.ListenPort)
 	}
 
 	live, err := readLivePeers(dev)
