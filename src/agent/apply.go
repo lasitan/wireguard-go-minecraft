@@ -29,7 +29,7 @@ type applier struct {
 	applied    *core.DesiredConfig // last applied revision; basis for hot diffs
 	// newestRev is the highest revision offered since the last resetSession;
 	// anything older is stale and must never roll the node back.
-	newestRev int
+	newestRev  int
 	pollEvery  time.Duration
 	masterHost string // where "@master:PORT" relay endpoints point
 }
