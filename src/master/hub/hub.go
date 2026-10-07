@@ -213,8 +213,18 @@ func (h *Hub) PushAll() {
 	}
 }
 
+// queueConfig never replaces a newer queued revision: concurrent PushAll calls
+// compile from different mesh loads and may finish out of order.
 func (c *agentConn) queueConfig(d *core.DesiredConfig) {
-	c.cfg.Store(d)
+	for {
+		cur := c.cfg.Load()
+		if cur != nil && cur.Revision > d.Revision {
+			return
+		}
+		if c.cfg.CompareAndSwap(cur, d) {
+			break
+		}
+	}
 	select {
 	case c.cfgSig <- struct{}{}:
 	default:

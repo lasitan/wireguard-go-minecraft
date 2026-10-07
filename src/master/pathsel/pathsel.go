@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"sync"
 	"time"
 
 	"golang.zx2c4.com/wireguard/src/core"
@@ -91,6 +92,10 @@ type Selector struct {
 	Stats *stats.StatsService
 	Alive func(nodeID string) bool
 	Push  func()
+
+	// mu serializes Tick (periodic loop vs. admin edits) so a tick computed
+	// from an older mesh snapshot cannot overwrite a newer one's choices.
+	mu sync.Mutex
 }
 
 func (s *Selector) Run(stop <-chan struct{}) {
@@ -107,6 +112,8 @@ func (s *Selector) Run(stop <-chan struct{}) {
 }
 
 func (s *Selector) Tick(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	m := s.Store.Snapshot()
 	cands := core.PlanMesh(&m).Candidates()
 	pubOf := make(map[string]string, len(m.Nodes))

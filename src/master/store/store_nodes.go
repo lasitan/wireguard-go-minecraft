@@ -102,8 +102,16 @@ func (s *Store) PatchNode(id string, p NodePatch) (core.Node, error) {
 			return core.Node{}, err
 		}
 		if addr != n.Address {
+			oldPfx, errOld := core.VPNPrefixFromAddress(n.Address)
+			newPfx, _ := core.VPNPrefixFromAddress(addr)
 			n.Address = addr
 			n.AddressChangedAt = time.Now().UTC()
+			// The node's own subnet route follows its address, like ReassignNodeSubnet.
+			if p.Routes == nil && errOld == nil && oldPfx != newPfx {
+				if n.Routes, err = core.ReplaceVPNRoute(n.Routes, oldPfx, newPfx); err != nil {
+					return core.Node{}, err
+				}
+			}
 		}
 	}
 	if p.Enabled != nil {

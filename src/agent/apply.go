@@ -27,6 +27,9 @@ type applier struct {
 	mu         sync.Mutex
 	appliedRev int
 	applied    *core.DesiredConfig // last applied revision; basis for hot diffs
+	// newestRev is the highest revision offered since the last resetSession;
+	// anything older is stale and must never roll the node back.
+	newestRev int
 	pollEvery  time.Duration
 	masterHost string // where "@master:PORT" relay endpoints point
 }
@@ -36,7 +39,15 @@ func newApplier(dev *device.Device, logger *device.Logger, iface string, fwdPtr 
 	if u, err := url.Parse(masterURL); err == nil {
 		host = u.Hostname()
 	}
-	return &applier{dev: dev, logger: logger, iface: iface, fwdPtr: fwdPtr, fwdMu: fwdMu, appliedRev: -1, pollEvery: 10 * time.Second, masterHost: host}
+	return &applier{dev: dev, logger: logger, iface: iface, fwdPtr: fwdPtr, fwdMu: fwdMu, appliedRev: -1, newestRev: -1, pollEvery: 10 * time.Second, masterHost: host}
+}
+
+// resetSession forgets the stale-revision floor. Called per Master session so a
+// Master whose revision counter restarted (fresh database) is still followed.
+func (a *applier) resetSession() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.newestRev = -1
 }
 
 // resolveRelay points Master-relay peers at the host this agent reaches Master on.
@@ -88,10 +99,16 @@ func (a *applier) pollInterval() time.Duration {
 	return a.pollEvery
 }
 
-// apply is a no-op for an already applied revision.
+// apply is a no-op for an already applied revision and for one older than a
+// revision already offered in this session.
 func (a *applier) apply(desired *core.DesiredConfig) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if desired.Revision < a.newestRev {
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: ignoring stale mesh revision %d (have %d)\n", desired.Revision, a.newestRev)
+		return nil
+	}
+	a.newestRev = desired.Revision
 	if desired.Revision == a.appliedRev {
 		return nil
 	}

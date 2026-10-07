@@ -29,6 +29,8 @@ const (
 	wsReadTimeout      = 45 * time.Second
 	wsDefaultStatsTick = 2 * time.Second
 	publicIPRefresh    = 30 * time.Minute
+	applyRetryMin      = 2 * time.Second
+	applyRetryMax      = 30 * time.Second
 )
 
 type wsClient struct {
@@ -38,6 +40,8 @@ type wsClient struct {
 	ap      *applier
 
 	seq atomic.Uint32
+	// retrying is the revision retryApply is working on (-1 = none).
+	retrying atomic.Int64
 	// coder/websocket allows one writer; statsLoop and the read loop
 	// (pong / config ack) would otherwise race and abort the socket.
 	writeMu sync.Mutex
@@ -118,6 +122,7 @@ func (c *wsClient) run(ctx context.Context) (connected bool, err error) {
 		tick = time.Duration(ack.StatsIntervalMs) * time.Millisecond
 	}
 	fmt.Fprintf(os.Stderr, "lasitan-cluster: master link up (ws, node %s)\n", ack.NodeID)
+	c.ap.resetSession()
 
 	sctx, scancel := context.WithCancel(ctx)
 	defer scancel()
@@ -145,6 +150,7 @@ func (c *wsClient) run(ctx context.Context) (connected bool, err error) {
 				if err := c.ap.apply(&desired); err != nil {
 					ack.OK, ack.Error = false, err.Error()
 					fmt.Fprintf(os.Stderr, "lasitan-cluster: %v\n", err)
+					go c.retryApply(sctx, ws, &desired)
 				}
 			}
 			if err := c.write(sctx, ws, wire.TypeConfigAck, ack.Marshal()); err != nil {
@@ -168,6 +174,39 @@ func (c *wsClient) run(ctx context.Context) (connected bool, err error) {
 			var em wire.ErrorMsg
 			_ = em.Unmarshal(f.Payload)
 			return true, fmt.Errorf("master error: %d %s", em.Code, em.Message)
+		}
+	}
+}
+
+// retryApply keeps re-applying a pushed revision that failed (e.g. the OS
+// refused the new interface address) until it sticks, a newer revision
+// supersedes it, or the session ends. Master only pushes on change, so
+// without this the node would sit on its old address indefinitely.
+func (c *wsClient) retryApply(ctx context.Context, ws *websocket.Conn, d *core.DesiredConfig) {
+	rev := int64(d.Revision)
+	if c.retrying.Swap(rev) == rev {
+		return
+	}
+	defer c.retrying.CompareAndSwap(rev, -1)
+	delay := applyRetryMin
+	for {
+		if !sleepCtx(ctx, delay) {
+			return
+		}
+		if c.retrying.Load() != rev {
+			return
+		}
+		err := c.ap.apply(d)
+		if err == nil {
+			if c.ap.revision() == d.Revision {
+				ack := wire.ConfigAck{OK: true, Revision: uint32(d.Revision)}
+				_ = c.write(ctx, ws, wire.TypeConfigAck, ack.Marshal())
+			}
+			return
+		}
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: retry: %v\n", err)
+		if delay *= 2; delay > applyRetryMax {
+			delay = applyRetryMax
 		}
 	}
 }

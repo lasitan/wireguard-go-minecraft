@@ -73,15 +73,22 @@ func applyIfaceNetConfig(iface string, cfg IfaceNetConfig, logger *device.Logger
 		if prefix.Addr().Is6() {
 			family = "IPv6"
 		}
-		// Remove existing addresses of same family then add.
+		// Drop every other address of this family (a stale one from an earlier
+		// subnet would keep the node reachable there), keep an exact match.
 		script := fmt.Sprintf(`
 $ifAlias = '%s'
 $ip = '%s'
 $prefix = %d
+$have = $false
 Get-NetIPAddress -InterfaceAlias $ifAlias -AddressFamily %s -ErrorAction SilentlyContinue |
-  Where-Object { $_.IPAddress -eq $ip } |
-  Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
-New-NetIPAddress -InterfaceAlias $ifAlias -IPAddress $ip -PrefixLength $prefix -AddressFamily %s -PolicyStore ActiveStore -ErrorAction Stop | Out-Null
+  Where-Object { $_.PrefixOrigin -eq 'Manual' } |
+  ForEach-Object {
+    if ($_.IPAddress -eq $ip -and $_.PrefixLength -eq $prefix) { $have = $true }
+    else { $_ | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue }
+  }
+if (-not $have) {
+  New-NetIPAddress -InterfaceAlias $ifAlias -IPAddress $ip -PrefixLength $prefix -AddressFamily %s -PolicyStore ActiveStore -ErrorAction Stop | Out-Null
+}
 `, pwsh.Quote(iface), prefix.Addr().String(), prefix.Bits(), family, family)
 		if _, err := runPS(script); err != nil {
 			return fmt.Errorf("addr %s on %s: %w", addr, iface, err)

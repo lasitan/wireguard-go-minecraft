@@ -153,6 +153,7 @@ func ConfigLoop(
 	}()
 
 	ws := &wsClient{boot: boot, dev: dev, counter: counter, ap: ap}
+	ws.retrying.Store(-1)
 	backoff := wsBackoffMin
 	for ctx.Err() == nil {
 		if err := ensureEnrolled(boot); err != nil {
@@ -210,6 +211,7 @@ func pollHTTP(ctx context.Context, boot *config.AgentBootstrap, ap *applier, log
 	client := &http.Client{Timeout: 30 * time.Second}
 	url := stringsTrimSlash(boot.MasterURL) + "/api/agent/config"
 	deadline := time.Now().Add(window)
+	ap.resetSession()
 
 	fetch := func() {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

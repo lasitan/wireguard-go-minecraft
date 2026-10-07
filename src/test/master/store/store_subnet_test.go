@@ -85,4 +85,38 @@ func TestReassignNodeSubnet(t *testing.T) {
 	_ = node
 }
 
+func TestPatchAddressMovesSubnetRoute(t *testing.T) {
+	st := openTestStore(t)
+	id := st.Snapshot().Nodes[0].ID
+	lan := []string{"10.10.0.0/24", "192.168.1.0/24"}
+	if _, err := st.PatchNode(id, NodePatch{Routes: &lan}); err != nil {
+		t.Fatal(err)
+	}
+	before := st.Snapshot().Revision
+	if _, err := st.PatchNode(id, NodePatch{Address: strPtr("10.30.0.9/24")}); err != nil {
+		t.Fatal(err)
+	}
+	m := st.Snapshot()
+	n := m.FindNode(id)
+	if n.Address != "10.30.0.9/24" || m.Revision <= before {
+		t.Fatalf("address %s rev %d (was %d)", n.Address, m.Revision, before)
+	}
+	want := map[string]bool{"10.30.0.0/24": true, "192.168.1.0/24": true}
+	if len(n.Routes) != len(want) {
+		t.Fatalf("routes %v", n.Routes)
+	}
+	for _, r := range n.Routes {
+		if !want[r] {
+			t.Fatalf("routes %v still hold the old subnet", n.Routes)
+		}
+	}
+	d, err := st.DesiredForNode(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Interface.Address != "10.30.0.9/24" {
+		t.Fatalf("desired address %s", d.Interface.Address)
+	}
+}
+
 func strPtr(s string) *string { return &s }

@@ -24,6 +24,24 @@ func (a *Applier) WithLocalIface(d *core.DesiredConfig) *core.DesiredConfig {
 	return a.withLocalIface(d)
 }
 
+func (a *Applier) Apply(d *core.DesiredConfig) error {
+	return a.apply(d)
+}
+
+func (a *Applier) SetNewestRevForTest(rev int) {
+	a.mu.Lock()
+	a.newestRev = rev
+	a.mu.Unlock()
+}
+
+func (a *Applier) ResetSession() {
+	a.resetSession()
+}
+
+func (a *Applier) Revision() int {
+	return a.revision()
+}
+
 func WsURL(masterURL string) string {
 	return wsURL(masterURL)
 }
