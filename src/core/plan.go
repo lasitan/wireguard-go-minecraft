@@ -135,7 +135,7 @@ func PlanKey(mesh *Mesh) string {
 		}
 	}
 	if r := mesh.Relay; r != nil {
-		w("relay", r.PublicKey, strconv.Itoa(int(r.Port)))
+		w("relay", r.PublicKey, strconv.Itoa(int(r.Port)), r.Host)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

@@ -129,7 +129,7 @@ export type Mesh = {
   /** Master-chosen gateway mother per node and VPN subnet (lowest RTT); "master" = relay fallback. */
   paths?: Record<string, Record<string, string>>;
   /** Present when Master's cross-subnet relay is enabled. */
-  relay?: { publicKey: string; port: number };
+  relay?: { publicKey: string; port: number; host?: string };
   /** Offline cluster member → live member currently covering its forwards. */
   standby?: Record<string, string>;
 };
@@ -143,6 +143,10 @@ export type Meta = {
   transport?: unknown;
   /** Master's cross-subnet fallback relay TCP port; 0 = disabled. */
   relayPort?: number;
+  /** Admin-pinned origin IP/hostname for the emergency relay; empty = auto. */
+  relayHost?: string;
+  /** Last auto-detected public IPv4 of this Master. */
+  relayPublicV4?: string;
 };
 
 export type MetaPatch = {
@@ -150,6 +154,7 @@ export type MetaPatch = {
   vpnSubnet?: string;
   transportJson?: string;
   relayPort?: number;
+  relayHost?: string;
 };
 
 export type UpdateCommands = {

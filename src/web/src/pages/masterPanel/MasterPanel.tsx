@@ -2,7 +2,7 @@ import { state } from "../../core/state";
 import { goHome } from "../../app/FocusNav";
 import { patchMeta } from "../../app/MetaActions";
 import { logout } from "../../app/Session";
-import { randomEnrollToken, validateEnrollToken, validatePool, validateRelayPort } from "../../utils/validateSettings";
+import { randomEnrollToken, validateEnrollToken, validatePool, validateRelayHost, validateRelayPort } from "../../utils/validateSettings";
 import { SettingField } from "./SettingField";
 import { BootstrapInstallCard } from "./BootstrapInstallCard";
 import { TransportCard } from "./TransportCard";
@@ -62,6 +62,17 @@ export function MasterPanel() {
           onSave={(v) => patchMeta({ relayPort: Number(v) })}
           mono
         />
+        <SettingField
+          label="应急通道公网 IP"
+          value={state.meta?.relayHost || ""}
+          validate={validateRelayHost}
+          onSave={(v) => patchMeta({ relayHost: v })}
+          mono
+        />
+        <div className="detail">
+          <span>探测到的 Master IP</span>
+          <b>{state.meta?.relayPublicV4 || "—"}</b>
+        </div>
         {!state.demo ? (
           <button type="button" className="secondary" style={{ marginTop: "0.75rem" }} onClick={() => logout()}>
             退出登录

@@ -22,7 +22,8 @@ import (
 const syncEvery = 15 * time.Second
 
 type Service struct {
-	Store *store.Store
+	Store        *store.Store
+	OnHostChange func() // fired when auto-detected origin IP changes the mesh
 
 	mu      sync.Mutex
 	dev     *device.Device
@@ -33,7 +34,7 @@ type Service struct {
 }
 
 func (s *Service) Run(stop <-chan struct{}) {
-	s.Sync()
+	s.refreshAndSync()
 	t := time.NewTicker(syncEvery)
 	defer t.Stop()
 	for {
@@ -44,8 +45,16 @@ func (s *Service) Run(stop <-chan struct{}) {
 			s.mu.Unlock()
 			return
 		case <-t.C:
-			s.Sync()
+			s.refreshAndSync()
 		}
+	}
+}
+
+func (s *Service) refreshAndSync() {
+	changed := s.refreshPublicIP()
+	s.Sync()
+	if changed && s.OnHostChange != nil {
+		s.OnHostChange()
 	}
 }
 

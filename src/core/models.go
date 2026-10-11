@@ -4,7 +4,9 @@ package core
 
 import (
 	"encoding/json"
-	"fmt"
+	"net"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -32,7 +34,8 @@ type Mesh struct {
 // RelayNodeID stands for Master's relay wherever a gateway node id is expected.
 const RelayNodeID = "master"
 
-// RelayEndpointHost is replaced by each agent with its own Master URL host.
+// RelayEndpointHost is replaced by each agent with its own Master URL host
+// when Host is empty. A CDN hostname cannot carry the camouflage TCP port.
 const RelayEndpointHost = "@master"
 
 // Relay describes Master's fallback relay: a WireGuard peer that only forwards
@@ -40,11 +43,18 @@ const RelayEndpointHost = "@master"
 type Relay struct {
 	PublicKey string `json:"publicKey"`
 	Port      uint16 `json:"port"`
+	// Host is Master's public IP (or a non-CDN hostname) agents dial.
+	// Empty keeps Endpoint as @master:port for agents to resolve locally.
+	Host string `json:"host,omitempty"`
 }
 
-// Endpoint is the placeholder dial address agents resolve against their Master URL.
+// Endpoint is the address agents dial for the emergency relay.
 func (r *Relay) Endpoint() string {
-	return fmt.Sprintf("%s:%d", RelayEndpointHost, r.Port)
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		host = RelayEndpointHost
+	}
+	return net.JoinHostPort(host, strconv.Itoa(int(r.Port)))
 }
 
 // Node is a tunnel endpoint managed by Master.

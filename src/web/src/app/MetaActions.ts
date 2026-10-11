@@ -14,6 +14,7 @@ export async function patchMeta(patch: MetaPatch): Promise<void> {
         ? { transport: JSON.parse(patch.transportJson) as unknown }
         : {}),
       ...(patch.relayPort !== undefined ? { relayPort: patch.relayPort } : {}),
+      ...(patch.relayHost !== undefined ? { relayHost: patch.relayHost.trim() } : {}),
     };
   } else {
     state.meta = await PatchMeta(patch);

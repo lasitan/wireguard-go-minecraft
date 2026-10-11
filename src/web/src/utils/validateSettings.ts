@@ -25,6 +25,14 @@ export function validateRelayPort(s: string): string {
   return "";
 }
 
+/** Mirrors Master's normalizeRelayHost: empty uses auto-detect. */
+export function validateRelayHost(s: string): string {
+  const v = s.trim();
+  if (!v) return "";
+  if (v === "@master" || /[:/\s]/.test(v) || v.length > 253) return "填写公网 IP 或主机名，不要带端口";
+  return "";
+}
+
 /** Masks host bits, e.g. 10.20.3.4/16 → 10.20.0.0/16. */
 export function maskPool(s: string): string {
   const [addr, bitsStr] = s.trim().split("/");

@@ -50,7 +50,8 @@ func (a *applier) resetSession() {
 	a.newestRev = -1
 }
 
-// resolveRelay points Master-relay peers at the host this agent reaches Master on.
+// resolveRelay fills leftover @master:PORT endpoints from the bootstrap URL.
+// Master normally compiles its origin IP, so this is only a fallback.
 func (a *applier) resolveRelay(d *core.DesiredConfig) *core.DesiredConfig {
 	var out *core.DesiredConfig
 	for i, p := range d.Peers {

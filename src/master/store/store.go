@@ -42,7 +42,9 @@ type Settings struct {
 	DefaultIface  string
 	DefaultPoll   string
 	TransportJSON json.RawMessage
-	RelayPort     int // 0 = cross-subnet relay fallback disabled
+	RelayPort     int    // 0 = cross-subnet relay fallback disabled
+	RelayHost     string // admin-pinned public IP/hostname; empty = auto
+	RelayPublicV4 string // last auto-detected public IPv4
 }
 
 func OpenStore(dataDir string) (*Store, error) {
@@ -288,7 +290,10 @@ func (s *Store) settingsLocked() (Settings, error) {
 		return out, err
 	}
 	out.TransportJSON = json.RawMessage(tr)
-	out.RelayPort = int(s.relayLocked().Port)
+	rc := s.relayLocked()
+	out.RelayPort = int(rc.Port)
+	out.RelayHost = rc.Host
+	out.RelayPublicV4 = rc.PublicV4
 	return out, nil
 }
 

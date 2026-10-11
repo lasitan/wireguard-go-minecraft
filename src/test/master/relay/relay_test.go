@@ -2,16 +2,19 @@ package relay_test
 
 import (
 	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
+	"testing"
+	"time"
+
 	"golang.zx2c4.com/wireguard/src/core"
 	. "golang.zx2c4.com/wireguard/src/master/relay"
 	"golang.zx2c4.com/wireguard/src/master/store"
 	"golang.zx2c4.com/wireguard/src/wireguard/conn"
 	"golang.zx2c4.com/wireguard/src/wireguard/device"
 	"golang.zx2c4.com/wireguard/src/wireguard/tun/tuntest"
-	"net"
-	"net/netip"
-	"testing"
-	"time"
 )
 
 func freePort(t *testing.T) uint16 {
@@ -89,4 +92,16 @@ func TestRelayForwardsBetweenNodes(t *testing.T) {
 	}
 	send(cTun, yTun, tuntest.Ping(y, c))
 	send(yTun, cTun, tuntest.Ping(c, y))
+}
+
+func TestLookupPublicV4(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"success","query":"203.0.113.50"}`))
+	}))
+	defer srv.Close()
+	restore := SetPublicIPv4URL(srv.URL)
+	defer restore()
+	if got := LookupPublicV4(); got != "203.0.113.50" {
+		t.Fatalf("lookup: %q", got)
+	}
 }

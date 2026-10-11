@@ -20,3 +20,13 @@ func (s *Service) ApplyLocked(rc store.RelayConfig, want []core.DesiredPeer) err
 func (s *Service) CloseLocked() {
 	s.closeLocked()
 }
+
+func SetPublicIPv4URL(u string) func() {
+	prev := publicIPv4URL
+	publicIPv4URL = u
+	return func() { publicIPv4URL = prev }
+}
+
+func LookupPublicV4() string {
+	return lookupPublicV4()
+}

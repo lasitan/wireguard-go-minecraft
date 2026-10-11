@@ -204,6 +204,17 @@ func TestRelayFallbackOnlyWhenNoMother(t *testing.T) {
 	}
 }
 
+func TestRelayEndpointUsesOriginIP(t *testing.T) {
+	m := crossMesh()
+	m.Nodes[1].Endpoint = ""
+	m.Nodes[2].Endpoint = ""
+	m.Relay = &Relay{PublicKey: "R", Port: 25599, Host: "203.0.113.8"}
+	c := peerMap(t, &m, pC)
+	if c["R"].Endpoint != "203.0.113.8:25599" {
+		t.Fatalf("Master origin IP must be the dial address: %+v", c["R"])
+	}
+}
+
 func TestRelayChosenWhenMothersDown(t *testing.T) {
 	m := crossMesh()
 	m.Relay = &Relay{PublicKey: "R", Port: 25599}

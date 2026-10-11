@@ -81,6 +81,10 @@ func NewServer(cfg config.MasterConfig) (*Server, error) {
 		relay:      relaySvc,
 	}
 	s.ui = newUIHub(s)
+	relaySvc.OnHostChange = func() {
+		agentHub.PushAll()
+		s.ui.meshChanged()
+	}
 	s.paths = &pathsel.Selector{Store: st, Stats: statsSvc, Alive: agentHub.IsConnected, Push: func() {
 		agentHub.PushAll()
 		relaySvc.Sync()
@@ -211,13 +215,15 @@ func (s *Server) metaView() (map[string]any, error) {
 		_ = json.Unmarshal(settings.TransportJSON, &transport)
 	}
 	return map[string]any{
-		"enrollToken":  settings.EnrollToken,
-		"vpnSubnet":    settings.VPNSubnet,
-		"listen":       s.cfg.Listen,
-		"defaultIface": settings.DefaultIface,
-		"defaultPoll":  settings.DefaultPoll,
-		"transport":    transport,
-		"relayPort":    settings.RelayPort,
+		"enrollToken":   settings.EnrollToken,
+		"vpnSubnet":     settings.VPNSubnet,
+		"listen":        s.cfg.Listen,
+		"defaultIface":  settings.DefaultIface,
+		"defaultPoll":   settings.DefaultPoll,
+		"transport":     transport,
+		"relayPort":     settings.RelayPort,
+		"relayHost":     settings.RelayHost,
+		"relayPublicV4": settings.RelayPublicV4,
 	}, nil
 }
 
