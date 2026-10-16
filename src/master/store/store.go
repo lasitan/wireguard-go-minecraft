@@ -134,6 +134,9 @@ CREATE TABLE IF NOT EXISTS forwards (
 	if err := s.addMissingNodeColumns(); err != nil {
 		return err
 	}
+	if err := s.addMissingForwardColumns(); err != nil {
+		return err
+	}
 	if err := s.migrateAuth(); err != nil {
 		return err
 	}
@@ -176,6 +179,32 @@ func (s *Store) addMissingNodeColumns() error {
 		if _, err := s.db.Exec(`ALTER TABLE nodes ADD COLUMN ` + c.name + ` ` + c.ddl); err != nil {
 			return fmt.Errorf("add column %s: %w", c.name, err)
 		}
+	}
+	return nil
+}
+
+func (s *Store) addMissingForwardColumns() error {
+	have := map[string]bool{}
+	rows, err := s.db.Query(`PRAGMA table_info(forwards)`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	rows.Close()
+	if have["dest_spec"] {
+		return nil
+	}
+	if _, err := s.db.Exec(`ALTER TABLE forwards ADD COLUMN dest_spec TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("add column dest_spec: %w", err)
 	}
 	return nil
 }
@@ -357,7 +386,7 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 		m.Links = append(m.Links, l)
 	}
 
-	frows, err := s.db.Query(`SELECT node_id, protocol, listen, dest_node_id, dest_port FROM forwards`)
+	frows, err := s.db.Query(`SELECT node_id, protocol, listen, dest_node_id, dest_port, dest_spec FROM forwards`)
 	if err != nil {
 		return m, err
 	}
@@ -365,7 +394,7 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 	for frows.Next() {
 		var f core.Forward
 		var port int
-		if err := frows.Scan(&f.NodeID, &f.Protocol, &f.Listen, &f.DestNodeID, &port); err != nil {
+		if err := frows.Scan(&f.NodeID, &f.Protocol, &f.Listen, &f.DestNodeID, &port, &f.Dest); err != nil {
 			return m, err
 		}
 		f.DestPort = uint16(port)
@@ -456,8 +485,8 @@ func (s *Store) replaceMeshLocked(m core.Mesh) error {
 		}
 	}
 	for _, f := range m.Forwards {
-		if _, err := tx.Exec(`INSERT INTO forwards(node_id, protocol, listen, dest_node_id, dest_port) VALUES(?,?,?,?,?)`,
-			f.NodeID, f.Protocol, f.Listen, f.DestNodeID, int(f.DestPort)); err != nil {
+		if _, err := tx.Exec(`INSERT INTO forwards(node_id, protocol, listen, dest_node_id, dest_port, dest_spec) VALUES(?,?,?,?,?,?)`,
+			f.NodeID, f.Protocol, f.Listen, f.DestNodeID, int(f.DestPort), f.Dest); err != nil {
 			return err
 		}
 	}

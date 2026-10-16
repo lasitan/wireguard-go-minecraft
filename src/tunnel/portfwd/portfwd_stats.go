@@ -25,6 +25,9 @@ func (c *ForwardCounter) Bytes() (rx, tx uint64) { return c.rx.Load(), c.tx.Load
 var forwardCounters sync.Map // "proto listen" -> *ForwardCounter
 
 func forwardListenLabel(spec spec.PortForwardSpec) string {
+	if spec.StatListen != "" {
+		return spec.StatListen
+	}
 	if spec.ListenHost == "" || spec.ListenHost == "0.0.0.0" {
 		return strconv.Itoa(spec.ListenPort)
 	}

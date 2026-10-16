@@ -6,11 +6,14 @@
 package portfwd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.zx2c4.com/wireguard/src/tunnel/spec"
@@ -93,6 +96,15 @@ func (m *PortForwardManager) StartFromPeers(peers []spec.PeerHookConfig) error {
 	return nil
 }
 
+func addrInUse(err error) bool {
+	var errno syscall.Errno
+	if errors.As(err, &errno) && (errno == syscall.EADDRINUSE || errno == 10048) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "address already in use") || strings.Contains(msg, "Only one usage of each socket address")
+}
+
 func (m *PortForwardManager) Count() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -105,6 +117,9 @@ func (m *PortForwardManager) startTCPForward(spec spec.PortForwardSpec, peerLabe
 	}
 	ln, err := net.Listen("tcp", spec.ListenAddr())
 	if err != nil {
+		if spec.BestEffort && addrInUse(err) {
+			return nil
+		}
 		return fmt.Errorf("ForwardTCP listen %s: %w", spec.ListenAddr(), err)
 	}
 	e, err := m.register(spec, ln)
@@ -112,8 +127,10 @@ func (m *PortForwardManager) startTCPForward(spec spec.PortForwardSpec, peerLabe
 		return err
 	}
 
-	m.logger.Verbosef("ForwardTCP %s (peer %s)", spec.String(), peerLabel)
-	fmt.Fprintf(os.Stderr, "lasitan-cluster: ForwardTCP %s (peer %s)\n", spec.ListenAddr()+" -> "+spec.DestAddr(), peerLabel)
+	if !spec.BestEffort {
+		m.logger.Verbosef("ForwardTCP %s (peer %s)", spec.String(), peerLabel)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: ForwardTCP %s (peer %s)\n", spec.ListenAddr()+" -> "+spec.DestAddr(), peerLabel)
+	}
 
 	m.wg.Add(1)
 	go func() {
@@ -191,6 +208,9 @@ func (m *PortForwardManager) startUDPForward(spec spec.PortForwardSpec, peerLabe
 	}
 	pc, err := net.ListenUDP("udp", listenAddr)
 	if err != nil {
+		if spec.BestEffort && addrInUse(err) {
+			return nil
+		}
 		return fmt.Errorf("ForwardUDP listen %s: %w", spec.ListenAddr(), err)
 	}
 	destAddr, err := net.ResolveUDPAddr("udp", spec.DestAddr())
@@ -203,8 +223,10 @@ func (m *PortForwardManager) startUDPForward(spec spec.PortForwardSpec, peerLabe
 		return err
 	}
 
-	m.logger.Verbosef("ForwardUDP %s (peer %s)", spec.String(), peerLabel)
-	fmt.Fprintf(os.Stderr, "lasitan-cluster: ForwardUDP %s (peer %s)\n", spec.ListenAddr()+" -> "+spec.DestAddr(), peerLabel)
+	if !spec.BestEffort {
+		m.logger.Verbosef("ForwardUDP %s (peer %s)", spec.String(), peerLabel)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: ForwardUDP %s (peer %s)\n", spec.ListenAddr()+" -> "+spec.DestAddr(), peerLabel)
+	}
 
 	ctr := forwardCounterFor(spec)
 	m.wg.Add(1)

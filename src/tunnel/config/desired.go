@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
-	"strconv"
 	"strings"
 
 	"golang.zx2c4.com/wireguard/src/core"
@@ -138,21 +137,11 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 			fwdPeer = &peers[len(peers)-1]
 		}
 		for _, fw := range d.Forwards {
-			listenHost, listenPort, err := parseListen(fw.Listen)
+			expanded, err := ExpandForward(fw)
 			if err != nil {
 				return nil, fmt.Errorf("forward listen %q: %w", fw.Listen, err)
 			}
-			fwSpec := spec.PortForwardSpec{
-				Proto:      strings.ToLower(fw.Protocol),
-				ListenHost: listenHost,
-				ListenPort: int(listenPort),
-				DestHost:   fw.DestHost,
-				DestPort:   int(fw.DestPort),
-			}
-			if fwSpec.Proto == "" {
-				fwSpec.Proto = spec.ProtoTCP
-			}
-			fwdPeer.Forwards = append(fwdPeer.Forwards, fwSpec)
+			fwdPeer.Forwards = append(fwdPeer.Forwards, expanded...)
 		}
 	}
 
@@ -190,29 +179,35 @@ func ApplyDesiredConfig(dev *device.Device, logger *device.Logger, iface string,
 	return &ConfApplyResult{NetCfg: netCfg, Peers: peers}, nil
 }
 
-func parseListen(listen string) (host string, port uint16, err error) {
-	listen = strings.TrimSpace(listen)
-	if listen == "" {
-		return "", 0, fmt.Errorf("empty")
+// ExpandForward turns one rule into one listener spec per port.
+// "1000-1002" with dest "2000" is 1000→2000, 1001→2001, 1002→2002.
+// "*" is every port 1-65535, forwarded to the same port when dest is "*".
+func ExpandForward(fw core.DesiredForward) ([]spec.PortForwardSpec, error) {
+	host, listenSpan, err := core.ParseListenExpr(fw.Listen)
+	if err != nil {
+		return nil, err
 	}
-	if strings.Contains(listen, ":") {
-		host, portStr, ok := strings.Cut(listen, ":")
-		if !ok {
-			return "", 0, fmt.Errorf("invalid listen %q", listen)
-		}
-		// handle :3389
-		if host == "" {
-			host = "0.0.0.0"
-		}
-		p, e := strconv.ParseUint(portStr, 10, 16)
-		if e != nil || p == 0 {
-			return "", 0, fmt.Errorf("invalid port in %q", listen)
-		}
-		return host, uint16(p), nil
+	destSpan, err := core.ResolveDest(listenSpan, fw.Dest, fw.DestPort)
+	if err != nil {
+		return nil, err
 	}
-	p, e := strconv.ParseUint(listen, 10, 16)
-	if e != nil || p == 0 {
-		return "", 0, fmt.Errorf("invalid port %q", listen)
+	proto := strings.ToLower(fw.Protocol)
+	if proto == "" {
+		proto = spec.ProtoTCP
 	}
-	return "0.0.0.0", uint16(p), nil
+	label := strings.TrimSpace(fw.Listen)
+	best := listenSpan.Len() > 64
+	out := make([]spec.PortForwardSpec, 0, listenSpan.Len())
+	for i := 0; i < listenSpan.Len(); i++ {
+		out = append(out, spec.PortForwardSpec{
+			Proto:      proto,
+			ListenHost: host,
+			ListenPort: int(listenSpan.Start) + i,
+			DestHost:   fw.DestHost,
+			DestPort:   int(destSpan.Start) + i,
+			StatListen: label,
+			BestEffort: best,
+		})
+	}
+	return out, nil
 }

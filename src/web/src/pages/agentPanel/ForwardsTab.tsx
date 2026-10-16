@@ -7,18 +7,56 @@ import { hostKey } from "../../utils/hostOf";
 import { isIPv4 } from "../../utils/validateCidr";
 import { shortName } from "../../utils/shortName";
 
-function validListen(s: string): string {
+type Span = { start: number; end: number };
+
+function parseSpan(s: string): Span | null {
   const v = s.trim();
-  if (!v) return "请填写监听端口";
-  let port = v;
-  if (v.includes(":")) {
-    const [host, p] = v.split(":");
-    if (!isIPv4(host)) return "监听格式为 端口 或 IPv4:端口";
-    port = p;
+  if (v === "*") return { start: 1, end: 65535 };
+  const range = /^(\d+)-(\d+)$/.exec(v);
+  if (range) {
+    const start = Number(range[1]);
+    const end = Number(range[2]);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end > 65535 || start > end) return null;
+    return { start, end };
   }
-  const n = Number(port);
-  if (!Number.isInteger(n) || n < 1 || n > 65535) return "端口范围 1-65535";
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) return null;
+  return { start: n, end: n };
+}
+
+function parseListen(s: string): { host: string; span: Span } | null {
+  const v = s.trim();
+  let host = "0.0.0.0";
+  let port = v;
+  const i = v.lastIndexOf(":");
+  if (i >= 0) {
+    host = v.slice(0, i).replace(/^\[|\]$/g, "");
+    port = v.slice(i + 1);
+    if (!isIPv4(host)) return null;
+  }
+  const span = parseSpan(port);
+  if (!span) return null;
+  return { host, span };
+}
+
+function validListen(s: string): string {
+  if (!s.trim()) return "请填写监听端口";
+  if (!parseListen(s)) return "端口、范围 1-65535，或 *";
   return "";
+}
+
+function resolveDest(listen: Span, dest: string): Span | null {
+  const v = dest.trim();
+  if (v === "*") return listen;
+  const span = parseSpan(v);
+  if (!span) return null;
+  if (span.start === span.end && listen.end > listen.start) {
+    const end = span.start + (listen.end - listen.start);
+    if (end > 65535) return null;
+    return { start: span.start, end };
+  }
+  if (span.end - span.start !== listen.end - listen.start) return null;
+  return span;
 }
 
 function protoBadge(p: string): string {
@@ -26,12 +64,24 @@ function protoBadge(p: string): string {
   return p.toUpperCase();
 }
 
-function coversListen(existing: Forward, proto: string, listen: string): boolean {
-  if (existing.listen !== listen) return false;
-  if (existing.protocol === proto) return true;
-  if (existing.protocol === "tcp/udp" && (proto === "tcp" || proto === "udp" || proto === "tcp/udp")) return true;
-  if (proto === "tcp/udp" && (existing.protocol === "tcp" || existing.protocol === "udp")) return true;
+function protoOverlap(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a === "tcp/udp" && (b === "tcp" || b === "udp" || b === "tcp/udp")) return true;
+  if (b === "tcp/udp" && (a === "tcp" || a === "udp")) return true;
   return false;
+}
+
+function coversListen(existing: Forward, proto: string, listen: string): boolean {
+  if (!protoOverlap(existing.protocol, proto)) return false;
+  const a = parseListen(existing.listen);
+  const b = parseListen(listen);
+  if (!a || !b) return existing.listen === listen;
+  if (a.span.end < b.span.start || b.span.end < a.span.start) return false;
+  return a.host === "0.0.0.0" || b.host === "0.0.0.0" || a.host === b.host;
+}
+
+function destLabel(f: Forward): string {
+  return f.dest || String(f.destPort);
 }
 
 function liveFor(f: Forward, live: LiveForward[] | undefined): LiveForward | undefined {
@@ -80,12 +130,14 @@ export function ForwardsTab({
 
   const listenErr = listen ? validListen(listen) : "";
   const listenTrim = listen.trim();
+  const parsedListen = listenTrim ? parseListen(listenTrim) : null;
+  const destTrim = destPort.trim();
+  const destSpan = parsedListen && destTrim ? resolveDest(parsedListen.span, destTrim) : null;
   const dupErr =
     !busy && listenTrim && forwards.some((f) => coversListen(f, proto, listenTrim)) ? "监听端口已被占用" : "";
-  const portNum = Number(destPort);
-  const portErr = destPort && (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) ? "目标端口范围 1-65535" : "";
+  const portErr = destTrim && parsedListen && !destSpan ? "目标端口、等长范围，或 *" : "";
   const err = listenErr || dupErr || portErr || (dest ? "" : "请选择目标节点");
-  const ready = listen && destPort && !err;
+  const ready = !!parsedListen && !!destSpan && !err;
 
   const commit = async (next: Forward[]) => {
     setBusy(true);
@@ -102,23 +154,21 @@ export function ForwardsTab({
 
   const add = async () => {
     if (!ready) return;
+    if (!parsedListen || !destSpan) return;
+    const destCanon = destTrim === "*" ? "*" : destSpan.start === destSpan.end ? String(destSpan.start) : destSpan.start === 1 && destSpan.end === 65535 ? "*" : `${destSpan.start}-${destSpan.end}`;
+    const destNum = destCanon === "*" ? 0 : destSpan.start;
+    const sameRule = (f: Forward) => f.listen === listenTrim && f.destNodeId === dest && destLabel(f) === destCanon;
     let next = [...forwards];
     // Promote a matching single-protocol sibling to tcp/udp when adding the other half or dual.
     if (proto === "tcp/udp") {
-      next = next.filter(
-        (f) => !(f.listen === listenTrim && f.destNodeId === dest && f.destPort === portNum && (f.protocol === "tcp" || f.protocol === "udp")),
-      );
+      next = next.filter((f) => !(sameRule(f) && (f.protocol === "tcp" || f.protocol === "udp")));
     } else {
       const sibling = next.find(
-        (f) =>
-          f.listen === listenTrim &&
-          f.destNodeId === dest &&
-          f.destPort === portNum &&
-          ((proto === "tcp" && f.protocol === "udp") || (proto === "udp" && f.protocol === "tcp")),
+        (f) => sameRule(f) && ((proto === "tcp" && f.protocol === "udp") || (proto === "udp" && f.protocol === "tcp")),
       );
       if (sibling) {
         next = next.filter((f) => f !== sibling);
-        next.push({ nodeId: node.id, protocol: "tcp/udp", listen: listenTrim, destNodeId: dest, destPort: portNum });
+        next.push({ nodeId: node.id, protocol: "tcp/udp", listen: listenTrim, destNodeId: dest, dest: destCanon, destPort: destNum });
         if (await commit(next)) {
           setListen("");
           setDestPort("");
@@ -126,7 +176,7 @@ export function ForwardsTab({
         return;
       }
     }
-    const f: Forward = { nodeId: node.id, protocol: proto, listen: listenTrim, destNodeId: dest, destPort: portNum };
+    const f: Forward = { nodeId: node.id, protocol: proto, listen: listenTrim, destNodeId: dest, dest: destCanon, destPort: destNum };
     if (await commit([...next, f])) {
       setListen("");
       setDestPort("");
@@ -141,7 +191,7 @@ export function ForwardsTab({
           <option value="udp">UDP</option>
           <option value="tcp/udp">TCP/UDP</option>
         </select>
-        <input placeholder="监听端口" value={listen} onChange={(e) => setListen(e.target.value)} aria-invalid={!!listenErr || !!dupErr} />
+        <input placeholder="端口、范围或 *" value={listen} onChange={(e) => setListen(e.target.value)} aria-invalid={!!listenErr || !!dupErr} />
         <span className="fwd-arrow">→</span>
         <select value={dest} onChange={(e) => setDest(e.target.value)} aria-label="目标节点">
           {targets.map((t) => (
@@ -150,7 +200,7 @@ export function ForwardsTab({
             </option>
           ))}
         </select>
-        <input placeholder="端口" value={destPort} onChange={(e) => setDestPort(e.target.value)} aria-invalid={!!portErr} />
+        <input placeholder="端口、范围或 *" value={destPort} onChange={(e) => setDestPort(e.target.value)} aria-invalid={!!portErr} />
         <button type="button" className="mini" disabled={busy || !ready} onClick={() => void add()}>
           添加
         </button>
@@ -166,12 +216,12 @@ export function ForwardsTab({
             const target = mesh?.nodes.find((n) => n.id === f.destNodeId);
             const paused = !!target?.disabled;
             return (
-              <li key={`${f.protocol} ${f.listen} ${f.destNodeId} ${f.destPort}`} className={`rule-item${paused ? " paused" : ""}`}>
+              <li key={`${f.protocol} ${f.listen} ${f.destNodeId} ${destLabel(f)}`} className={`rule-item${paused ? " paused" : ""}`}>
                 <span className={`rule-badge ${f.protocol === "tcp/udp" ? "both" : f.protocol}`}>{protoBadge(f.protocol)}</span>
                 <div className="rule-main">
                   <div>
                     <code>:{f.listen}</code> → {nodeName(f.destNodeId)}
-                    <code>:{f.destPort}</code>
+                    <code>:{destLabel(f)}</code>
                   </div>
                   <div className="tiny muted">
                     {paused ? "已暂停" : bytes ? `↓ ${formatBytes(bytes.rx)} · ↑ ${formatBytes(bytes.tx)}` : "—"}

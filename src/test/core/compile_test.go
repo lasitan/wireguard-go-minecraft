@@ -175,3 +175,15 @@ func TestCompileDesiredClientAndServer(t *testing.T) {
 		t.Fatalf("forward0: %+v", server.Forwards[0])
 	}
 }
+
+func TestCompileKeepsPortRange(t *testing.T) {
+	m := policyMesh()
+	m.Forwards = []Forward{{NodeID: tSrv, Protocol: "tcp", Listen: "*", DestNodeID: tC1, Dest: "*", DestPort: 0}}
+	srv, err := CompileDesired(&m, tSrv, DesiredDefaults{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(srv.Forwards) != 1 || srv.Forwards[0].Listen != "*" || srv.Forwards[0].Dest != "*" {
+		t.Fatalf("range stays one rule: %+v", srv.Forwards)
+	}
+}

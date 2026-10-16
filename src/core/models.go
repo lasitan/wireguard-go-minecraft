@@ -130,7 +130,10 @@ type Forward struct {
 	Protocol   string `json:"protocol"`
 	Listen     string `json:"listen"`
 	DestNodeID string `json:"destNodeId"`
-	DestPort   uint16 `json:"destPort"`
+	// Dest is "80", "1000-1002", or "*". Empty means DestPort alone.
+	// "*" forwards each listen port to the same port on the destination.
+	Dest     string `json:"dest,omitempty"`
+	DestPort uint16 `json:"destPort"`
 }
 
 // DesiredConfig is what an agent applies (fully Master-authored).
@@ -165,6 +168,8 @@ type DesiredForward struct {
 	Protocol string `json:"protocol"`
 	Listen   string `json:"listen"`
 	DestHost string `json:"destHost"`
+	// Dest is "80", "1000-1002", or "*". Empty means DestPort alone.
+	Dest     string `json:"dest,omitempty"`
 	DestPort uint16 `json:"destPort"`
 }
 

@@ -21,6 +21,10 @@ type PortForwardSpec struct {
 	ListenPort int
 	DestHost   string
 	DestPort   int
+	// StatListen is the rule label reported for stats ("*", "1000-1002", "80").
+	StatListen string
+	// BestEffort skips ports that are already in use instead of failing the rule.
+	BestEffort bool
 }
 
 func (s PortForwardSpec) ListenAddr() string {

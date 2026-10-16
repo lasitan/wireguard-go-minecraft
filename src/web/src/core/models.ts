@@ -118,6 +118,8 @@ export type Forward = {
   protocol: string;
   listen: string;
   destNodeId: string;
+  /** "80", "1000-1002", or "*". Empty falls back to destPort. */
+  dest?: string;
   destPort: number;
 };
 

@@ -183,6 +183,7 @@ func CompileDesiredWithPlan(mesh *Mesh, plan *Plan, nodeID string, defaults Desi
 				Protocol: p,
 				Listen:   fw.Listen,
 				DestHost: host,
+				Dest:     fw.Dest,
 				DestPort: fw.DestPort,
 			})
 		}

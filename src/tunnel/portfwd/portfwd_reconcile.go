@@ -106,6 +106,10 @@ func (m *PortForwardManager) Reconcile(peers []spec.PeerHookConfig) error {
 		fmt.Fprintf(os.Stderr, "lasitan-cluster: stopped forward %s\n", e.key)
 	}
 
+	if len(wanted) > 256 {
+		raiseNOFILE(len(wanted) + 512)
+		fmt.Fprintf(os.Stderr, "lasitan-cluster: starting %d port forwards\n", len(wanted))
+	}
 	var errs []error
 	for _, w := range wanted {
 		var err error

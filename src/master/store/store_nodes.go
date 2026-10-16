@@ -3,7 +3,6 @@ package store
 import (
 	"fmt"
 	"net/netip"
-	"strconv"
 	"strings"
 	"time"
 
@@ -187,22 +186,6 @@ func (s *Store) NodeForwards(id string) ([]core.Forward, error) {
 	return out, nil
 }
 
-func validListen(listen string) bool {
-	port := listen
-	if strings.Contains(listen, ":") {
-		host, p, ok := strings.Cut(listen, ":")
-		if !ok || host == "" {
-			return false
-		}
-		if _, err := netip.ParseAddr(host); err != nil {
-			return false
-		}
-		port = p
-	}
-	n, err := strconv.Atoi(port)
-	return err == nil && n > 0 && n <= 65535
-}
-
 func normalizeForwardProtocol(p string) string {
 	switch strings.ToLower(strings.TrimSpace(p)) {
 	case "tcp":
@@ -226,8 +209,8 @@ func expandForwardProtocols(p string) []string {
 // mergeForwardPairs collapses matching tcp+udp rules on the same listen/dest into tcp/udp.
 func mergeForwardPairs(fwds []core.Forward) []core.Forward {
 	type key struct {
-		listen, dest string
-		port         uint16
+		listen, dest, spec string
+		port               uint16
 	}
 	type pair struct {
 		tcp, udp *core.Forward
@@ -237,7 +220,7 @@ func mergeForwardPairs(fwds []core.Forward) []core.Forward {
 	order := []key{}
 	for i := range fwds {
 		f := fwds[i]
-		k := key{listen: f.Listen, dest: f.DestNodeID, port: f.DestPort}
+		k := key{listen: f.Listen, dest: f.DestNodeID, spec: f.Dest, port: f.DestPort}
 		p, ok := by[k]
 		if !ok {
 			p = &pair{}
@@ -289,7 +272,7 @@ func (s *Store) PutNodeForwards(id string, fwds []core.Forward) ([]core.Forward,
 	if m.FindNode(id) == nil {
 		return nil, fmt.Errorf("node %q not found", id)
 	}
-	seen := map[string]struct{}{}
+	seen := map[string]map[uint16][]string{}
 	clean := make([]core.Forward, 0, len(fwds))
 	for i, f := range fwds {
 		f.NodeID = id
@@ -298,21 +281,39 @@ func (s *Store) PutNodeForwards(id string, fwds []core.Forward) ([]core.Forward,
 		if f.Protocol == "" {
 			return nil, fmt.Errorf("forward %d: protocol must be tcp, udp, or tcp/udp", i+1)
 		}
-		if !validListen(f.Listen) {
-			return nil, fmt.Errorf("forward %d: listen must be port or ip:port", i+1)
+		host, listenSpan, err := core.ParseListenExpr(f.Listen)
+		if err != nil {
+			return nil, fmt.Errorf("forward %d: %w", i+1, err)
 		}
-		if f.DestPort == 0 {
-			return nil, fmt.Errorf("forward %d: destPort required", i+1)
+		destSpan, err := core.ResolveDest(listenSpan, f.Dest, f.DestPort)
+		if err != nil {
+			return nil, fmt.Errorf("forward %d: %w", i+1, err)
+		}
+		if strings.TrimSpace(f.Dest) == "*" {
+			f.Dest = "*"
+			f.DestPort = 0
+		} else {
+			f.Dest = destSpan.Canon()
+			f.DestPort = destSpan.Start
 		}
 		if m.FindNode(f.DestNodeID) == nil {
 			return nil, fmt.Errorf("forward %d: unknown destination node", i+1)
 		}
 		for _, p := range expandForwardProtocols(f.Protocol) {
-			key := p + " " + f.Listen
-			if _, dup := seen[key]; dup {
-				return nil, fmt.Errorf("forward %d: duplicate %s listen %s", i+1, p, f.Listen)
+			ports := seen[p]
+			if ports == nil {
+				ports = map[uint16][]string{}
+				seen[p] = ports
 			}
-			seen[key] = struct{}{}
+			for port := int(listenSpan.Start); port <= int(listenSpan.End); port++ {
+				prev := ports[uint16(port)]
+				for _, h := range prev {
+					if h == "0.0.0.0" || host == "0.0.0.0" || h == host {
+						return nil, fmt.Errorf("forward %d: duplicate %s listen %s", i+1, p, f.Listen)
+					}
+				}
+				ports[uint16(port)] = append(prev, host)
+			}
 		}
 		clean = append(clean, f)
 	}
