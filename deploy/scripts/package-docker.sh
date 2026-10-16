@@ -3,7 +3,7 @@
 # Usage (from repo root):
 #   bash deploy/scripts/package-docker.sh
 #   bash deploy/scripts/package-docker.sh --push
-#   VERSION=v1.1.5 IMAGE=ghcr.io/OWNER/REPO bash deploy/scripts/package-docker.sh --push
+#   VERSION=v1.1.5 IMAGE=ghcr.io/OWNER/lasitan-cluster bash deploy/scripts/package-docker.sh --push
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

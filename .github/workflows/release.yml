@@ -12,7 +12,7 @@ on:
       build_docker:
         description: 'Build and push multi-arch Docker image to GHCR'
         type: boolean
-        default: false
+        default: true
       docker_latest:
         description: 'Also tag/push :latest (only when build_docker)'
         type: boolean
@@ -29,10 +29,10 @@ env:
   DEBIAN_BUILD_IMAGE: ${{ vars.DEBIAN_BUILD_IMAGE }}
   # 可在仓库 Variables 设 GO_VERSION 覆盖；留空则默认 1.23.1
   GO_VERSION: ${{ vars.GO_VERSION }}
-  # Docker：手动运行勾选 build_docker，或仓库 Variables 设 ENABLE_DOCKER_RELEASE=true
-  BUILD_DOCKER: ${{ vars.ENABLE_DOCKER_RELEASE == 'true' || (github.event_name == 'workflow_dispatch' && inputs.build_docker) }}
+  # 发版默认推 GHCR。workflow_dispatch 可用 build_docker 关掉；Variables.ENABLE_DOCKER_RELEASE=false 可全局关闭。
+  BUILD_DOCKER: ${{ vars.ENABLE_DOCKER_RELEASE != 'false' && (github.event_name != 'workflow_dispatch' || inputs.build_docker) }}
   DOCKER_LATEST: ${{ github.event_name != 'workflow_dispatch' || inputs.docker_latest }}
-  # 可选 Variables.DOCKER_IMAGE 覆盖，默认 ghcr.io/<owner>/<repo>
+  # 可选 Variables.DOCKER_IMAGE 覆盖，默认 ghcr.io/<owner>/lasitan-cluster
   DOCKER_IMAGE: ${{ vars.DOCKER_IMAGE }}
   # gh 不依赖本地 .git remote（自托管 cwd / 浅克隆时很常见）
   GH_TOKEN: ${{ github.token }}
@@ -325,7 +325,7 @@ jobs:
         run: |
           set -euo pipefail
           GO_VERSION="${GO_VERSION:-1.23.1}"
-          IMAGE_RAW="${DOCKER_IMAGE:-ghcr.io/${GITHUB_REPOSITORY}}"
+          IMAGE_RAW="${DOCKER_IMAGE:-ghcr.io/${GITHUB_REPOSITORY_OWNER}/lasitan-cluster}"
           IMAGE="$(echo "${IMAGE_RAW}" | tr '[:upper:]' '[:lower:]')"
           echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           remote="${IMAGE}:${DEB_UPSTREAM}-amd64"
@@ -499,7 +499,7 @@ jobs:
         run: |
           set -euo pipefail
           GO_VERSION="${GO_VERSION:-1.23.1}"
-          IMAGE_RAW="${DOCKER_IMAGE:-ghcr.io/${GITHUB_REPOSITORY}}"
+          IMAGE_RAW="${DOCKER_IMAGE:-ghcr.io/${GITHUB_REPOSITORY_OWNER}/lasitan-cluster}"
           IMAGE="$(echo "${IMAGE_RAW}" | tr '[:upper:]' '[:lower:]')"
           echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           remote="${IMAGE}:${DEB_UPSTREAM}-arm64"
@@ -544,7 +544,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          IMAGE_RAW="${DOCKER_IMAGE:-ghcr.io/${GITHUB_REPOSITORY}}"
+          IMAGE_RAW="${DOCKER_IMAGE:-ghcr.io/${GITHUB_REPOSITORY_OWNER}/lasitan-cluster}"
           IMAGE="$(echo "${IMAGE_RAW}" | tr '[:upper:]' '[:lower:]')"
           echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           amd_remote="${IMAGE}:${DEB_UPSTREAM}-amd64"
@@ -560,6 +560,42 @@ jobs:
           fi
           echo "Published ${IMAGE}:${TAG}"
           docker buildx imagetools inspect "${IMAGE}:${DEB_UPSTREAM}" || true
+
+      - name: Delete legacy GHCR package wireguard-go-minecraft
+        if: ${{ env.BUILD_DOCKER == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER}"
+          name="wireguard-go-minecraft"
+          enc="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$name")"
+          deleted=0
+          for path in \
+            "orgs/${owner}/packages/container/${enc}" \
+            "users/${owner}/packages/container/${enc}"; do
+            code="$(curl -sS -o /tmp/pkgdel.json -w '%{http_code}' \
+              -X DELETE \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/${path}")"
+            echo "${path} -> ${code}"
+            case "$code" in
+              204) deleted=1 ;;
+              404|403) ;;
+              *)
+                echo "delete failed" >&2
+                cat /tmp/pkgdel.json >&2
+                exit 1
+                ;;
+            esac
+          done
+          if [[ "$deleted" -eq 1 ]]; then
+            echo "Deleted ghcr.io/${owner}/${name}"
+          else
+            echo "No ${name} package to delete (already gone or not visible to this token)"
+          fi
 
       - name: Publish GitHub Release (undraft)
         run: |
