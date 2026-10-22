@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"golang.zx2c4.com/wireguard/src/update"
@@ -15,7 +16,33 @@ type agentInstallCommands struct {
 	Windows   string `json:"windows"`
 }
 
+// normalizeOrigin accepts a bare "scheme://host[:port]" with scheme http or
+// https and returns it without a trailing slash; anything else is "".
+func normalizeOrigin(s string) string {
+	u, err := url.Parse(strings.TrimSpace(s))
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return ""
+	}
+	if u.Path != "" && u.Path != "/" {
+		return ""
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return ""
+	}
+	return scheme + "://" + u.Host
+}
+
+// masterPublicURL is the address agents should reach Master on. The page
+// origin the admin is browsing (sent by the web UI) wins, since proxies and
+// CDNs in front of Master may not report the browser-facing scheme.
 func masterPublicURL(r *http.Request) string {
+	if o := normalizeOrigin(r.URL.Query().Get("origin")); o != "" {
+		return o
+	}
+	if o := normalizeOrigin(r.Header.Get("Origin")); o != "" {
+		return o
+	}
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"

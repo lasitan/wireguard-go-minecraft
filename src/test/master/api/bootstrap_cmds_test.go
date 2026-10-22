@@ -4,6 +4,7 @@ import (
 	. "golang.zx2c4.com/wireguard/src/master/api"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -41,6 +42,29 @@ func TestMasterPublicURL(t *testing.T) {
 	r.Header.Set("X-Forwarded-Proto", "https")
 	r.Header.Set("X-Forwarded-Host", "mesh.example.com")
 	if u := MasterPublicURL(r); u != "https://mesh.example.com" {
+		t.Fatal(u)
+	}
+}
+
+func TestMasterPublicURLPrefersPageOrigin(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8443/api/install/agent?origin=https%3A%2F%2Fpanel.example.com", nil)
+	r.Header.Set("X-Forwarded-Proto", "http")
+	if u := MasterPublicURL(r); u != "https://panel.example.com" {
+		t.Fatal(u)
+	}
+	r = httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8443/api/install/agent?origin=http%3A%2F%2F10.0.0.5%3A8443", nil)
+	if u := MasterPublicURL(r); u != "http://10.0.0.5:8443" {
+		t.Fatal(u)
+	}
+	for _, bad := range []string{"javascript:alert(1)", "ftp://x.com", "https://x.com/path", "https://u@x.com", "x.com"} {
+		r = httptest.NewRequest(http.MethodGet, "http://localhost:8443/x?origin="+url.QueryEscape(bad), nil)
+		if u := MasterPublicURL(r); u != "http://localhost:8443" {
+			t.Fatalf("%q accepted: %s", bad, u)
+		}
+	}
+	r = httptest.NewRequest(http.MethodGet, "http://localhost:8443/x", nil)
+	r.Header.Set("Origin", "https://browser.example.com")
+	if u := MasterPublicURL(r); u != "https://browser.example.com" {
 		t.Fatal(u)
 	}
 }
