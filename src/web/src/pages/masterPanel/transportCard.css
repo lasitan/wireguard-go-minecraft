@@ -52,3 +52,43 @@
   font-size: 0.78rem;
   margin: 0 0 0.5rem;
 }
+.transport-mode {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+}
+.transport-mode-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+.transport-mode-opt.active {
+  border-color: var(--accent, #2563eb);
+  background: #eff6ff;
+}
+.transport-mode-opt input {
+  margin-top: 0.2rem;
+}
+.transport-mode-opt span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.transport-mode-opt b {
+  font-weight: 600;
+}
+.transport-mode-opt small {
+  color: var(--muted, #64748b);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+.transport-mode-opt:has(input:disabled) {
+  opacity: 0.65;
+  cursor: not-allowed;
+}

@@ -102,10 +102,7 @@ func CompileDesiredWithPlan(mesh *Mesh, plan *Plan, nodeID string, defaults Desi
 	if poll == "" {
 		poll = "10s"
 	}
-	transport := n.Transport
-	if len(transport) == 0 {
-		transport = defaults.Transport
-	}
+	transport, udpMode := ResolveBindConfig(mesh, n, defaults.Transport)
 	out := &DesiredConfig{
 		Revision:      mesh.Revision,
 		NodeID:        n.ID,
@@ -120,6 +117,7 @@ func CompileDesiredWithPlan(mesh *Mesh, plan *Plan, nodeID string, defaults Desi
 		},
 		IPForward: n.Role == RoleServer || n.IsMagnetParent() || len(n.Routes) > 0,
 		Transport: transport,
+		UdpMode:   udpMode,
 		Peers:     []DesiredPeer{},
 		Forwards:  []DesiredForward{},
 	}

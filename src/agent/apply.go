@@ -30,6 +30,7 @@ type applier struct {
 	// newestRev is the highest revision offered since the last resetSession;
 	// anything older is stale and must never roll the node back.
 	newestRev  int
+	udpMode    bool // currently applied bind mode (false = TCP camouflage)
 	pollEvery  time.Duration
 	masterHost string // where "@master:PORT" relay endpoints point
 }
@@ -114,7 +115,23 @@ func (a *applier) apply(desired *core.DesiredConfig) error {
 		return nil
 	}
 	desired = a.resolveRelay(desired)
-	if len(desired.Transport) > 0 {
+	if desired.UdpMode != a.udpMode {
+		var b conn.Bind
+		if desired.UdpMode {
+			b = conn.NewUDPBind()
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: switching transport to native WireGuard UDP\n")
+		} else {
+			b = conn.NewTCPBind()
+			fmt.Fprintf(os.Stderr, "lasitan-cluster: switching transport to TCP camouflage\n")
+		}
+		if err := a.dev.BindReplace(b); err != nil {
+			return fmt.Errorf("switch bind udp=%v: %w", desired.UdpMode, err)
+		}
+		a.udpMode = desired.UdpMode
+	}
+	if desired.UdpMode {
+		conn.SetTransportConfigJSON(nil)
+	} else if len(desired.Transport) > 0 {
 		conn.SetTransportConfigJSON(desired.Transport)
 	}
 	desired = a.withLocalIface(desired)

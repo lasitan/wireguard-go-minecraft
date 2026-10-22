@@ -63,6 +63,7 @@ func setParents(m *core.Mesh, childID string, parentIDs []string) error {
 	if len(ids) > 0 && child.IsMagnetParent() {
 		return fmt.Errorf("a node with a listen port cannot attach to another node")
 	}
+	var udp *bool
 	for _, pid := range ids {
 		parent := m.FindNode(pid)
 		if parent == nil || parent.ID == childID {
@@ -70,6 +71,12 @@ func setParents(m *core.Mesh, childID string, parentIDs []string) error {
 		}
 		if !parent.IsMagnetParent() {
 			return fmt.Errorf("parent %q has no listen port", pid)
+		}
+		if udp == nil {
+			v := parent.UdpMode
+			udp = &v
+		} else if *udp != parent.UdpMode {
+			return fmt.Errorf("不能同时吸附 UDP 与 TCP 伪装母卡")
 		}
 	}
 	m.Links = dropLinks(m.Links, func(l core.Link) bool { return l.FromNodeID == childID })

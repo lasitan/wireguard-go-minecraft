@@ -9,6 +9,10 @@ export type Node = {
   lastSeen?: string;
   disabled?: boolean;
   routes?: string[];
+  /** Mother-owned TCP camouflage; children inherit. */
+  transport?: unknown;
+  /** Native WireGuard UDP instead of TCP camouflage (mother cards). */
+  udpMode?: boolean;
   /** Later address change loses an IP conflict. */
   addressChangedAt?: string;
   publicV4?: string;
@@ -34,6 +38,10 @@ export type NodePatch = {
   parentIds?: string[];
   /** Join that card's cluster and adopt its config; "" leaves the cluster. */
   clusterWith?: string;
+  /** Native WireGuard UDP on a mother card. */
+  udpMode?: boolean;
+  /** Mother-owned TCP camouflage JSON object/string. */
+  transport?: unknown;
 };
 
 /** Mother card id → attached child ids (in attach order), and the reverse. */

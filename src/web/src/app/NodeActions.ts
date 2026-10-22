@@ -24,6 +24,8 @@ function demoApplyPatch(id: string, patch: NodePatch) {
     }
     if (patch.enabled !== undefined) next.disabled = !patch.enabled;
     if (patch.routes !== undefined) next.routes = [...new Set(patch.routes.map((r) => r.trim()).filter(Boolean))];
+    if (patch.udpMode !== undefined) next.udpMode = patch.udpMode;
+    if (patch.transport !== undefined) next.transport = patch.transport;
     return next;
   });
   const magnet = applyMagnetPatch({ ...mesh, nodes }, id, patch);

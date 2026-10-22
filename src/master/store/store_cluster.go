@@ -23,10 +23,10 @@ const (
 )
 
 type clusterSync struct {
-	port, routes, parents, forwards bool
+	port, routes, parents, forwards, transport bool
 }
 
-var syncAll = clusterSync{port: true, routes: true, parents: true, forwards: true}
+var syncAll = clusterSync{port: true, routes: true, parents: true, forwards: true, transport: true}
 
 func newClusterID() string {
 	var b [6]byte
@@ -84,6 +84,14 @@ func copyClusterConfig(m *core.Mesh, srcID, dstID string, what clusterSync) erro
 	}
 	if what.port && dst.ListenPort != src.ListenPort {
 		setListenPort(m, dst, src.ListenPort)
+	}
+	if what.transport {
+		dst.UdpMode = src.UdpMode
+		if len(src.Transport) > 0 {
+			dst.Transport = append(json.RawMessage(nil), src.Transport...)
+		} else {
+			dst.Transport = nil
+		}
 	}
 	if what.routes {
 		routes, err := clusterRoutes(src, dst)

@@ -6,6 +6,7 @@
 package device
 
 import (
+	"errors"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -532,6 +533,19 @@ func (device *Device) Bind() conn.Bind {
 	device.net.Lock()
 	defer device.net.Unlock()
 	return device.net.bind
+}
+
+// BindReplace swaps the network bind (e.g. TCP camouflage ↔ native UDP) and
+// reopens it when the device is up so the new listen/dial path takes effect.
+func (device *Device) BindReplace(b conn.Bind) error {
+	if b == nil {
+		return errors.New("nil bind")
+	}
+	device.net.Lock()
+	_ = closeBindLocked(device)
+	device.net.bind = b
+	device.net.Unlock()
+	return device.BindUpdate()
 }
 
 func (device *Device) BindSetMark(mark uint32) error {

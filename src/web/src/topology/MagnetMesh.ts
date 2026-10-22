@@ -42,7 +42,14 @@ export function applyMagnetPatch(mesh: Mesh, id: string, patch: NodePatch): Mesh
       const peer = nodes[peerIdx];
       const cluster = peer.cluster || `c-local-${peer.id.slice(0, 8)}`;
       nodes[peerIdx] = { ...peer, cluster };
-      nodes[idx] = { ...nodes[idx], cluster, listenPort: peer.listenPort, role: peer.role };
+      nodes[idx] = {
+        ...nodes[idx],
+        cluster,
+        listenPort: peer.listenPort,
+        role: peer.role,
+        udpMode: peer.udpMode,
+        transport: peer.transport,
+      };
       setParents(
         id,
         links.filter((l) => l.fromNodeId === peer.id).map((l) => l.toNodeId),

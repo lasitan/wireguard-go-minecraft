@@ -120,7 +120,11 @@ func PlanKey(mesh *Mesh) string {
 	for i := range mesh.Nodes {
 		n := &mesh.Nodes[i]
 		w(n.ID, n.PublicKey, n.Address, strconv.Itoa(int(n.ListenPort)), n.Endpoint, n.PublicV4,
-			strconv.FormatBool(n.Disabled), n.AddressChangedAt.UTC().Format(time.RFC3339Nano), n.Cluster)
+			strconv.FormatBool(n.Disabled), strconv.FormatBool(n.UdpMode),
+			n.AddressChangedAt.UTC().Format(time.RFC3339Nano), n.Cluster)
+		if len(n.Transport) > 0 {
+			w(string(n.Transport))
+		}
 		w(n.Routes...)
 		h.Write([]byte{1})
 	}
@@ -250,8 +254,9 @@ func PlanMesh(mesh *Mesh) *Plan {
 					}
 				}
 			}
-			// Last resort for cross-subnet only: Master's relay.
-			if relayOn && pfx != pn.subnet {
+			// Last resort for cross-subnet only: Master's relay (TCP-only).
+			_, udp := ResolveBindConfig(mesh, pn.n, nil)
+			if relayOn && pfx != pn.subnet && !udp {
 				cands = append(cands, RelayNodeID)
 			}
 			if len(cands) == 0 {
@@ -274,6 +279,10 @@ func PlanMesh(mesh *Mesh) *Plan {
 			return false
 		}
 		if !pa.exposed && !pb.exposed {
+			return false
+		}
+		// TCP camouflage and native UDP cannot handshake with each other.
+		if pa.n.UdpMode != pb.n.UdpMode {
 			return false
 		}
 		if pa.subnet == pb.subnet {

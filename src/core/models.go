@@ -72,8 +72,12 @@ type Node struct {
 	Token        string          `json:"token"`
 	Interface    string          `json:"interface,omitempty"`    // TUN name, default lc0 (Master-managed)
 	PollInterval string          `json:"pollInterval,omitempty"` // default 10s (Master-managed)
-	Transport    json.RawMessage `json:"transport,omitempty"`    // per-node override; else mesh default
-	LastSeen     time.Time       `json:"lastSeen,omitempty"`
+	Transport    json.RawMessage `json:"transport,omitempty"`    // mother-owned TCP camouflage; children inherit
+	// UdpMode selects native WireGuard UDP (no camouflage, max performance).
+	// Exclusive with Transport camouflage: DesiredConfig omits Transport while
+	// true. Only meaningful on magnet parents; children inherit it.
+	UdpMode  bool      `json:"udpMode,omitempty"`
+	LastSeen time.Time `json:"lastSeen,omitempty"`
 
 	// Disabled nodes are removed from every peer list (tunnel down) but keep
 	// their Master connection so they can be re-enabled.
@@ -148,6 +152,8 @@ type DesiredConfig struct {
 	Forwards      []DesiredForward `json:"forwards"`
 	IPForward     bool             `json:"ipForward"`
 	Transport     json.RawMessage  `json:"transport,omitempty"`
+	// UdpMode: native WireGuard UDP only — no camouflage applied.
+	UdpMode bool `json:"udpMode,omitempty"`
 }
 
 type DesiredIface struct {

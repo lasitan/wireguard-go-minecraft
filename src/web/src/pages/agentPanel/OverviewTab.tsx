@@ -17,6 +17,8 @@ import { UpgradeStatusText } from "../upgrade/UpgradeStatusText";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { InlineField } from "./InlineField";
 import { Toggle } from "./Toggle";
+import { MotherTransportSection } from "./MotherTransportSection";
+import { isMother } from "../../topology/MagnetStacks";
 
 export function OverviewTab({
   node,
@@ -87,6 +89,7 @@ export function OverviewTab({
         validate={validateEndpoint}
         onSave={(draft) => run(() => patchNode(node.id, { endpoint: draft }))}
       />
+      {isMother(node) ? <MotherTransportSection node={node} busy={busy} run={run} /> : null}
 
       <div className="speed-grid">
         <div className="speed-card up">

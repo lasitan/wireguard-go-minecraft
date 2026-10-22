@@ -171,6 +171,7 @@ func (s *Store) addMissingNodeColumns() error {
 		{"geo_country_code", "TEXT NOT NULL DEFAULT ''"},
 		{"geo_updated_at", "TEXT NOT NULL DEFAULT ''"},
 		{"cluster_id", "TEXT NOT NULL DEFAULT ''"},
+		{"udp_mode", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, c := range cols {
 		if have[c.name] {
@@ -345,17 +346,17 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 	fmt.Sscanf(revStr, "%d", &m.Revision)
 
 	rows, err := s.db.Query(`SELECT id, name, role, public_key, private_key, address, listen_port, endpoint, mtu, token, iface_name, poll_interval, transport_json, last_seen,
-		enabled, routes_json, address_changed_at, public_v4, public_v6, geo_country, geo_country_code, geo_updated_at, cluster_id FROM nodes ORDER BY rowid`)
+		enabled, routes_json, address_changed_at, public_v4, public_v6, geo_country, geo_country_code, geo_updated_at, cluster_id, udp_mode FROM nodes ORDER BY rowid`)
 	if err != nil {
 		return m, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var n core.Node
-		var listenPort, mtu, enabled int
+		var listenPort, mtu, enabled, udpMode int
 		var transport, lastSeen, routes, addrChanged, geoUpdated string
 		if err := rows.Scan(&n.ID, &n.Name, &n.Role, &n.PublicKey, &n.PrivateKey, &n.Address, &listenPort, &n.Endpoint, &mtu, &n.Token, &n.Interface, &n.PollInterval, &transport, &lastSeen,
-			&enabled, &routes, &addrChanged, &n.PublicV4, &n.PublicV6, &n.GeoCountry, &n.GeoCountryCode, &geoUpdated, &n.Cluster); err != nil {
+			&enabled, &routes, &addrChanged, &n.PublicV4, &n.PublicV6, &n.GeoCountry, &n.GeoCountryCode, &geoUpdated, &n.Cluster, &udpMode); err != nil {
 			return m, err
 		}
 		n.ListenPort = uint16(listenPort)
@@ -365,6 +366,7 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 		}
 		n.LastSeen = parseTime(lastSeen)
 		n.Disabled = enabled == 0
+		n.UdpMode = udpMode != 0
 		_ = json.Unmarshal([]byte(routes), &n.Routes)
 		n.AddressChangedAt = parseTime(addrChanged)
 		n.GeoUpdatedAt = parseTime(geoUpdated)
@@ -400,7 +402,11 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 		f.DestPort = uint16(port)
 		m.Forwards = append(m.Forwards, f)
 	}
-	if core.EnsureDefaultRoutes(&m) {
+	seeded := core.EnsureDefaultRoutes(&m)
+	if settings, err := s.settingsLocked(); err == nil {
+		seeded = ensureMotherTransport(&m, settings.TransportJSON) || seeded
+	}
+	if seeded {
 		m.Revision++
 		if err := s.replaceMeshLocked(m); err != nil {
 			return m, err
@@ -410,6 +416,24 @@ func (s *Store) loadMeshLocked() (core.Mesh, error) {
 	m.Relay = s.meshRelayLocked()
 	m.Standby = s.standbyLocked()
 	return m, nil
+}
+
+// ensureMotherTransport copies the mesh-wide default camouflage onto mothers
+// that still have none (upgrade path after transport moved off Master UI).
+func ensureMotherTransport(m *core.Mesh, defaults json.RawMessage) bool {
+	if len(defaults) == 0 {
+		return false
+	}
+	changed := false
+	for i := range m.Nodes {
+		n := &m.Nodes[i]
+		if !n.IsMagnetParent() || len(n.Transport) > 0 || n.UdpMode {
+			continue
+		}
+		n.Transport = append(json.RawMessage(nil), defaults...)
+		changed = true
+	}
+	return changed
 }
 
 func (s *Store) PutMesh(m core.Mesh) error {
@@ -466,11 +490,15 @@ func (s *Store) replaceMeshLocked(m core.Mesh) error {
 		if n.Disabled {
 			enabled = 0
 		}
+		udpMode := 0
+		if n.UdpMode {
+			udpMode = 1
+		}
 		if _, err := tx.Exec(`INSERT INTO nodes(id, name, role, public_key, private_key, address, listen_port, endpoint, mtu, token, iface_name, poll_interval, transport_json, last_seen,
-			enabled, routes_json, address_changed_at, public_v4, public_v6, geo_country, geo_country_code, geo_updated_at, cluster_id)
-			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			enabled, routes_json, address_changed_at, public_v4, public_v6, geo_country, geo_country_code, geo_updated_at, cluster_id, udp_mode)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			n.ID, n.Name, n.Role, n.PublicKey, n.PrivateKey, n.Address, int(n.ListenPort), n.Endpoint, n.MTU, n.Token, n.Interface, n.PollInterval, tr, formatTime(n.LastSeen),
-			enabled, string(routes), formatTime(n.AddressChangedAt), n.PublicV4, n.PublicV6, n.GeoCountry, n.GeoCountryCode, formatTime(n.GeoUpdatedAt), n.Cluster); err != nil {
+			enabled, string(routes), formatTime(n.AddressChangedAt), n.PublicV4, n.PublicV6, n.GeoCountry, n.GeoCountryCode, formatTime(n.GeoUpdatedAt), n.Cluster, udpMode); err != nil {
 			return err
 		}
 	}
@@ -553,6 +581,9 @@ func (s *Store) Enroll(name, role, endpoint string, listenPort uint16) (core.Nod
 	}
 	if role == core.RoleServer && n.ListenPort == 0 {
 		n.ListenPort = DefaultServerListenPort
+	}
+	if n.ListenPort > 0 && len(settings.TransportJSON) > 0 {
+		n.Transport = append(json.RawMessage(nil), settings.TransportJSON...)
 	}
 	m.Nodes = append(m.Nodes, n)
 	// Auto-attach: a new card joins the first mother; a new mother adopts

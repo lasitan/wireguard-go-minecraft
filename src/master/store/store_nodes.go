@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -31,6 +32,10 @@ type NodePatch struct {
 	ParentIDs *[]string `json:"parentIds,omitempty"`
 	// ClusterWith joins the cluster of that node and adopts its config; "" leaves.
 	ClusterWith *string `json:"clusterWith,omitempty"`
+	// UdpMode toggles native WireGuard UDP on a mother card.
+	UdpMode *bool `json:"udpMode,omitempty"`
+	// Transport is mother-owned TCP camouflage JSON (ignored while UdpMode).
+	Transport *json.RawMessage `json:"transport,omitempty"`
 }
 
 func normalizeAddress(s string) (string, error) {
@@ -131,7 +136,36 @@ func (s *Store) PatchNode(id string, p NodePatch) (core.Node, error) {
 		n.Endpoint = ep
 	}
 	if p.ListenPort != nil {
+		wasMother := n.IsMagnetParent()
 		setListenPort(&m, n, *p.ListenPort)
+		if n.IsMagnetParent() && !wasMother && len(n.Transport) == 0 {
+			if settings, err := s.settingsLocked(); err == nil && len(settings.TransportJSON) > 0 {
+				n.Transport = append(json.RawMessage(nil), settings.TransportJSON...)
+			}
+		}
+		if !n.IsMagnetParent() {
+			n.UdpMode = false
+		}
+	}
+	if p.UdpMode != nil {
+		if !n.IsMagnetParent() {
+			return core.Node{}, fmt.Errorf("udpMode is only set on mother cards")
+		}
+		n.UdpMode = *p.UdpMode
+	}
+	if p.Transport != nil {
+		if !n.IsMagnetParent() {
+			return core.Node{}, fmt.Errorf("transport is only set on mother cards")
+		}
+		raw, err := normalizeTransportJSON(*p.Transport)
+		if err != nil {
+			return core.Node{}, err
+		}
+		n.Transport = json.RawMessage(raw)
+		// Camouflage and native UDP are exclusive: saving transport selects TCP.
+		if p.UdpMode == nil {
+			n.UdpMode = false
+		}
 	}
 	if p.ParentID != nil {
 		if err := attachTo(&m, id, strings.TrimSpace(*p.ParentID)); err != nil {
@@ -144,9 +178,10 @@ func (s *Store) PatchNode(id string, p NodePatch) (core.Node, error) {
 		}
 	}
 	what := clusterSync{
-		port:    p.ListenPort != nil,
-		routes:  p.Routes != nil,
-		parents: p.ParentID != nil || p.ParentIDs != nil,
+		port:      p.ListenPort != nil,
+		routes:    p.Routes != nil,
+		parents:   p.ParentID != nil || p.ParentIDs != nil,
+		transport: p.Transport != nil || p.UdpMode != nil,
 	}
 	if what != (clusterSync{}) {
 		if err := syncCluster(&m, id, what); err != nil {
